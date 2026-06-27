@@ -1,0 +1,20 @@
+[tool.black]
+line-length = 119
+target-version = ["py312"]
+exclude = '''
+/(
+    \.git
+  | \.tox
+  | venv
+  | migrations
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 119
+known_django = "django"
+known_drf = "rest_framework"
+known_first_party = "apps,config"
+sections = ["FUTURE","STDLIB","DJANGO","DRF","THIRDPARTY","FIRST_PARTY","LOCALFOLDER"]
+skip = ["migrations", "venv"]

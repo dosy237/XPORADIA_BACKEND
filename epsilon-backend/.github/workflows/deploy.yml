@@ -1,0 +1,61 @@
+# ============================================================
+# Xporadia Backend — Pipeline CD
+# develop → staging auto
+# main → production auto (après MVP validé)
+# ============================================================
+name: CD — Backend Deploy
+
+on:
+  push:
+    branches: [develop, main]
+
+jobs:
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /var/www/xporadia-backend
+            git pull origin develop
+            source venv/bin/activate
+            pip install -r requirements/prod.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            sudo systemctl restart xporadia-api
+            sudo systemctl restart xporadia-celery
+            echo "✅ Staging déployé"
+
+  deploy-production:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to production (Blue-Green)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /var/www/xporadia-backend
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements/prod.txt
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput
+            sudo systemctl restart xporadia-api
+            sudo systemctl restart xporadia-celery
+            echo "✅ Production déployée"
