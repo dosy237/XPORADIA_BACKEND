@@ -99,3 +99,134 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def has_role(self, role: str) -> bool:
         return role in self.get_all_roles()
+
+
+class TeacherProfile(models.Model):
+    """PROFIL_ENSEIGNANT — étend User quand primary_role = teacher."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="teacher_profile"
+    )
+    subjects = models.JSONField(default=list, blank=True, verbose_name="Matières enseignées")
+    experience_years = models.PositiveSmallIntegerField(default=0, verbose_name="Années d'expérience")
+    hourly_rate = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Tarif horaire (FCFA)"
+    )
+    location = models.CharField(max_length=255, blank=True, verbose_name="Localisation")
+    bio = models.TextField(blank=True, verbose_name="Bio professionnelle")
+    identity_document = models.FileField(
+        upload_to="identity_docs/", null=True, blank=True, verbose_name="Carte d'identité"
+    )
+    available_for_tutoring = models.BooleanField(default=False, verbose_name="Disponible cours particuliers")
+    available_for_employment = models.BooleanField(default=True, verbose_name="Disponible marché de l'emploi")
+
+    class Meta:
+        verbose_name = "Profil enseignant"
+        verbose_name_plural = "Profils enseignants"
+
+    def __str__(self):
+        return f"Profil enseignant — {self.user.get_full_name()}"
+
+
+class TeacherDiploma(models.Model):
+    """Diplôme uploadé par l'enseignant à l'inscription."""
+
+    teacher = models.ForeignKey(
+        TeacherProfile, on_delete=models.CASCADE, related_name="diplomas"
+    )
+    title = models.CharField(max_length=255, verbose_name="Intitulé du diplôme")
+    file = models.FileField(upload_to="diplomas/", verbose_name="Fichier (PDF/image)")
+    obtained_year = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Diplôme"
+        verbose_name_plural = "Diplômes"
+
+    def __str__(self):
+        return f"{self.title} — {self.teacher.user.get_full_name()}"
+
+
+class DirectorProfile(models.Model):
+    """PROFIL_DIRECTEUR — étend User quand primary_role = director."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="director_profile"
+    )
+    school_name = models.CharField(max_length=255, verbose_name="Nom de l'école")
+    address = models.CharField(max_length=255, verbose_name="Adresse")
+    levels_taught = models.JSONField(default=list, blank=True, verbose_name="Niveaux enseignés")
+    legal_documents = models.FileField(
+        upload_to="school_docs/", null=True, blank=True, verbose_name="Documents légaux"
+    )
+    student_count = models.PositiveIntegerField(null=True, blank=True, verbose_name="Effectif")
+    is_partner = models.BooleanField(default=False, verbose_name="École Partenaire Epsilon")
+
+    class Meta:
+        verbose_name = "Profil directeur"
+        verbose_name_plural = "Profils directeurs"
+
+    def __str__(self):
+        return f"{self.school_name} — {self.user.get_full_name()}"
+
+
+class ParentProfile(models.Model):
+    """PROFIL_PARENT — étend User quand primary_role = parent."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="parent_profile"
+    )
+    location = models.CharField(max_length=255, blank=True, verbose_name="Localisation")
+    subscription_active = models.BooleanField(default=False, verbose_name="Abonnement actif")
+
+    class Meta:
+        verbose_name = "Profil parent"
+        verbose_name_plural = "Profils parents"
+
+    def __str__(self):
+        return f"Profil parent — {self.user.get_full_name()}"
+
+
+class Child(models.Model):
+    """ENFANT — rattaché à un ParentProfile (1 parent possède 0..N enfants)."""
+
+    parent = models.ForeignKey(
+        ParentProfile, on_delete=models.CASCADE, related_name="children"
+    )
+    first_name = models.CharField(max_length=100, verbose_name="Prénom")
+    class_level = models.CharField(max_length=50, verbose_name="Classe")
+    target_subjects = models.JSONField(default=list, blank=True, verbose_name="Matières cibles")
+
+    class Meta:
+        verbose_name = "Enfant"
+        verbose_name_plural = "Enfants"
+
+    def __str__(self):
+        return f"{self.first_name} ({self.class_level})"
+
+
+class OTPPurpose(models.TextChoices):
+    ACCOUNT_VERIFICATION = "account_verification", "Vérification de compte"
+    PASSWORD_RESET = "password_reset", "Réinitialisation mot de passe"
+
+
+class OTPCode(models.Model):
+    """Code de vérification à usage unique (email — simulateur SMS en dev)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="otp_codes")
+    code = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=30, choices=OTPPurpose.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Code OTP"
+        verbose_name_plural = "Codes OTP"
+        ordering = ["-created_at"]
+
+    def is_valid(self) -> bool:
+        from django.utils import timezone
+        return not self.used and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"OTP {self.code} — {self.user.email} ({self.purpose})"

@@ -1,5 +1,14 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
-router = DefaultRouter()
-urlpatterns = router.urls
+from . import views
+
+urlpatterns = [
+    path("register/teacher/", views.RegisterTeacherView.as_view(), name="register-teacher"),
+    path("register/director/", views.RegisterDirectorView.as_view(), name="register-director"),
+    path("register/parent/", views.RegisterParentView.as_view(), name="register-parent"),
+    path("token/", views.CustomTokenObtainPairView.as_view(), name="token-obtain-pair"),
+    path("token/refresh/", views.CustomTokenRefreshView.as_view(), name="token-refresh"),
+    path("otp/verify/", views.VerifyOTPView.as_view(), name="otp-verify"),
+    path("otp/resend/", views.ResendOTPView.as_view(), name="otp-resend"),
+    path("me/", views.MeView.as_view(), name="me"),
+]
