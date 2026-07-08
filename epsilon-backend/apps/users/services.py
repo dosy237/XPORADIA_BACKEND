@@ -7,8 +7,10 @@ import logging
 import random
 from datetime import timedelta
 
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import strip_tags
 
 from .models import OTPCode, OTPPurpose
 
@@ -30,13 +32,22 @@ def generate_otp(user, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> OTPCod
 
 
 def _deliver_otp(user, code: str) -> None:
-    send_mail(
-        subject="Xporadia — Votre code de vérification",
-        message=f"Votre code de vérification Xporadia est : {code} (valable {OTP_VALIDITY_MINUTES} min).",
-        from_email=None,
-        recipient_list=[user.email],
-        fail_silently=True,
+    html_body = render_to_string(
+        "emails/otp_verification.html",
+        {
+            "first_name": user.first_name,
+            "code": code,
+            "validity_minutes": OTP_VALIDITY_MINUTES,
+        },
     )
+    message = EmailMultiAlternatives(
+        subject="Xporadia — Votre code de vérification",
+        body=strip_tags(html_body),
+        from_email=None,
+        to=[user.email],
+    )
+    message.attach_alternative(html_body, "text/html")
+    message.send(fail_silently=True)
     logger.info("SMS simulé vers %s : code de vérification Xporadia %s", user.phone or "(pas de téléphone)", code)
 
 
