@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -26,7 +27,10 @@ class BaseRegisterView(APIView):
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.create()
+        # User + profil créés atomiquement : un échec sur le profil (ex. erreur
+        # DB) ne doit jamais laisser un compte orphelin sans profil associé.
+        with transaction.atomic():
+            user = serializer.create()
         generate_otp(user, purpose=OTPPurpose.ACCOUNT_VERIFICATION)
         return Response(
             {
