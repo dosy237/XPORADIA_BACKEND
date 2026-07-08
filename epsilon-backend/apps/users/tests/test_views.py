@@ -175,3 +175,50 @@ def test_otp_verify_activates_account(api_client):
     assert good.status_code == 200
     user.refresh_from_db()
     assert user.is_verified
+
+
+def test_teacher_profile_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/teacher-profile/")
+    assert response.status_code == 401
+
+
+def test_teacher_profile_get_and_update(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {
+            "email": "profile@example.ci", "password": "testpass123",
+            "first_name": "P", "last_name": "R", "subjects": ["Maths"], "experience_years": 2,
+        },
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "profile@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    get_response = api_client.get("/api/v1/auth/teacher-profile/")
+    assert get_response.status_code == 200
+    assert get_response.data["subjects"] == ["Maths"]
+
+    patch_response = api_client.patch(
+        "/api/v1/auth/teacher-profile/",
+        {"bio": "Prof de maths passionné.", "hourly_rate": "5000", "available_for_tutoring": True},
+        format="json",
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.data["bio"] == "Prof de maths passionné."
+    assert patch_response.data["available_for_tutoring"] is True
+
+
+def test_teacher_profile_forbidden_for_other_roles(api_client):
+    api_client.post(
+        "/api/v1/auth/register/parent/",
+        {"email": "notteacher@example.ci", "password": "testpass123", "first_name": "N", "last_name": "T"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "notteacher@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.get("/api/v1/auth/teacher-profile/")
+    assert response.status_code == 403

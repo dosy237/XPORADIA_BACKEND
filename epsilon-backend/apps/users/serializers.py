@@ -126,6 +126,15 @@ class RegisterParentSerializer(BaseRegisterSerializer):
         return user
 
 
+class TeacherProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TeacherProfile
+        fields = [
+            "subjects", "experience_years", "hourly_rate", "location", "bio",
+            "available_for_tutoring", "available_for_employment",
+        ]
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     username_field = User.USERNAME_FIELD
 

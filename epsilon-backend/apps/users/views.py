@@ -5,13 +5,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import OTPPurpose
+from .models import OTPPurpose, TeacherProfile, UserRole
 from .serializers import (
     CustomTokenObtainPairSerializer,
     RegisterCompanySerializer,
     RegisterDirectorSerializer,
     RegisterParentSerializer,
     RegisterTeacherSerializer,
+    TeacherProfileSerializer,
     UpdateMeSerializer,
     UserSerializer,
     VerifyOTPSerializer,
@@ -100,3 +101,14 @@ class MeView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("PATCH", "PUT"):
             return UpdateMeSerializer
         return UserSerializer
+
+
+class TeacherProfileView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TeacherProfileSerializer
+
+    def get_object(self):
+        if not self.request.user.has_role(UserRole.TEACHER):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Réservé aux enseignants.")
+        return TeacherProfile.objects.get(user=self.request.user)
