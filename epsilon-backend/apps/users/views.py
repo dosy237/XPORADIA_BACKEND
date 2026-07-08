@@ -7,6 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .models import OTPPurpose
 from .serializers import (
     CustomTokenObtainPairSerializer,
+    RegisterCompanySerializer,
     RegisterDirectorSerializer,
     RegisterParentSerializer,
     RegisterTeacherSerializer,
@@ -46,6 +47,10 @@ class RegisterDirectorView(BaseRegisterView):
 
 class RegisterParentView(BaseRegisterView):
     serializer_class = RegisterParentSerializer
+
+
+class RegisterCompanyView(BaseRegisterView):
+    serializer_class = RegisterCompanySerializer
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Child, DirectorProfile, ParentProfile, TeacherProfile, User, UserRole
+from .models import Child, CompanyProfile, DirectorProfile, ParentProfile, TeacherProfile, User, UserRole
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -74,6 +74,24 @@ class RegisterDirectorSerializer(BaseRegisterSerializer):
             address=self.validated_data["address"],
             levels_taught=self.validated_data.get("levels_taught", []),
             student_count=self.validated_data.get("student_count"),
+            legal_documents=self.validated_data.get("legal_documents"),
+        )
+        return user
+
+
+class RegisterCompanySerializer(BaseRegisterSerializer):
+    company_name = serializers.CharField()
+    sector = serializers.CharField(required=False, allow_blank=True, default="")
+    address = serializers.CharField()
+    legal_documents = serializers.FileField(required=False, allow_null=True)
+
+    def create(self):
+        user = self.create_user(UserRole.COMPANY)
+        CompanyProfile.objects.create(
+            user=user,
+            company_name=self.validated_data["company_name"],
+            sector=self.validated_data.get("sector", ""),
+            address=self.validated_data["address"],
             legal_documents=self.validated_data.get("legal_documents"),
         )
         return user

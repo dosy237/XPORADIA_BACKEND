@@ -169,6 +169,33 @@ class DirectorProfile(models.Model):
         return f"{self.school_name} — {self.user.get_full_name()}"
 
 
+class CompanyProfile(models.Model):
+    """PROFIL_ENTREPRISE — étend User quand primary_role = company.
+
+    Ajouté à l'EP-01 : l'épique mentionnait déjà l'entreprise parmi les rôles
+    différenciés, mais aucune US ni entité MCD ne la détaillait. Modèle
+    validé avec le Product Owner, même structure que PROFIL_DIRECTEUR.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="company_profile"
+    )
+    company_name = models.CharField(max_length=255, verbose_name="Raison sociale")
+    sector = models.CharField(max_length=255, blank=True, verbose_name="Secteur d'activité")
+    address = models.CharField(max_length=255, verbose_name="Adresse")
+    legal_documents = models.FileField(
+        upload_to="company_docs/", null=True, blank=True, verbose_name="Documents légaux"
+    )
+    is_partner = models.BooleanField(default=False, verbose_name="Entreprise partenaire premium")
+
+    class Meta:
+        verbose_name = "Profil entreprise"
+        verbose_name_plural = "Profils entreprises"
+
+    def __str__(self):
+        return f"{self.company_name} — {self.user.get_full_name()}"
+
+
 class ParentProfile(models.Model):
     """PROFIL_PARENT — étend User quand primary_role = parent."""
 

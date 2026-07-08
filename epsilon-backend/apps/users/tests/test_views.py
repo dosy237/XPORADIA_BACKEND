@@ -58,6 +58,23 @@ def test_register_director_creates_school_profile(api_client):
     assert user.director_profile.school_name == "Lycee Prive Cocody"
 
 
+def test_register_company_creates_company_profile(api_client):
+    response = api_client.post(
+        "/api/v1/auth/register/company/",
+        {
+            "email": "acme@example.ci", "password": "testpass123",
+            "first_name": "Awa", "last_name": "Traore",
+            "company_name": "ACME Abidjan", "sector": "BTP",
+            "address": "Plateau, Abidjan",
+        },
+        format="json",
+    )
+    assert response.status_code == 201
+    user = User.objects.get(email="acme@example.ci")
+    assert user.primary_role == UserRole.COMPANY
+    assert user.company_profile.company_name == "ACME Abidjan"
+
+
 def test_register_parent_with_children(api_client):
     response = api_client.post(
         "/api/v1/auth/register/parent/",

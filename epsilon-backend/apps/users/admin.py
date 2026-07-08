@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Child,
+    CompanyProfile,
     DirectorProfile,
     OTPCode,
     ParentProfile,
@@ -32,6 +33,11 @@ class TeacherProfileAdmin(admin.ModelAdmin):
 @admin.register(DirectorProfile)
 class DirectorProfileAdmin(admin.ModelAdmin):
     list_display = ["user", "school_name", "is_partner"]
+
+
+@admin.register(CompanyProfile)
+class CompanyProfileAdmin(admin.ModelAdmin):
+    list_display = ["user", "company_name", "sector", "is_partner"]
 
 
 class ChildInline(admin.TabularInline):

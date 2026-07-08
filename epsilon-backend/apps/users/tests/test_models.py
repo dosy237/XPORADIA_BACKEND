@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from apps.users.models import (
     Child,
+    CompanyProfile,
     DirectorProfile,
     OTPCode,
     OTPPurpose,
@@ -75,6 +76,18 @@ def test_director_profile():
     )
     assert profile.is_partner is False
     assert user.director_profile.school_name == "Lycee Test"
+
+
+def test_company_profile():
+    user = User.objects.create_user(
+        email="company@example.ci", password="testpass123",
+        first_name="C", last_name="P", primary_role=UserRole.COMPANY,
+    )
+    profile = CompanyProfile.objects.create(
+        user=user, company_name="ACME Abidjan", address="Plateau, Abidjan"
+    )
+    assert profile.is_partner is False
+    assert user.company_profile.company_name == "ACME Abidjan"
 
 
 def test_parent_profile_with_children():
