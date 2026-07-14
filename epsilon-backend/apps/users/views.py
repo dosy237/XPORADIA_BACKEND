@@ -20,6 +20,7 @@ from .serializers import (
     RegisterDirectorSerializer,
     RegisterParentSerializer,
     RegisterTeacherSerializer,
+    SubmitPreRegistrationCodeSerializer,
     TeacherDirectoryCardSerializer,
     TeacherDirectoryDetailSerializer,
     TeacherProfileSerializer,
@@ -125,6 +126,29 @@ class TeacherProfileView(generics.RetrieveUpdateAPIView):
         return TeacherProfile.objects.get(user=self.request.user)
 
 
+class SubmitPreRegistrationCodeView(APIView):
+    """L'enseignant renseigne le code obtenu après sa formation présentielle.
+
+    La soumission ne valide pas le compte automatiquement : elle place le
+    dossier en attente de revue par un administrateur (garde-fou contre les
+    erreurs de saisie/fraude), qui valide ensuite via l'admin Django.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("Réservé aux enseignants.")
+        serializer = SubmitPreRegistrationCodeSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"detail": "Code enregistré. Votre compte est en attente de validation par Xporadia."}
+        )
+
+
 class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     """Annuaire des enseignants — consultation par un enseignant tiers.
 
@@ -140,7 +164,14 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = (
-            TeacherProfile.objects.filter(user__is_active=True, user__profile_visible=True)
+            TeacherProfile.objects.filter(
+                user__is_active=True,
+                user__profile_visible=True,
+                # Enseignant pas encore accrédité par Xporadia (formation présentielle
+                # + code de préinscription validés par un administrateur) : son
+                # profil n'apparaît pas encore dans l'annuaire.
+                user__is_documents_validated=True,
+            )
             .exclude(user=self.request.user)
             .select_related("user")
             .order_by("user__first_name", "user__last_name")

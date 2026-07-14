@@ -1,5 +1,8 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
-router = DefaultRouter()
-urlpatterns = router.urls
+from . import views
+
+urlpatterns = [
+    path("", views.NotificationListView.as_view(), name="notification-list"),
+    path("<uuid:pk>/read/", views.MarkNotificationReadView.as_view(), name="notification-mark-read"),
+]

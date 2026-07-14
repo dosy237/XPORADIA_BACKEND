@@ -1,7 +1,17 @@
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Child, CompanyProfile, DirectorProfile, ParentProfile, TeacherProfile, User, UserRole
+from .models import (
+    Child,
+    CompanyProfile,
+    DirectorProfile,
+    ParentProfile,
+    PreRegistrationCode,
+    TeacherProfile,
+    User,
+    UserRole,
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -56,6 +66,11 @@ class RegisterTeacherSerializer(BaseRegisterSerializer):
             experience_years=self.validated_data.get("experience_years", 0),
             location=self.validated_data.get("location", ""),
             identity_document=self.validated_data.get("identity_document"),
+            # Un enseignant qui vient de s'inscrire n'est pas encore accrédité
+            # (formation présentielle + code de préinscription à valider) : il
+            # ne doit pas apparaître comme disponible pour le recrutement tant
+            # que Xporadia n'a pas validé son dossier.
+            available_for_employment=False,
         )
         return user
 
@@ -128,12 +143,62 @@ class RegisterParentSerializer(BaseRegisterSerializer):
 
 
 class TeacherProfileSerializer(serializers.ModelSerializer):
+    is_documents_validated = serializers.BooleanField(source="user.is_documents_validated", read_only=True)
+    preregistration_code_submitted = serializers.SerializerMethodField()
+
     class Meta:
         model = TeacherProfile
         fields = [
             "subjects", "experience_years", "hourly_rate", "location", "bio",
             "available_for_tutoring", "available_for_employment",
+            "is_documents_validated", "preregistration_code_submitted",
         ]
+
+    def get_preregistration_code_submitted(self, obj):
+        return obj.preregistration_code_id is not None
+
+    def validate(self, attrs):
+        # Un enseignant non encore accrédité (formation présentielle validée
+        # par un administrateur) ne peut pas se rendre visible sur le marché
+        # de l'emploi ou des cours particuliers — ça reviendrait à vendre une
+        # accréditation Xporadia qu'il n'a pas encore obtenue.
+        wants_tutoring = attrs.get("available_for_tutoring")
+        wants_employment = attrs.get("available_for_employment")
+        if wants_tutoring or wants_employment:
+            user = self.instance.user if self.instance else None
+            if user and not user.is_documents_validated:
+                raise serializers.ValidationError(
+                    "Votre compte doit d'abord être validé par Xporadia (formation présentielle "
+                    "et code de préinscription) avant d'être visible pour le recrutement ou les "
+                    "cours particuliers."
+                )
+        return attrs
+
+
+class SubmitPreRegistrationCodeSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=12)
+
+    def validate_code(self, value):
+        code = value.strip().upper()
+        try:
+            preregistration_code = PreRegistrationCode.objects.get(code=code)
+        except PreRegistrationCode.DoesNotExist:
+            raise serializers.ValidationError("Ce code de préinscription est introuvable.")
+        if preregistration_code.is_used:
+            raise serializers.ValidationError("Ce code de préinscription a déjà été utilisé.")
+        self.context["preregistration_code"] = preregistration_code
+        return code
+
+    def save(self):
+        user = self.context["request"].user
+        preregistration_code = self.context["preregistration_code"]
+        preregistration_code.is_used = True
+        preregistration_code.used_by = user
+        preregistration_code.used_at = timezone.now()
+        preregistration_code.save(update_fields=["is_used", "used_by", "used_at"])
+        user.teacher_profile.preregistration_code = preregistration_code
+        user.teacher_profile.save(update_fields=["preregistration_code"])
+        return preregistration_code
 
 
 class DirectorProfileSerializer(serializers.ModelSerializer):

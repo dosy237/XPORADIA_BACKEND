@@ -114,11 +114,56 @@ class User(AbstractBaseUser, PermissionsMixin):
         return role in self.get_all_roles()
 
 
+def _generate_code():
+    import secrets
+    import string
+
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+class PreRegistrationCode(models.Model):
+    """Code remis à un enseignant ayant suivi et validé une formation en
+    présentiel Xporadia, avant même de créer son compte sur la plateforme.
+
+    Un enseignant ne devient "officiellement" enseignant Xporadia (habilité à
+    être recommandé, à apparaître dans l'annuaire, à proposer des cours
+    particuliers ou à postuler) qu'après avoir renseigné ce code et qu'un
+    administrateur l'ait validé — c'est ce qui garantit la crédibilité de
+    l'accréditation Xporadia : personne ne peut sauter les étapes.
+    """
+
+    code = models.CharField(max_length=12, unique=True, default=_generate_code)
+    label = models.CharField(
+        max_length=255, blank=True, verbose_name="Session de formation (ex : Cocody, mars 2026)"
+    )
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="preregistration_codes_created"
+    )
+    used_by = models.OneToOneField(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="preregistration_code_used"
+    )
+    is_used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Code de préinscription"
+        verbose_name_plural = "Codes de préinscription"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.code} ({'utilisé' if self.is_used else 'disponible'})"
+
+
 class TeacherProfile(models.Model):
     """PROFIL_ENSEIGNANT — étend User quand primary_role = teacher."""
 
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="teacher_profile"
+    )
+    preregistration_code = models.OneToOneField(
+        PreRegistrationCode, on_delete=models.SET_NULL, null=True, blank=True, related_name="teacher_profile"
     )
     subjects = models.JSONField(default=list, blank=True, verbose_name="Matières enseignées")
     experience_years = models.PositiveSmallIntegerField(default=0, verbose_name="Années d'expérience")

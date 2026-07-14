@@ -17,6 +17,11 @@ urlpatterns = [
     path("me/request-deletion/", views.AccountDeletionRequestView.as_view(), name="request-deletion"),
     path("teacher-profile/", views.TeacherProfileView.as_view(), name="teacher-profile"),
     path(
+        "me/submit-preregistration-code/",
+        views.SubmitPreRegistrationCodeView.as_view(),
+        name="submit-preregistration-code",
+    ),
+    path(
         "teachers/",
         views.TeacherDirectoryViewSet.as_view({"get": "list"}),
         name="teacher-directory-list",

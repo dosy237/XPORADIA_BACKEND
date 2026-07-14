@@ -1,11 +1,14 @@
 from django.contrib import admin
 
+from apps.notifications.models import Notification, NotificationChannel, NotificationType
+
 from .models import (
     Child,
     CompanyProfile,
     DirectorProfile,
     OTPCode,
     ParentProfile,
+    PreRegistrationCode,
     TeacherDiploma,
     TeacherProfile,
     User,
@@ -14,9 +17,32 @@ from .models import (
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ["email", "first_name", "last_name", "primary_role", "is_verified", "created_at"]
-    list_filter = ["primary_role", "is_verified", "is_active"]
+    list_display = [
+        "email", "first_name", "last_name", "primary_role",
+        "is_verified", "is_documents_validated", "created_at",
+    ]
+    list_filter = ["primary_role", "is_verified", "is_documents_validated", "is_active"]
     search_fields = ["email", "first_name", "last_name", "phone"]
+    actions = ["validate_selected_accounts"]
+
+    @admin.action(description="Valider le(s) compte(s) sélectionné(s) (accréditation Xporadia)")
+    def validate_selected_accounts(self, request, queryset):
+        updated = 0
+        for user in queryset.filter(is_documents_validated=False):
+            user.is_documents_validated = True
+            user.save(update_fields=["is_documents_validated"])
+            Notification.objects.create(
+                user=user,
+                notif_type=NotificationType.SYSTEM,
+                channel=NotificationChannel.INAPP,
+                title="Votre compte Xporadia est validé",
+                body=(
+                    "Xporadia a validé votre formation présentielle et votre profil. "
+                    "Vous êtes désormais officiellement accrédité sur la plateforme."
+                ),
+            )
+            updated += 1
+        self.message_user(request, f"{updated} compte(s) validé(s) et notifié(s).")
 
 
 class TeacherDiplomaInline(admin.TabularInline):
@@ -26,8 +52,24 @@ class TeacherDiplomaInline(admin.TabularInline):
 
 @admin.register(TeacherProfile)
 class TeacherProfileAdmin(admin.ModelAdmin):
-    list_display = ["user", "experience_years", "available_for_tutoring", "available_for_employment"]
+    list_display = [
+        "user", "experience_years", "available_for_tutoring",
+        "available_for_employment", "preregistration_code",
+    ]
     inlines = [TeacherDiplomaInline]
+
+
+@admin.register(PreRegistrationCode)
+class PreRegistrationCodeAdmin(admin.ModelAdmin):
+    list_display = ["code", "label", "is_used", "used_by", "created_by", "created_at"]
+    list_filter = ["is_used"]
+    search_fields = ["code", "label", "used_by__email"]
+    readonly_fields = ["used_by", "used_at", "is_used"]
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.created_by:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(DirectorProfile)

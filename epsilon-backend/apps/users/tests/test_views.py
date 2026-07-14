@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.users.models import OTPCode, TeacherProfile, User, UserRole
+from apps.users.models import OTPCode, PreRegistrationCode, TeacherProfile, User, UserRole
 
 pytestmark = pytest.mark.django_db
 
@@ -202,12 +202,50 @@ def test_teacher_profile_get_and_update(api_client):
 
     patch_response = api_client.patch(
         "/api/v1/auth/teacher-profile/",
-        {"bio": "Prof de maths passionné.", "hourly_rate": "5000", "available_for_tutoring": True},
+        {"bio": "Prof de maths passionné.", "hourly_rate": "5000"},
         format="json",
     )
     assert patch_response.status_code == 200
     assert patch_response.data["bio"] == "Prof de maths passionné."
-    assert patch_response.data["available_for_tutoring"] is True
+
+
+def test_teacher_profile_cannot_enable_tutoring_before_accreditation(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {"email": "notaccredited@example.ci", "password": "testpass123", "first_name": "N", "last_name": "A"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "notaccredited@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    response = api_client.patch(
+        "/api/v1/auth/teacher-profile/", {"available_for_tutoring": True}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_teacher_profile_can_enable_tutoring_once_accredited(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {"email": "accredited@example.ci", "password": "testpass123", "first_name": "A", "last_name": "C"},
+        format="json",
+    )
+    user = User.objects.get(email="accredited@example.ci")
+    user.is_documents_validated = True
+    user.save(update_fields=["is_documents_validated"])
+
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "accredited@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    response = api_client.patch(
+        "/api/v1/auth/teacher-profile/", {"available_for_tutoring": True}, format="json"
+    )
+    assert response.status_code == 200
+    assert response.data["available_for_tutoring"] is True
 
 
 def test_teacher_profile_forbidden_for_other_roles(api_client):
@@ -587,10 +625,11 @@ def test_deactivated_account_cannot_login_again(api_client):
     assert response.status_code == 401
 
 
-def _create_teacher(email, subjects=None, visible=True, active=True, **profile_kwargs):
+def _create_teacher(email, subjects=None, visible=True, active=True, validated=True, **profile_kwargs):
     user = User.objects.create_user(
         email=email, password="testpass123", first_name="Prénom", last_name="Nom",
         primary_role=UserRole.TEACHER, is_active=active, profile_visible=visible,
+        is_documents_validated=validated,
     )
     TeacherProfile.objects.create(user=user, subjects=subjects or [], **profile_kwargs)
     return user
@@ -683,3 +722,83 @@ def test_teacher_directory_detail_404_for_unknown_teacher(api_client):
     _login_teacher(api_client, "viewer5@example.ci")
     response = api_client.get("/api/v1/auth/teachers/999999/")
     assert response.status_code == 404
+
+
+def test_teacher_directory_excludes_non_accredited_teachers(api_client):
+    _login_teacher(api_client, "viewer6@example.ci")
+    accredited = _create_teacher("accredited.colleague@example.ci", subjects=["Maths"], validated=True)
+    _create_teacher("pending.colleague@example.ci", subjects=["Maths"], validated=False)
+
+    response = api_client.get("/api/v1/auth/teachers/")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert len(results) == 1
+    assert results[0]["id"] == accredited.id
+
+
+def test_submit_preregistration_code_requires_authentication(api_client):
+    response = api_client.post("/api/v1/auth/me/submit-preregistration-code/", {"code": "ABC"}, format="json")
+    assert response.status_code == 401
+
+
+def test_submit_preregistration_code_unknown_code_rejected(api_client):
+    _login_teacher(api_client, "code.unknown@example.ci")
+    response = api_client.post(
+        "/api/v1/auth/me/submit-preregistration-code/", {"code": "NOPE1234"}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_submit_preregistration_code_success_does_not_auto_validate(api_client):
+    code = PreRegistrationCode.objects.create(label="Session Cocody")
+    _login_teacher(api_client, "code.ok@example.ci")
+
+    response = api_client.post(
+        "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
+    )
+    assert response.status_code == 200
+
+    code.refresh_from_db()
+    assert code.is_used is True
+    assert code.used_by.email == "code.ok@example.ci"
+
+    user = User.objects.get(email="code.ok@example.ci")
+    # La soumission place le dossier en attente : seule une validation
+    # explicite par un administrateur accrédite le compte.
+    assert user.is_documents_validated is False
+    assert user.teacher_profile.preregistration_code_id == code.id
+
+
+def test_submit_preregistration_code_already_used_rejected(api_client):
+    code = PreRegistrationCode.objects.create(label="Session Yopougon")
+    other = User.objects.create_user(
+        email="other.teacher@example.ci", password="testpass123",
+        first_name="O", last_name="T", primary_role=UserRole.TEACHER,
+    )
+    TeacherProfile.objects.create(user=other)
+    code.is_used = True
+    code.used_by = other
+    code.save(update_fields=["is_used", "used_by"])
+
+    _login_teacher(api_client, "code.taken@example.ci")
+    response = api_client.post(
+        "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_submit_preregistration_code_forbidden_for_other_roles(api_client):
+    api_client.post(
+        "/api/v1/auth/register/parent/",
+        {"email": "code.parent@example.ci", "password": "testpass123", "first_name": "C", "last_name": "P"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "code.parent@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    code = PreRegistrationCode.objects.create(label="Session Test")
+    response = api_client.post(
+        "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
+    )
+    assert response.status_code == 403
