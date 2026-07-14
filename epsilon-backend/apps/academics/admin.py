@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Department, SchoolClass, Subject, TeacherInvitation, Track
+from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, Track
 
 
 class TrackInline(admin.TabularInline):
@@ -47,3 +47,10 @@ class TeacherInvitationAdmin(admin.ModelAdmin):
     list_filter = ["is_accepted"]
     search_fields = ["email", "subject__name"]
     readonly_fields = ["token", "accepted_by", "accepted_at"]
+
+
+@admin.register(Enrollment)
+class EnrollmentAdmin(admin.ModelAdmin):
+    list_display = ["child", "school_class", "status", "enrolled_at", "ended_at"]
+    list_filter = ["status", "school_class__school_year"]
+    search_fields = ["child__first_name", "school_class__name"]

@@ -27,5 +27,12 @@ urlpatterns = [
         views.AcceptTeacherInvitationView.as_view(),
         name="accept-teacher-invitation",
     ),
+    path("children-lookup/", views.ChildLookupView.as_view(), name="children-lookup"),
+    path("classes/<int:class_id>/roster/", views.ClassRosterView.as_view(), name="class-roster"),
+    path(
+        "roster/<int:pk>/transition/",
+        views.RosterEnrollmentTransitionView.as_view(),
+        name="roster-transition",
+    ),
     path("", include(router.urls)),
 ]

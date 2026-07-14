@@ -22,6 +22,7 @@ class NotificationType(models.TextChoices):
     RECRUITMENT        = "recruitment",        "Recrutement confirmé"
     STAGE_UPDATE       = "stage_update",       "Mise à jour stage"
     CLASS_ASSIGNMENT   = "class_assignment",   "Affectation à une matière"
+    ENROLLMENT_UPDATE  = "enrollment_update",  "Mise à jour de scolarité"
     SYSTEM             = "system",             "Système"
 
 

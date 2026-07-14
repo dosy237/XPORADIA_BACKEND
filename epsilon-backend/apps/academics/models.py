@@ -5,16 +5,16 @@ Structure académique d'un établissement (privé, du primaire au supérieur) :
 Département → Filière → Classe → Matière, avec un enseignant titulaire par
 classe et un enseignant dédié par matière.
 
-Stories 1 et 2 du chantier "Classes". Le contenu pédagogique (Story 3), la
-bibliothèque (Story 4), les effectifs annuels (Story 5) et l'espace élève
-(Story 6) sont des stories séparées, pas encore construites ici.
+Stories 1, 2 et 5 du chantier "Classes" (structure, matières, effectifs).
+Le contenu pédagogique (Story 3) et la bibliothèque (Story 4) vivent dans
+d'autres apps ; l'espace élève (Story 6) n'est pas encore construit.
 """
 import secrets
 
 from django.conf import settings
 from django.db import models
 
-from apps.users.models import DirectorProfile
+from apps.users.models import Child, DirectorProfile
 
 
 class Department(models.Model):
@@ -162,3 +162,34 @@ class TeacherInvitation(models.Model):
     def __str__(self):
         statut = "acceptée" if self.is_accepted else "en attente"
         return f"Invitation {self.email} → {self.subject} ({statut})"
+
+
+class EnrollmentStatus(models.TextChoices):
+    ACTIVE = "active", "Inscrit"
+    PROMOTED = "promoted", "Passé(e) en classe supérieure"
+    REPEATING = "repeating", "Redouble"
+    WITHDRAWN = "withdrawn", "Parti(e) de l'établissement"
+
+
+class Enrollment(models.Model):
+    """Inscription d'un élève (ENFANT) dans une classe, pour une année
+    scolaire donnée — Story 5 du chantier "Classes". La mise à jour
+    annuelle des effectifs (passage, redoublement, départ, nouvelle
+    inscription) se fait en clôturant une inscription et, si l'élève
+    continue dans l'établissement, en ouvrant la suivante dans la classe
+    cible choisie par le directeur."""
+
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="enrollments")
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="enrollments")
+    status = models.CharField(max_length=15, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE)
+    enrolled_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Inscription"
+        verbose_name_plural = "Inscriptions"
+        unique_together = ("child", "school_class")
+        ordering = ["-enrolled_at"]
+
+    def __str__(self):
+        return f"{self.child.first_name} — {self.school_class} ({self.status})"

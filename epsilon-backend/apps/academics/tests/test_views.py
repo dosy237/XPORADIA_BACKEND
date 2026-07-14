@@ -1,9 +1,9 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.academics.models import Department, SchoolClass, Subject, TeacherInvitation, Track
+from apps.academics.models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, Track
 from apps.notifications.models import Notification
-from apps.users.models import DirectorProfile, TeacherProfile, User, UserRole
+from apps.users.models import Child, DirectorProfile, ParentProfile, TeacherProfile, User, UserRole
 
 pytestmark = pytest.mark.django_db
 
@@ -433,3 +433,198 @@ def test_accept_invitation_already_accepted_returns_404(api_client):
     assert first.status_code == 200
     second = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
     assert second.status_code == 404
+
+
+def _create_parent_with_child(email="parent@example.ci", child_name="Aïcha", class_level="Terminale"):
+    user = User.objects.create_user(
+        email=email, password="testpass123", first_name="P", last_name="A",
+        primary_role=UserRole.PARENT,
+    )
+    profile = ParentProfile.objects.create(user=user, location="Cocody")
+    child = Child.objects.create(parent=profile, first_name=child_name, class_level=class_level)
+    return user, profile, child
+
+
+def _create_second_class_same_establishment(profile, school_year="2025-2026", name="2nde C"):
+    department = Department.objects.filter(establishment=profile).first()
+    track = department.tracks.first()
+    return SchoolClass.objects.create(track=track, name=name, school_year=school_year)
+
+
+def test_children_lookup_requires_authentication(api_client):
+    response = api_client.get("/api/v1/academics/children-lookup/", {"parent_email": "x@example.ci"})
+    assert response.status_code == 401
+
+
+def test_children_lookup_forbidden_for_parent(api_client):
+    parent, _, _ = _create_parent_with_child(email="parent.forbidden@example.ci")
+    _login(api_client, parent.email)
+
+    response = api_client.get("/api/v1/academics/children-lookup/", {"parent_email": parent.email})
+    assert response.status_code == 403
+
+
+def test_children_lookup_returns_parents_children(api_client):
+    titulaire = _create_teacher(email="titulaire.lookup@example.ci")
+    parent, _, child = _create_parent_with_child(email="parent.lookup@example.ci", child_name="Kader")
+    _login(api_client, titulaire.email)
+
+    response = api_client.get("/api/v1/academics/children-lookup/", {"parent_email": parent.email})
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    assert response.data[0]["first_name"] == "Kader"
+
+
+def test_children_lookup_empty_for_unknown_parent(api_client):
+    titulaire = _create_teacher(email="titulaire.lookupunknown@example.ci")
+    _login(api_client, titulaire.email)
+
+    response = api_client.get("/api/v1/academics/children-lookup/", {"parent_email": "nobody@example.ci"})
+    assert response.status_code == 200
+    assert response.data == []
+
+
+def test_roster_requires_authentication(api_client):
+    titulaire = _create_teacher(email="titulaire.rosterauth@example.ci")
+    _, school_class = _create_class(school_year="2021-2021", homeroom_teacher=titulaire)
+    response = api_client.get(f"/api/v1/academics/classes/{school_class.id}/roster/")
+    assert response.status_code == 401
+
+
+def test_roster_forbidden_for_unrelated_teacher(api_client):
+    titulaire = _create_teacher(email="titulaire.rosterother@example.ci")
+    other = _create_teacher(email="other.rosterother@example.ci")
+    _, school_class = _create_class(school_year="2021-2022", homeroom_teacher=titulaire)
+
+    _login(api_client, other.email)
+    response = api_client.get(f"/api/v1/academics/classes/{school_class.id}/roster/")
+    assert response.status_code == 403
+
+
+def test_director_can_view_roster_of_own_establishment_class(api_client):
+    titulaire = _create_teacher(email="titulaire.rosterdirector@example.ci")
+    director, school_class = _create_class(school_year="2021-2023", homeroom_teacher=titulaire)
+
+    _login(api_client, director.email)
+    response = api_client.get(f"/api/v1/academics/classes/{school_class.id}/roster/")
+    assert response.status_code == 200
+
+
+def test_homeroom_teacher_enrolls_child_and_notifies_parent(api_client):
+    titulaire = _create_teacher(email="titulaire.enroll@example.ci")
+    _, school_class = _create_class(school_year="2021-2024", homeroom_teacher=titulaire)
+    parent, _, child = _create_parent_with_child(email="parent.enroll@example.ci", child_name="Fatou")
+    _login(api_client, titulaire.email)
+
+    response = api_client.post(
+        f"/api/v1/academics/classes/{school_class.id}/roster/", {"child_id": child.id}, format="json"
+    )
+    assert response.status_code == 201
+    assert Enrollment.objects.filter(child=child, school_class=school_class, status="active").exists()
+    assert response.data["child"]["first_name"] == "Fatou"
+    assert Notification.objects.filter(user=parent, notif_type="enrollment_update").exists()
+
+
+def test_enroll_missing_child_id_returns_400(api_client):
+    titulaire = _create_teacher(email="titulaire.enrollmissing@example.ci")
+    _, school_class = _create_class(school_year="2021-2025", homeroom_teacher=titulaire)
+    _login(api_client, titulaire.email)
+
+    response = api_client.post(f"/api/v1/academics/classes/{school_class.id}/roster/", {}, format="json")
+    assert response.status_code == 400
+
+
+def test_roster_lists_only_active_enrollments(api_client):
+    titulaire = _create_teacher(email="titulaire.rosterlist@example.ci")
+    _, school_class = _create_class(school_year="2021-2026", homeroom_teacher=titulaire)
+    _, _, active_child = _create_parent_with_child(email="parent.active@example.ci", child_name="Actif")
+    _, _, withdrawn_child = _create_parent_with_child(email="parent.withdrawn@example.ci", child_name="Parti")
+    Enrollment.objects.create(child=active_child, school_class=school_class, status="active")
+    Enrollment.objects.create(child=withdrawn_child, school_class=school_class, status="withdrawn")
+
+    _login(api_client, titulaire.email)
+    response = api_client.get(f"/api/v1/academics/classes/{school_class.id}/roster/")
+    assert response.status_code == 200
+    names = [e["child"]["first_name"] for e in response.data]
+    assert names == ["Actif"]
+
+
+def test_transition_requires_director(api_client):
+    titulaire = _create_teacher(email="titulaire.transitionauth@example.ci")
+    _, school_class = _create_class(school_year="2021-2027", homeroom_teacher=titulaire)
+    _, _, child = _create_parent_with_child(email="parent.transitionauth@example.ci")
+    enrollment = Enrollment.objects.create(child=child, school_class=school_class, status="active")
+
+    _login(api_client, titulaire.email)
+    response = api_client.post(
+        f"/api/v1/academics/roster/{enrollment.id}/transition/", {"status": "withdrawn"}, format="json"
+    )
+    assert response.status_code == 403
+
+
+def test_director_withdraws_child_and_notifies_parent(api_client):
+    titulaire = _create_teacher(email="titulaire.withdraw@example.ci")
+    director, school_class = _create_class(school_year="2021-2028", homeroom_teacher=titulaire)
+    parent, _, child = _create_parent_with_child(email="parent.withdraw@example.ci", child_name="Yao")
+    enrollment = Enrollment.objects.create(child=child, school_class=school_class, status="active")
+
+    _login(api_client, director.email)
+    response = api_client.post(
+        f"/api/v1/academics/roster/{enrollment.id}/transition/", {"status": "withdrawn"}, format="json"
+    )
+    assert response.status_code == 200
+    enrollment.refresh_from_db()
+    assert enrollment.status == "withdrawn"
+    assert enrollment.ended_at is not None
+    assert response.data["new_enrollment"] is None
+    assert Notification.objects.filter(user=parent, notif_type="enrollment_update").exists()
+
+
+def test_director_promotes_child_to_target_class_in_same_establishment(api_client):
+    titulaire = _create_teacher(email="titulaire.promote@example.ci")
+    director, school_class = _create_class(school_year="2021-2029", homeroom_teacher=titulaire)
+    profile = director.director_profile
+    target_class = _create_second_class_same_establishment(profile, school_year="2022-2030")
+    _, _, child = _create_parent_with_child(email="parent.promote@example.ci", child_name="Awa")
+    enrollment = Enrollment.objects.create(child=child, school_class=school_class, status="active")
+
+    _login(api_client, director.email)
+    response = api_client.post(
+        f"/api/v1/academics/roster/{enrollment.id}/transition/",
+        {"status": "promoted", "target_class_id": target_class.id},
+        format="json",
+    )
+    assert response.status_code == 200
+    enrollment.refresh_from_db()
+    assert enrollment.status == "promoted"
+    assert response.data["new_enrollment"]["school_class"]["id"] == target_class.id
+    assert Enrollment.objects.filter(child=child, school_class=target_class, status="active").exists()
+
+
+def test_promotion_requires_target_class_id(api_client):
+    titulaire = _create_teacher(email="titulaire.promotemissing@example.ci")
+    director, school_class = _create_class(school_year="2021-2031", homeroom_teacher=titulaire)
+    _, _, child = _create_parent_with_child(email="parent.promotemissing@example.ci")
+    enrollment = Enrollment.objects.create(child=child, school_class=school_class, status="active")
+
+    _login(api_client, director.email)
+    response = api_client.post(
+        f"/api/v1/academics/roster/{enrollment.id}/transition/", {"status": "promoted"}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_director_cannot_promote_to_class_outside_own_establishment(api_client):
+    titulaire = _create_teacher(email="titulaire.promoteforeign@example.ci")
+    director, school_class = _create_class(school_year="2021-2032", homeroom_teacher=titulaire)
+    _, foreign_class = _create_class(school_year="2021-2033")
+    _, _, child = _create_parent_with_child(email="parent.promoteforeign@example.ci")
+    enrollment = Enrollment.objects.create(child=child, school_class=school_class, status="active")
+
+    _login(api_client, director.email)
+    response = api_client.post(
+        f"/api/v1/academics/roster/{enrollment.id}/transition/",
+        {"status": "promoted", "target_class_id": foreign_class.id},
+        format="json",
+    )
+    assert response.status_code == 403

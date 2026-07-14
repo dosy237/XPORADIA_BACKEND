@@ -1,8 +1,8 @@
 from rest_framework import serializers
 
-from apps.users.models import User, UserRole
+from apps.users.models import Child, User, UserRole
 
-from .models import Department, SchoolClass, Subject, TeacherInvitation, Track
+from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, Track
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -106,4 +106,21 @@ class TeacherInvitationPreviewSerializer(serializers.ModelSerializer):
             "token", "email", "subject_name", "school_class_name",
             "school_name", "invited_by_name", "created_at",
         ]
+        read_only_fields = fields
+
+
+class ChildBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Child
+        fields = ["id", "first_name", "class_level"]
+        read_only_fields = fields
+
+
+class EnrollmentSerializer(serializers.ModelSerializer):
+    child = ChildBasicSerializer(read_only=True)
+    school_class = SchoolClassSerializer(read_only=True)
+
+    class Meta:
+        model = Enrollment
+        fields = ["id", "child", "school_class", "status", "enrolled_at", "ended_at"]
         read_only_fields = fields

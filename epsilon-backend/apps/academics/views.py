@@ -3,17 +3,19 @@ from django.core.mail import send_mail
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, permissions, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import DirectorProfile, User, UserRole
+from apps.users.models import Child, DirectorProfile, ParentProfile, User, UserRole
 
-from .models import Department, SchoolClass, Subject, TeacherInvitation, Track
+from .models import Department, Enrollment, EnrollmentStatus, SchoolClass, Subject, TeacherInvitation, Track
 from .serializers import (
+    ChildBasicSerializer,
     DepartmentSerializer,
+    EnrollmentSerializer,
     SchoolClassSerializer,
     SubjectSerializer,
     TeacherInvitationPreviewSerializer,
@@ -115,7 +117,7 @@ class MyHomeroomClassesView(generics.ListAPIView):
 def _get_school_class(class_id):
     try:
         return SchoolClass.objects.select_related(
-            "track", "track__department", "homeroom_teacher"
+            "track", "track__department", "track__department__establishment", "homeroom_teacher"
         ).get(id=class_id)
     except SchoolClass.DoesNotExist:
         raise Http404
@@ -124,6 +126,36 @@ def _get_school_class(class_id):
 def _require_homeroom_teacher(school_class, user):
     if school_class.homeroom_teacher_id != user.id:
         raise PermissionDenied("Réservé à l'enseignant titulaire de cette classe.")
+
+
+def _require_roster_access(school_class, user):
+    """Le titulaire de la classe et le directeur de l'établissement peuvent
+    consulter/alimenter le registre au quotidien (nouvelle inscription)."""
+    if school_class.homeroom_teacher_id == user.id:
+        return
+    if user.has_role(UserRole.DIRECTOR) and school_class.track.department.establishment.user_id == user.id:
+        return
+    raise PermissionDenied("Réservé au titulaire de cette classe ou au directeur de l'établissement.")
+
+
+def _require_establishment_director(school_class, user):
+    """Le passage/redoublement/départ franchit la frontière d'une classe —
+    seul le directeur, qui a autorité sur toute la structure académique de
+    l'établissement, peut décider de la classe cible."""
+    if not user.has_role(UserRole.DIRECTOR):
+        raise PermissionDenied("Réservé au directeur de l'établissement.")
+    if school_class.track.department.establishment.user_id != user.id:
+        raise PermissionDenied("Cette classe n'appartient pas à votre établissement.")
+
+
+def _notify_parent_of_enrollment_change(enrollment, title, body):
+    notify_user(
+        enrollment.child.parent.user,
+        NotificationType.ENROLLMENT_UPDATE,
+        title=title,
+        body=body,
+        data={"child_id": enrollment.child_id, "school_class_id": enrollment.school_class_id},
+    )
 
 
 def _notify_dedicated_teacher(subject):
@@ -311,4 +343,137 @@ class MyDedicatedSubjectsView(generics.ListAPIView):
             raise PermissionDenied("Réservé aux enseignants.")
         return Subject.objects.filter(teacher=self.request.user).select_related(
             "school_class", "school_class__track", "school_class__track__department"
+        )
+
+
+class ChildLookupView(generics.ListAPIView):
+    """Recherche des enfants d'un parent par email — pour que le titulaire
+    ou le directeur puisse inscrire un élève dans une classe sans connaître
+    son ID interne (même logique que les emails enseignants)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChildBasicSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        user = self.request.user
+        if not (user.has_role(UserRole.TEACHER) or user.has_role(UserRole.DIRECTOR)):
+            raise PermissionDenied("Réservé aux enseignants et directeurs.")
+        email = self.request.query_params.get("parent_email")
+        if not email:
+            return Child.objects.none()
+        try:
+            parent = ParentProfile.objects.get(user__email__iexact=email)
+        except ParentProfile.DoesNotExist:
+            return Child.objects.none()
+        return parent.children.all()
+
+
+class ClassRosterView(generics.ListCreateAPIView):
+    """Élèves activement inscrits dans une classe — consultable par le
+    titulaire et le directeur, alimentable par les deux (nouvelle
+    inscription en cours d'année)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EnrollmentSerializer
+    pagination_class = None
+
+    def get_school_class(self):
+        school_class = _get_school_class(self.kwargs["class_id"])
+        _require_roster_access(school_class, self.request.user)
+        return school_class
+
+    def get_queryset(self):
+        school_class = self.get_school_class()
+        return Enrollment.objects.filter(
+            school_class=school_class, status=EnrollmentStatus.ACTIVE
+        ).select_related("child")
+
+    def create(self, request, *args, **kwargs):
+        school_class = self.get_school_class()
+        child_id = request.data.get("child_id")
+        if not child_id:
+            raise ValidationError({"child_id": "Ce champ est requis."})
+        try:
+            child = Child.objects.select_related("parent__user").get(id=child_id)
+        except Child.DoesNotExist:
+            raise ValidationError({"child_id": "Élève introuvable."})
+
+        enrollment, created = Enrollment.objects.get_or_create(
+            child=child, school_class=school_class, defaults={"status": EnrollmentStatus.ACTIVE}
+        )
+        if not created and enrollment.status != EnrollmentStatus.ACTIVE:
+            enrollment.status = EnrollmentStatus.ACTIVE
+            enrollment.ended_at = None
+            enrollment.save(update_fields=["status", "ended_at"])
+        if created:
+            _notify_parent_of_enrollment_change(
+                enrollment,
+                title="Inscription confirmée",
+                body=f"{child.first_name} est désormais inscrit(e) en {school_class}.",
+            )
+
+        serializer = self.get_serializer(enrollment)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=201, headers=headers)
+
+
+_TRANSITION_MESSAGES = {
+    EnrollmentStatus.PROMOTED: "est passé(e) en classe supérieure",
+    EnrollmentStatus.REPEATING: "redouble",
+    EnrollmentStatus.WITHDRAWN: "a quitté l'établissement",
+}
+
+
+class RosterEnrollmentTransitionView(APIView):
+    """Clôt une inscription (passage, redoublement, départ) — réservé au
+    directeur car l'opération peut ouvrir une nouvelle inscription dans
+    une classe différente, dont le titulaire n'est pas forcément le même."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            enrollment = Enrollment.objects.select_related(
+                "school_class", "school_class__track", "school_class__track__department",
+                "school_class__track__department__establishment", "child", "child__parent__user",
+            ).get(pk=pk)
+        except Enrollment.DoesNotExist:
+            raise Http404
+        _require_establishment_director(enrollment.school_class, request.user)
+
+        new_status = request.data.get("status")
+        if new_status not in (EnrollmentStatus.PROMOTED, EnrollmentStatus.REPEATING, EnrollmentStatus.WITHDRAWN):
+            raise ValidationError({"status": "Statut invalide."})
+
+        enrollment.status = new_status
+        enrollment.ended_at = timezone.now()
+        enrollment.save(update_fields=["status", "ended_at"])
+
+        new_enrollment = None
+        if new_status in (EnrollmentStatus.PROMOTED, EnrollmentStatus.REPEATING):
+            target_class_id = request.data.get("target_class_id")
+            if not target_class_id:
+                raise ValidationError({"target_class_id": "Ce champ est requis pour ce statut."})
+            target_class = _get_school_class(target_class_id)
+            _require_establishment_director(target_class, request.user)
+            new_enrollment, _ = Enrollment.objects.get_or_create(
+                child=enrollment.child, school_class=target_class,
+                defaults={"status": EnrollmentStatus.ACTIVE},
+            )
+
+        _notify_parent_of_enrollment_change(
+            enrollment,
+            title="Mise à jour de scolarité",
+            body=(
+                f"{enrollment.child.first_name} {_TRANSITION_MESSAGES[new_status]}"
+                + (f" ({new_enrollment.school_class})." if new_enrollment else ".")
+            ),
+        )
+
+        return Response(
+            {
+                "closed": EnrollmentSerializer(enrollment).data,
+                "new_enrollment": EnrollmentSerializer(new_enrollment).data if new_enrollment else None,
+            }
         )
