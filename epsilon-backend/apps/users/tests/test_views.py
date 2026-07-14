@@ -482,3 +482,106 @@ def test_children_isolated_between_parents(api_client):
 
     response = api_client.get(f"/api/v1/auth/children/{child_id}/")
     assert response.status_code == 404
+
+
+def _login_teacher(api_client, email):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {"email": email, "password": "testpass123", "first_name": "K", "last_name": "Y"},
+        format="json",
+    )
+    login = api_client.post("/api/v1/auth/token/", {"email": email, "password": "testpass123"}, format="json")
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+
+def test_change_password_requires_authentication(api_client):
+    response = api_client.post("/api/v1/auth/me/change-password/", {}, format="json")
+    assert response.status_code == 401
+
+
+def test_change_password_wrong_old_password_rejected(api_client):
+    _login_teacher(api_client, "pwd.wrong@example.ci")
+    response = api_client.post(
+        "/api/v1/auth/me/change-password/",
+        {"old_password": "nope", "new_password": "newpass123"},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_change_password_succeeds_and_new_password_works(api_client):
+    _login_teacher(api_client, "pwd.ok@example.ci")
+    response = api_client.post(
+        "/api/v1/auth/me/change-password/",
+        {"old_password": "testpass123", "new_password": "newpass456"},
+        format="json",
+    )
+    assert response.status_code == 200
+
+    fresh_client = APIClient()
+    login = fresh_client.post(
+        "/api/v1/auth/token/", {"email": "pwd.ok@example.ci", "password": "newpass456"}, format="json"
+    )
+    assert login.status_code == 200
+
+
+def test_my_data_export_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/me/export/")
+    assert response.status_code == 401
+
+
+def test_my_data_export_includes_account_and_role_profile(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {
+            "email": "export.teacher@example.ci", "password": "testpass123",
+            "first_name": "E", "last_name": "T", "subjects": ["Maths"],
+        },
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "export.teacher@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    response = api_client.get("/api/v1/auth/me/export/")
+    assert response.status_code == 200
+    assert response.data["account"]["email"] == "export.teacher@example.ci"
+    assert response.data["profiles"]["teacher"]["subjects"] == ["Maths"]
+
+
+def test_request_deletion_requires_correct_password(api_client):
+    _login_teacher(api_client, "del.wrongpwd@example.ci")
+    response = api_client.post(
+        "/api/v1/auth/me/request-deletion/", {"password": "wrong"}, format="json"
+    )
+    assert response.status_code == 400
+    assert User.objects.get(email="del.wrongpwd@example.ci").is_active is True
+
+
+def test_request_deletion_anonymizes_and_deactivates_account(api_client):
+    _login_teacher(api_client, "del.ok@example.ci")
+    user_id = User.objects.get(email="del.ok@example.ci").id
+
+    response = api_client.post(
+        "/api/v1/auth/me/request-deletion/", {"password": "testpass123"}, format="json"
+    )
+    assert response.status_code == 200
+
+    user = User.objects.get(id=user_id)
+    assert user.is_active is False
+    assert user.email == f"compte-supprime-{user.id}@xporadia.invalid"
+    assert user.first_name == "Compte"
+    assert user.deletion_requested_at is not None
+    assert user.has_usable_password() is False
+
+
+def test_deactivated_account_cannot_login_again(api_client):
+    _login_teacher(api_client, "del.relogin@example.ci")
+    api_client.post("/api/v1/auth/me/request-deletion/", {"password": "testpass123"}, format="json")
+
+    fresh_client = APIClient()
+    response = fresh_client.post(
+        "/api/v1/auth/token/", {"email": "del.relogin@example.ci", "password": "testpass123"}, format="json"
+    )
+    assert response.status_code == 401

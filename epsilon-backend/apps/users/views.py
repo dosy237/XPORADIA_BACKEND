@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -8,6 +9,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import Child, CompanyProfile, DirectorProfile, OTPPurpose, ParentProfile, TeacherProfile, UserRole
 from .serializers import (
+    AccountDeletionRequestSerializer,
+    ChangePasswordSerializer,
     ChildDetailSerializer,
     CompanyProfileSerializer,
     CustomTokenObtainPairSerializer,
@@ -178,3 +181,73 @@ class ChildDetailView(generics.RetrieveUpdateDestroyAPIView):
         if not self.request.user.has_role(UserRole.PARENT):
             raise PermissionDenied("Réservé aux parents.")
         return Child.objects.filter(parent__user=self.request.user)
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+        return Response({"detail": "Mot de passe mis à jour."})
+
+
+ROLE_PROFILE_SERIALIZERS = {
+    UserRole.TEACHER: (TeacherProfile, TeacherProfileSerializer),
+    UserRole.DIRECTOR: (DirectorProfile, DirectorProfileSerializer),
+    UserRole.COMPANY: (CompanyProfile, CompanyProfileSerializer),
+    UserRole.PARENT: (ParentProfile, ParentProfileSerializer),
+}
+
+
+class MyDataExportView(APIView):
+    """Droit d'accès RGPD : export intégral des données personnelles de
+    l'utilisateur connecté (compte + profil de rôle), au format JSON."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        data = {
+            "account": UserSerializer(user).data,
+            "profiles": {},
+        }
+        for role in user.get_all_roles():
+            mapping = ROLE_PROFILE_SERIALIZERS.get(role)
+            if not mapping:
+                continue
+            model, serializer_class = mapping
+            instance = model.objects.filter(user=user).first()
+            if instance:
+                data["profiles"][role] = serializer_class(instance).data
+        response = Response(data)
+        response["Content-Disposition"] = 'attachment; filename="xporadia-mes-donnees.json"'
+        return response
+
+
+class AccountDeletionRequestView(APIView):
+    """Droit à l'effacement RGPD : anonymise les données personnelles et
+    désactive le compte. Les données non-personnelles liées (certifications,
+    recrutements...) sont conservées pour l'intégrité de l'historique, comme
+    l'exige la traçabilité légale — seules les données identifiantes sont
+    effacées."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = AccountDeletionRequestSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        user.email = f"compte-supprime-{user.id}@xporadia.invalid"
+        user.first_name = "Compte"
+        user.last_name = "Supprimé"
+        user.phone = ""
+        user.avatar = None
+        user.is_active = False
+        user.deletion_requested_at = timezone.now()
+        user.set_unusable_password()
+        user.save()
+        return Response({"detail": "Compte anonymisé et désactivé."})

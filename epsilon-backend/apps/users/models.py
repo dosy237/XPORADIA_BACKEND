@@ -71,6 +71,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     # Sécurité
     two_fa_enabled = models.BooleanField(default=False, verbose_name="2FA activée")
 
+    # Visibilité & préférences (E-14 — Paramètres du compte)
+    profile_visible = models.BooleanField(
+        default=True, verbose_name="Profil public visible"
+    )
+    notify_email = models.BooleanField(default=True, verbose_name="Notifications par email")
+    notify_sms = models.BooleanField(default=False, verbose_name="Notifications par SMS")
+    notify_push = models.BooleanField(default=True, verbose_name="Notifications push")
+
+    # RGPD — droit à l'effacement : on anonymise plutôt que de supprimer la
+    # ligne, pour préserver l'intégrité référentielle des certifications,
+    # recrutements et autres historiques légaux qui pointent vers ce compte.
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

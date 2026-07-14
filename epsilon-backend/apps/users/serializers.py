@@ -182,4 +182,29 @@ class VerifyOTPSerializer(serializers.Serializer):
 class UpdateMeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["first_name", "last_name", "phone", "avatar"]
+        fields = [
+            "first_name", "last_name", "phone", "avatar",
+            "profile_visible", "notify_email", "notify_sms", "notify_push",
+            "two_fa_enabled",
+        ]
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_old_password(self, value):
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Mot de passe actuel incorrect.")
+        return value
+
+
+class AccountDeletionRequestSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True)
+
+    def validate_password(self, value):
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Mot de passe incorrect.")
+        return value
