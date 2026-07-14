@@ -1,0 +1,29 @@
+from django.contrib import admin
+
+from .models import Department, SchoolClass, Track
+
+
+class TrackInline(admin.TabularInline):
+    model = Track
+    extra = 0
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ["name", "establishment"]
+    list_filter = ["establishment"]
+    search_fields = ["name", "establishment__school_name"]
+    inlines = [TrackInline]
+
+
+@admin.register(Track)
+class TrackAdmin(admin.ModelAdmin):
+    list_display = ["name", "department"]
+    search_fields = ["name", "department__name"]
+
+
+@admin.register(SchoolClass)
+class SchoolClassAdmin(admin.ModelAdmin):
+    list_display = ["name", "track", "school_year", "homeroom_teacher", "is_active"]
+    list_filter = ["school_year", "is_active"]
+    search_fields = ["name", "track__name", "homeroom_teacher__email"]
