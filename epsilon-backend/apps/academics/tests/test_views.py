@@ -108,7 +108,7 @@ def test_director_creates_class_with_homeroom_teacher(api_client):
         "/api/v1/academics/classes/",
         {
             "track_id": track.id, "name": "Terminale D1", "school_year": "2025-2026",
-            "homeroom_teacher_id": teacher.id, "capacity": 40,
+            "homeroom_teacher_email": teacher.email, "capacity": 40,
         },
         format="json",
     )
@@ -132,7 +132,7 @@ def test_class_homeroom_teacher_must_have_teacher_role(api_client):
         "/api/v1/academics/classes/",
         {
             "track_id": track.id, "name": "Terminale D1", "school_year": "2025-2026",
-            "homeroom_teacher_id": parent.id,
+            "homeroom_teacher_email": parent.email,
         },
         format="json",
     )

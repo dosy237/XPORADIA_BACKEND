@@ -33,7 +33,11 @@ class HomeroomTeacherSerializer(serializers.ModelSerializer):
 class SchoolClassSerializer(serializers.ModelSerializer):
     track_id = serializers.PrimaryKeyRelatedField(source="track", queryset=Track.objects.all(), write_only=True)
     homeroom_teacher = HomeroomTeacherSerializer(read_only=True)
-    homeroom_teacher_id = serializers.PrimaryKeyRelatedField(
+    # Un directeur connaît l'email d'un enseignant, pas son ID interne — et
+    # tant que la recherche d'enseignants côté directeur (story D-02, future)
+    # n'existe pas, c'est la façon la plus simple de désigner le titulaire.
+    homeroom_teacher_email = serializers.SlugRelatedField(
+        slug_field="email",
         source="homeroom_teacher",
         queryset=User.objects.filter(is_active=True),
         write_only=True,
@@ -45,11 +49,11 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         model = SchoolClass
         fields = [
             "id", "track", "track_id", "name", "school_year",
-            "homeroom_teacher", "homeroom_teacher_id", "capacity", "is_active", "created_at",
+            "homeroom_teacher", "homeroom_teacher_email", "capacity", "is_active", "created_at",
         ]
         read_only_fields = ["id", "track", "created_at"]
 
-    def validate_homeroom_teacher_id(self, user):
+    def validate_homeroom_teacher_email(self, user):
         if not user.has_role(UserRole.TEACHER):
             raise serializers.ValidationError("L'enseignant titulaire doit avoir le rôle enseignant.")
         return user
