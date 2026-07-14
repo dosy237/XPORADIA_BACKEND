@@ -635,12 +635,15 @@ def _create_teacher(email, subjects=None, visible=True, active=True, validated=T
     return user
 
 
-def test_teacher_directory_requires_authentication(api_client):
+def test_teacher_directory_accessible_to_anonymous_visitors(api_client):
+    _create_teacher("visitor.visible@example.ci", subjects=["Maths"])
     response = api_client.get("/api/v1/auth/teachers/")
-    assert response.status_code == 401
+    assert response.status_code == 200
+    assert response.data["count"] >= 1
 
 
-def test_teacher_directory_forbidden_for_non_teacher(api_client):
+def test_teacher_directory_accessible_to_any_authenticated_role(api_client):
+    _create_teacher("for.parent.view@example.ci", subjects=["Maths"])
     api_client.post(
         "/api/v1/auth/register/parent/",
         {"email": "parent.directory@example.ci", "password": "testpass123", "first_name": "P", "last_name": "D"},
@@ -651,7 +654,7 @@ def test_teacher_directory_forbidden_for_non_teacher(api_client):
     )
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     response = api_client.get("/api/v1/auth/teachers/")
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 def test_teacher_directory_excludes_self_hidden_and_inactive(api_client):

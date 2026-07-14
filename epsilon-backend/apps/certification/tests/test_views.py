@@ -78,9 +78,18 @@ def _results(response):
     return response.data["results"] if "results" in response.data else response.data
 
 
-def test_training_modules_requires_authentication(api_client):
+def test_training_modules_accessible_to_anonymous_visitors(api_client):
+    make_module(title="Module public")
     response = api_client.get("/api/v1/certification/modules/")
-    assert response.status_code == 401
+    assert response.status_code == 200
+    assert "Module public" in [m["title"] for m in _results(response)]
+
+
+def test_training_sessions_accessible_to_anonymous_visitors(api_client, trainer):
+    module = make_module()
+    make_session(module, trainer, city="Abidjan")
+    response = api_client.get("/api/v1/certification/sessions/")
+    assert response.status_code == 200
 
 
 def test_training_modules_list_returns_only_active(authed_client):

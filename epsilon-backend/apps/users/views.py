@@ -150,15 +150,13 @@ class SubmitPreRegistrationCodeView(APIView):
 
 
 class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
-    """Annuaire des enseignants — consultation par un enseignant tiers.
+    """Annuaire des enseignants — alimente le fil public (onglet Fil
+    d'actualité) : accessible aux visiteurs non connectés comme aux
+    utilisateurs authentifiés, quel que soit leur rôle. Le tarif horaire et
+    les coordonnées restent masqués (réservés à la vue parent/admin, story
+    dédiée future)."""
 
-    Réservé au rôle enseignant pour l'instant : la vue directeur (avec
-    prétention salariale) et la vue parent (avec tarif horaire + agenda)
-    exposent des champs différents et feront l'objet d'une story dédiée
-    (D-02 / P-02), pas un simple élargissement de permission ici.
-    """
-
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     lookup_field = "user_id"
     lookup_url_kwarg = "user_id"
 
@@ -172,10 +170,11 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
                 # profil n'apparaît pas encore dans l'annuaire.
                 user__is_documents_validated=True,
             )
-            .exclude(user=self.request.user)
             .select_related("user")
             .order_by("user__first_name", "user__last_name")
         )
+        if self.request.user.is_authenticated:
+            qs = qs.exclude(user=self.request.user)
         subject = self.request.query_params.get("subject")
         if subject:
             # Filtrage en Python : JSONField.__contains n'est pas supporté sur
@@ -190,18 +189,6 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == "retrieve":
             return TeacherDirectoryDetailSerializer
         return TeacherDirectoryCardSerializer
-
-    def _check_permission(self):
-        if not self.request.user.has_role(UserRole.TEACHER):
-            raise PermissionDenied("L'annuaire des enseignants est réservé aux enseignants pour le moment.")
-
-    def list(self, request, *args, **kwargs):
-        self._check_permission()
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        self._check_permission()
-        return super().retrieve(request, *args, **kwargs)
 
 
 class DirectorProfileView(generics.RetrieveUpdateAPIView):

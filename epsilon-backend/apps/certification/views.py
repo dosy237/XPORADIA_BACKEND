@@ -15,9 +15,10 @@ from .serializers import (
 
 
 class TrainingModuleViewSet(viewsets.ReadOnlyModelViewSet):
-    """Catalogue public des modules de formation (lecture seule)."""
+    """Catalogue public des modules de formation (lecture seule) — accessible
+    aux visiteurs non connectés (onglet Certifications du fil public)."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     serializer_class = TrainingModuleSerializer
     queryset = TrainingModule.objects.filter(is_active=True)
     # Catalogue restreint par nature (quelques dizaines de modules) : la
@@ -36,9 +37,10 @@ class TrainingModuleViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class TrainingSessionViewSet(viewsets.ReadOnlyModelViewSet):
-    """Sessions de formation à venir, filtrables par module et ville."""
+    """Sessions de formation à venir, filtrables par module et ville —
+    accessible aux visiteurs non connectés."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     serializer_class = TrainingSessionSerializer
     pagination_class = None
 
