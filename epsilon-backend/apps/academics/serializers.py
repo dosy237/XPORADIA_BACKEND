@@ -13,6 +13,7 @@ class DepartmentSerializer(serializers.ModelSerializer):
 
 
 class TrackSerializer(serializers.ModelSerializer):
+    department = DepartmentSerializer(read_only=True)
     department_id = serializers.PrimaryKeyRelatedField(
         source="department", queryset=Department.objects.all(), write_only=True
     )
@@ -20,7 +21,7 @@ class TrackSerializer(serializers.ModelSerializer):
     class Meta:
         model = Track
         fields = ["id", "department", "department_id", "name", "description", "created_at"]
-        read_only_fields = ["id", "department", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
 
 class HomeroomTeacherSerializer(serializers.ModelSerializer):
@@ -31,6 +32,7 @@ class HomeroomTeacherSerializer(serializers.ModelSerializer):
 
 
 class SchoolClassSerializer(serializers.ModelSerializer):
+    track = TrackSerializer(read_only=True)
     track_id = serializers.PrimaryKeyRelatedField(source="track", queryset=Track.objects.all(), write_only=True)
     homeroom_teacher = HomeroomTeacherSerializer(read_only=True)
     # Un directeur connaît l'email d'un enseignant, pas son ID interne — et
@@ -51,7 +53,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
             "id", "track", "track_id", "name", "school_year",
             "homeroom_teacher", "homeroom_teacher_email", "capacity", "is_active", "created_at",
         ]
-        read_only_fields = ["id", "track", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
     def validate_homeroom_teacher_email(self, user):
         if not user.has_role(UserRole.TEACHER):

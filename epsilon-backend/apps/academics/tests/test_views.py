@@ -184,6 +184,11 @@ def test_my_homeroom_classes_lists_only_own_classes(api_client):
     assert response.status_code == 200
     assert len(response.data) == 1
     assert response.data[0]["name"] == "Terminale D1"
+    # Le track ET son département doivent être imbriqués en profondeur —
+    # pas de simples ID — pour que le frontend puisse afficher le fil
+    # d'ariane classe → filière → département sans requête supplémentaire.
+    assert response.data[0]["track"]["name"] == "Scientifique"
+    assert response.data[0]["track"]["department"]["name"] == "Secondaire"
 
 
 def test_class_unique_together_track_name_year(api_client):
