@@ -1,10 +1,13 @@
+from django.http import Http404
 from rest_framework import generics, permissions, viewsets
 from rest_framework.exceptions import PermissionDenied
 
+from apps.notifications.models import NotificationType
+from apps.notifications.services import notify_user
 from apps.users.models import DirectorProfile, UserRole
 
-from .models import Department, SchoolClass, Track
-from .serializers import DepartmentSerializer, SchoolClassSerializer, TrackSerializer
+from .models import Department, SchoolClass, Subject, Track
+from .serializers import DepartmentSerializer, SchoolClassSerializer, SubjectSerializer, TrackSerializer
 
 
 def _require_director(user):
@@ -96,3 +99,85 @@ class MyHomeroomClassesView(generics.ListAPIView):
         return SchoolClass.objects.filter(
             homeroom_teacher=self.request.user, is_active=True
         ).select_related("track", "track__department")
+
+
+def _get_school_class(class_id):
+    try:
+        return SchoolClass.objects.select_related(
+            "track", "track__department", "homeroom_teacher"
+        ).get(id=class_id)
+    except SchoolClass.DoesNotExist:
+        raise Http404
+
+
+def _require_homeroom_teacher(school_class, user):
+    if school_class.homeroom_teacher_id != user.id:
+        raise PermissionDenied("Réservé à l'enseignant titulaire de cette classe.")
+
+
+def _notify_dedicated_teacher(subject):
+    notify_user(
+        subject.teacher,
+        NotificationType.CLASS_ASSIGNMENT,
+        title="Vous avez été affecté(e) à une matière",
+        body=(
+            f"{subject.school_class.homeroom_teacher.get_full_name()} vous a ajouté(e) comme "
+            f"enseignant(e) dédié(e) sur \"{subject.name}\" ({subject.school_class})."
+        ),
+        data={"subject_id": subject.id, "school_class_id": subject.school_class_id},
+    )
+
+
+class SubjectListCreateView(generics.ListCreateAPIView):
+    """Matières d'une classe — créées et gérées par l'enseignant titulaire,
+    qui y affecte (ou retire) un enseignant dédié."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SubjectSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        school_class = _get_school_class(self.kwargs["class_id"])
+        _require_homeroom_teacher(school_class, self.request.user)
+        return Subject.objects.filter(school_class=school_class).select_related("teacher")
+
+    def perform_create(self, serializer):
+        school_class = _get_school_class(self.kwargs["class_id"])
+        _require_homeroom_teacher(school_class, self.request.user)
+        subject = serializer.save(school_class=school_class)
+        if subject.teacher_id:
+            _notify_dedicated_teacher(subject)
+
+
+class SubjectDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Détail d'une matière — réservé à l'enseignant titulaire de la classe
+    à laquelle elle appartient."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SubjectSerializer
+
+    def get_queryset(self):
+        return Subject.objects.filter(
+            school_class__homeroom_teacher=self.request.user
+        ).select_related("teacher", "school_class", "school_class__track", "school_class__homeroom_teacher")
+
+    def perform_update(self, serializer):
+        previous_teacher_id = serializer.instance.teacher_id
+        subject = serializer.save()
+        if subject.teacher_id and subject.teacher_id != previous_teacher_id:
+            _notify_dedicated_teacher(subject)
+
+
+class MyDedicatedSubjectsView(generics.ListAPIView):
+    """Matières où l'enseignant connecté est l'enseignant dédié."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SubjectSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        if not self.request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("Réservé aux enseignants.")
+        return Subject.objects.filter(teacher=self.request.user).select_related(
+            "school_class", "school_class__track", "school_class__track__department"
+        )

@@ -2,12 +2,12 @@
 Xporadia — apps/academics/models.py
 
 Structure académique d'un établissement (privé, du primaire au supérieur) :
-Département → Filière → Classe, avec un enseignant titulaire par classe.
+Département → Filière → Classe → Matière, avec un enseignant titulaire par
+classe et un enseignant dédié par matière.
 
-Story 1 du chantier "Classes" — volontairement limitée à cette hiérarchie.
-Les matières (Story 2), le contenu pédagogique (Story 3), la bibliothèque
-(Story 4), les effectifs annuels (Story 5) et l'espace élève (Story 6)
-sont des stories séparées, pas encore construites ici.
+Stories 1 et 2 du chantier "Classes". Le contenu pédagogique (Story 3), la
+bibliothèque (Story 4), les effectifs annuels (Story 5) et l'espace élève
+(Story 6) sont des stories séparées, pas encore construites ici.
 """
 from django.conf import settings
 from django.db import models
@@ -90,3 +90,33 @@ class SchoolClass(models.Model):
 
     def __str__(self):
         return f"{self.name} — {self.school_year} ({self.track.name})"
+
+
+class Subject(models.Model):
+    """Matière enseignée au sein d'une classe — ex: "Mathématiques",
+    "Physique-Chimie". Créée par l'enseignant titulaire de la classe, qui
+    y affecte un enseignant dédié (Story 2 du chantier "Classes"). Le
+    contenu pédagogique (cours, exercices, corrections, notes — Story 3)
+    se rattache à cette matière."""
+
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="subjects")
+    name = models.CharField(max_length=150, verbose_name="Nom de la matière")
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dedicated_subjects",
+        limit_choices_to={"primary_role": "teacher"},
+        verbose_name="Enseignant dédié",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Matière"
+        verbose_name_plural = "Matières"
+        unique_together = ("school_class", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} — {self.school_class}"

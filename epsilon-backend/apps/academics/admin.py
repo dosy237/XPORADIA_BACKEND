@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Department, SchoolClass, Track
+from .models import Department, SchoolClass, Subject, Track
 
 
 class TrackInline(admin.TabularInline):
@@ -22,8 +22,20 @@ class TrackAdmin(admin.ModelAdmin):
     search_fields = ["name", "department__name"]
 
 
+class SubjectInline(admin.TabularInline):
+    model = Subject
+    extra = 0
+
+
 @admin.register(SchoolClass)
 class SchoolClassAdmin(admin.ModelAdmin):
     list_display = ["name", "track", "school_year", "homeroom_teacher", "is_active"]
     list_filter = ["school_year", "is_active"]
     search_fields = ["name", "track__name", "homeroom_teacher__email"]
+    inlines = [SubjectInline]
+
+
+@admin.register(Subject)
+class SubjectAdmin(admin.ModelAdmin):
+    list_display = ["name", "school_class", "teacher"]
+    search_fields = ["name", "school_class__name", "teacher__email"]

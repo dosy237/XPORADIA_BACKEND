@@ -10,5 +10,12 @@ router.register("classes", views.SchoolClassViewSet, basename="school-class")
 
 urlpatterns = [
     path("my-classes/", views.MyHomeroomClassesView.as_view(), name="my-homeroom-classes"),
+    path("my-subjects/", views.MyDedicatedSubjectsView.as_view(), name="my-dedicated-subjects"),
+    path(
+        "classes/<int:class_id>/subjects/",
+        views.SubjectListCreateView.as_view(),
+        name="subject-list",
+    ),
+    path("subjects/<int:pk>/", views.SubjectDetailView.as_view(), name="subject-detail"),
     path("", include(router.urls)),
 ]
