@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.users.models import OTPCode, PreRegistrationCode, TeacherProfile, User, UserRole
+from apps.users.models import DirectorProfile, OTPCode, PreRegistrationCode, TeacherProfile, User, UserRole
 
 pytestmark = pytest.mark.django_db
 
@@ -805,3 +805,147 @@ def test_submit_preregistration_code_forbidden_for_other_roles(api_client):
         "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
     )
     assert response.status_code == 403
+
+
+def _create_establishment(email, school_name="École Test", visible=True, active=True, validated=True, **kwargs):
+    user = User.objects.create_user(
+        email=email, password="testpass123", first_name="D", last_name="R",
+        primary_role=UserRole.DIRECTOR, is_active=active, profile_visible=visible,
+        is_documents_validated=validated,
+    )
+    defaults = {"address": "Cocody, Abidjan"}
+    defaults.update(kwargs)
+    profile = DirectorProfile.objects.create(user=user, school_name=school_name, **defaults)
+    return user, profile
+
+
+def test_establishment_directory_accessible_to_anonymous_visitors(api_client):
+    _create_establishment("visible.school@example.ci")
+    response = api_client.get("/api/v1/auth/establishments/")
+    assert response.status_code == 200
+    assert response.data["count"] >= 1
+
+
+def test_establishment_directory_excludes_hidden_inactive_and_unvalidated(api_client):
+    visible_user, _ = _create_establishment("visible2.school@example.ci", school_name="École Visible")
+    _create_establishment("hidden.school@example.ci", school_name="École Cachée", visible=False)
+    _create_establishment("inactive.school@example.ci", school_name="École Inactive", active=False)
+    _create_establishment("pending.school@example.ci", school_name="École En Attente", validated=False)
+
+    response = api_client.get("/api/v1/auth/establishments/")
+    assert response.status_code == 200
+    names = [e["school_name"] for e in response.data["results"]]
+    assert "École Visible" in names
+    assert "École Cachée" not in names
+    assert "École Inactive" not in names
+    assert "École En Attente" not in names
+
+
+def test_establishment_directory_detail_includes_departments(api_client):
+    from apps.academics.models import Department
+
+    _, profile = _create_establishment("withdept.school@example.ci", school_name="École Avec Départements")
+    Department.objects.create(establishment=profile, name="Secondaire")
+
+    response = api_client.get(f"/api/v1/auth/establishments/{profile.user_id}/")
+    assert response.status_code == 200
+    assert response.data["school_name"] == "École Avec Départements"
+    assert len(response.data["departments"]) == 1
+    assert response.data["departments"][0]["name"] == "Secondaire"
+
+
+def test_establishment_directory_detail_404_for_unknown(api_client):
+    response = api_client.get("/api/v1/auth/establishments/999999/")
+    assert response.status_code == 404
+
+
+def test_teacher_comments_list_accessible_to_anonymous_visitors(api_client):
+    from apps.users.models import TeacherComment
+
+    teacher = _create_teacher("commented.teacher@example.ci", subjects=["Maths"])
+    author = _create_teacher("comment.author@example.ci", subjects=["Français"])
+    TeacherComment.objects.create(teacher=teacher, author=author, body="Excellent professeur.")
+
+    response = api_client.get(f"/api/v1/auth/teachers/{teacher.id}/comments/")
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    assert response.data[0]["body"] == "Excellent professeur."
+    assert response.data[0]["author_name"] == author.get_full_name()
+
+
+def test_teacher_comments_hides_author_name_when_anonymous(api_client):
+    from apps.users.models import TeacherComment
+
+    teacher = _create_teacher("anon.teacher@example.ci", subjects=["Maths"])
+    author = _create_teacher("anon.author@example.ci", subjects=["Français"])
+    TeacherComment.objects.create(teacher=teacher, author=author, body="Bravo.", is_anonymous=True)
+
+    response = api_client.get(f"/api/v1/auth/teachers/{teacher.id}/comments/")
+    assert response.status_code == 200
+    assert response.data[0]["author_name"] == "Anonyme"
+
+
+def test_teacher_comments_excludes_hidden_comments(api_client):
+    from apps.users.models import TeacherComment
+
+    teacher = _create_teacher("hiddencom.teacher@example.ci", subjects=["Maths"])
+    author = _create_teacher("hiddencom.author@example.ci", subjects=["Français"])
+    TeacherComment.objects.create(teacher=teacher, author=author, body="Visible.")
+    TeacherComment.objects.create(teacher=teacher, author=author, body="Masqué.", is_hidden=True)
+
+    response = api_client.get(f"/api/v1/auth/teachers/{teacher.id}/comments/")
+    assert response.status_code == 200
+    bodies = [c["body"] for c in response.data]
+    assert "Visible." in bodies
+    assert "Masqué." not in bodies
+
+
+def test_teacher_comments_404_for_non_teacher_target(api_client):
+    _, profile = _create_establishment("notteacher.target@example.ci")
+    response = api_client.get(f"/api/v1/auth/teachers/{profile.user_id}/comments/")
+    assert response.status_code == 404
+
+
+def test_teacher_comments_post_requires_authentication(api_client):
+    teacher = _create_teacher("postauth.teacher@example.ci", subjects=["Maths"])
+    response = api_client.post(
+        f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "Super."}, format="json"
+    )
+    assert response.status_code == 401
+
+
+def test_teacher_comments_post_creates_comment(api_client):
+    from apps.users.models import TeacherComment
+
+    teacher = _create_teacher("postok.teacher@example.ci", subjects=["Maths"])
+    _login_teacher(api_client, "postok.author@example.ci")
+
+    response = api_client.post(
+        f"/api/v1/auth/teachers/{teacher.id}/comments/",
+        {"body": "Très pédagogue.", "is_anonymous": False},
+        format="json",
+    )
+    assert response.status_code == 201
+    comment = TeacherComment.objects.get(teacher=teacher)
+    assert comment.body == "Très pédagogue."
+    assert comment.author.email == "postok.author@example.ci"
+
+
+def test_teacher_comments_post_rejects_empty_body(api_client):
+    teacher = _create_teacher("postempty.teacher@example.ci", subjects=["Maths"])
+    _login_teacher(api_client, "postempty.author@example.ci")
+
+    response = api_client.post(
+        f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "   "}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_teacher_comments_post_rejects_self_comment(api_client):
+    _login_teacher(api_client, "selfcomment@example.ci")
+    teacher = User.objects.get(email="selfcomment@example.ci")
+
+    response = api_client.post(
+        f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "Auto-éloge."}, format="json"
+    )
+    assert response.status_code == 400

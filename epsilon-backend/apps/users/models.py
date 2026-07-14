@@ -315,3 +315,31 @@ class OTPCode(models.Model):
 
     def __str__(self):
         return f"OTP {self.code} — {self.user.email} ({self.purpose})"
+
+
+class TeacherComment(models.Model):
+    """Commentaire laissé sur le profil public d'un enseignant, depuis le fil
+    d'actualité — anonyme ou non. L'auteur reste toujours enregistré (audit /
+    modération), même quand le commentaire s'affiche comme anonyme aux
+    autres utilisateurs."""
+
+    teacher = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="received_comments"
+    )
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="written_teacher_comments"
+    )
+    body = models.TextField(max_length=1000, verbose_name="Commentaire")
+    is_anonymous = models.BooleanField(default=False, verbose_name="Publié anonymement")
+    is_hidden = models.BooleanField(default=False, verbose_name="Masqué par modération")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Commentaire sur profil enseignant"
+        verbose_name_plural = "Commentaires sur profils enseignants"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["teacher", "is_hidden"])]
+
+    def __str__(self):
+        auteur = "Anonyme" if self.is_anonymous else self.author.get_full_name()
+        return f"{auteur} → {self.teacher.get_full_name()} : {self.body[:40]}"

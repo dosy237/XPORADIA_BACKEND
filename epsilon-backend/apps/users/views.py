@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -7,20 +8,34 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import Child, CompanyProfile, DirectorProfile, OTPPurpose, ParentProfile, TeacherProfile, UserRole
+from .models import (
+    Child,
+    CompanyProfile,
+    DirectorProfile,
+    OTPPurpose,
+    ParentProfile,
+    TeacherComment,
+    TeacherProfile,
+    User,
+    UserRole,
+)
 from .serializers import (
     AccountDeletionRequestSerializer,
     ChangePasswordSerializer,
     ChildDetailSerializer,
     CompanyProfileSerializer,
+    CreateTeacherCommentSerializer,
     CustomTokenObtainPairSerializer,
     DirectorProfileSerializer,
+    EstablishmentDirectoryCardSerializer,
+    EstablishmentDirectoryDetailSerializer,
     ParentProfileSerializer,
     RegisterCompanySerializer,
     RegisterDirectorSerializer,
     RegisterParentSerializer,
     RegisterTeacherSerializer,
     SubmitPreRegistrationCodeSerializer,
+    TeacherCommentSerializer,
     TeacherDirectoryCardSerializer,
     TeacherDirectoryDetailSerializer,
     TeacherProfileSerializer,
@@ -189,6 +204,64 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
         if self.action == "retrieve":
             return TeacherDirectoryDetailSerializer
         return TeacherDirectoryCardSerializer
+
+
+class EstablishmentDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """Annuaire public des établissements — alimente le fil d'actualité au
+    même titre que l'annuaire des enseignants."""
+
+    permission_classes = [permissions.AllowAny]
+    lookup_field = "user_id"
+    lookup_url_kwarg = "user_id"
+
+    def get_queryset(self):
+        return (
+            DirectorProfile.objects.filter(
+                user__is_active=True,
+                user__profile_visible=True,
+                user__is_documents_validated=True,
+            )
+            .select_related("user")
+            .order_by("school_name")
+        )
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return EstablishmentDirectoryDetailSerializer
+        return EstablishmentDirectoryCardSerializer
+
+
+class TeacherCommentListCreateView(generics.ListCreateAPIView):
+    pagination_class = None
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
+
+    def get_teacher(self):
+        try:
+            teacher = User.objects.get(id=self.kwargs["user_id"])
+        except User.DoesNotExist:
+            raise Http404
+        if not teacher.has_role(UserRole.TEACHER):
+            raise Http404
+        return teacher
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return CreateTeacherCommentSerializer
+        return TeacherCommentSerializer
+
+    def get_queryset(self):
+        teacher = self.get_teacher()
+        return TeacherComment.objects.filter(teacher=teacher, is_hidden=False).select_related("author")
+
+    def perform_create(self, serializer):
+        teacher = self.get_teacher()
+        if teacher == self.request.user:
+            raise ValidationError("Vous ne pouvez pas commenter votre propre profil.")
+        serializer.save(teacher=teacher, author=self.request.user)
 
 
 class DirectorProfileView(generics.RetrieveUpdateAPIView):

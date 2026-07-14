@@ -8,6 +8,7 @@ from .models import (
     DirectorProfile,
     ParentProfile,
     PreRegistrationCode,
+    TeacherComment,
     TeacherProfile,
     User,
     UserRole,
@@ -274,6 +275,57 @@ class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
             .order_by("-issued_at")
         )
         return CertificationSerializer(qs, many=True).data
+
+
+class EstablishmentDirectoryCardSerializer(serializers.ModelSerializer):
+    """Vue publique d'un établissement — alimente le fil d'actualité au même
+    titre que les enseignants."""
+
+    id = serializers.IntegerField(source="user.id", read_only=True)
+    avatar = serializers.ImageField(source="user.avatar", read_only=True)
+
+    class Meta:
+        model = DirectorProfile
+        fields = ["id", "school_name", "address", "levels_taught", "student_count", "is_partner", "avatar"]
+        read_only_fields = fields
+
+
+class EstablishmentDirectoryDetailSerializer(EstablishmentDirectoryCardSerializer):
+    departments = serializers.SerializerMethodField()
+
+    class Meta(EstablishmentDirectoryCardSerializer.Meta):
+        fields = EstablishmentDirectoryCardSerializer.Meta.fields + ["departments"]
+        read_only_fields = fields
+
+    def get_departments(self, obj):
+        from apps.academics.models import Department
+        from apps.academics.serializers import DepartmentSerializer
+
+        qs = Department.objects.filter(establishment=obj)
+        return DepartmentSerializer(qs, many=True).data
+
+
+class TeacherCommentSerializer(serializers.ModelSerializer):
+    author_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TeacherComment
+        fields = ["id", "body", "is_anonymous", "author_name", "created_at"]
+        read_only_fields = fields
+
+    def get_author_name(self, obj):
+        return "Anonyme" if obj.is_anonymous else obj.author.get_full_name()
+
+
+class CreateTeacherCommentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TeacherComment
+        fields = ["body", "is_anonymous"]
+
+    def validate_body(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Le commentaire ne peut pas être vide.")
+        return value.strip()
 
 
 class ChildDetailSerializer(serializers.ModelSerializer):

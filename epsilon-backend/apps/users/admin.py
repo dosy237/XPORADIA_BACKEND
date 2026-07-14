@@ -10,6 +10,7 @@ from .models import (
     OTPCode,
     ParentProfile,
     PreRegistrationCode,
+    TeacherComment,
     TeacherDiploma,
     TeacherProfile,
     User,
@@ -97,3 +98,21 @@ class ParentProfileAdmin(admin.ModelAdmin):
 class OTPCodeAdmin(admin.ModelAdmin):
     list_display = ["user", "purpose", "created_at", "expires_at", "used"]
     list_filter = ["purpose", "used"]
+
+
+@admin.register(TeacherComment)
+class TeacherCommentAdmin(admin.ModelAdmin):
+    list_display = ["teacher", "author", "is_anonymous", "is_hidden", "created_at"]
+    list_filter = ["is_anonymous", "is_hidden"]
+    search_fields = ["teacher__email", "author__email", "body"]
+    actions = ["hide_selected_comments", "unhide_selected_comments"]
+
+    @admin.action(description="Masquer le(s) commentaire(s) sélectionné(s)")
+    def hide_selected_comments(self, request, queryset):
+        updated = queryset.update(is_hidden=True)
+        self.message_user(request, f"{updated} commentaire(s) masqué(s).")
+
+    @admin.action(description="Réafficher le(s) commentaire(s) sélectionné(s)")
+    def unhide_selected_comments(self, request, queryset):
+        updated = queryset.update(is_hidden=False)
+        self.message_user(request, f"{updated} commentaire(s) réaffiché(s).")

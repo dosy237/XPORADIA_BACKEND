@@ -31,6 +31,21 @@ urlpatterns = [
         views.TeacherDirectoryViewSet.as_view({"get": "retrieve"}),
         name="teacher-directory-detail",
     ),
+    path(
+        "establishments/",
+        views.EstablishmentDirectoryViewSet.as_view({"get": "list"}),
+        name="establishment-directory-list",
+    ),
+    path(
+        "establishments/<int:user_id>/",
+        views.EstablishmentDirectoryViewSet.as_view({"get": "retrieve"}),
+        name="establishment-directory-detail",
+    ),
+    path(
+        "teachers/<int:user_id>/comments/",
+        views.TeacherCommentListCreateView.as_view(),
+        name="teacher-comments",
+    ),
     path("director-profile/", views.DirectorProfileView.as_view(), name="director-profile"),
     path("company-profile/", views.CompanyProfileView.as_view(), name="company-profile"),
     path("parent-profile/", views.ParentProfileView.as_view(), name="parent-profile"),
