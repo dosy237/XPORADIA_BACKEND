@@ -144,6 +144,13 @@ class DirectorProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_partner"]
 
 
+class CompanyProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompanyProfile
+        fields = ["company_name", "sector", "address", "is_partner"]
+        read_only_fields = ["is_partner"]
+
+
 class ChildDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child

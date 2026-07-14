@@ -6,9 +6,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import Child, DirectorProfile, OTPPurpose, ParentProfile, TeacherProfile, UserRole
+from .models import Child, CompanyProfile, DirectorProfile, OTPPurpose, ParentProfile, TeacherProfile, UserRole
 from .serializers import (
     ChildDetailSerializer,
+    CompanyProfileSerializer,
     CustomTokenObtainPairSerializer,
     DirectorProfileSerializer,
     ParentProfileSerializer,
@@ -21,9 +22,9 @@ from .serializers import (
     UserSerializer,
     VerifyOTPSerializer,
 )
+from .services import generate_otp, verify_otp
 
 MAX_CHILDREN_PER_PARENT = 5
-from .services import generate_otp, verify_otp
 
 
 class BaseRegisterView(APIView):
@@ -127,6 +128,16 @@ class DirectorProfileView(generics.RetrieveUpdateAPIView):
         if not self.request.user.has_role(UserRole.DIRECTOR):
             raise PermissionDenied("Réservé aux directeurs d'établissement.")
         return DirectorProfile.objects.get(user=self.request.user)
+
+
+class CompanyProfileView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CompanyProfileSerializer
+
+    def get_object(self):
+        if not self.request.user.has_role(UserRole.COMPANY):
+            raise PermissionDenied("Réservé aux entreprises.")
+        return CompanyProfile.objects.get(user=self.request.user)
 
 
 class ParentProfileView(generics.RetrieveUpdateAPIView):

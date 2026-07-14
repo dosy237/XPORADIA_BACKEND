@@ -300,6 +300,71 @@ def test_director_profile_forbidden_for_other_roles(api_client):
     assert response.status_code == 403
 
 
+def test_company_profile_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/company-profile/")
+    assert response.status_code == 401
+
+
+def test_company_profile_get_and_update(api_client):
+    api_client.post(
+        "/api/v1/auth/register/company/",
+        {
+            "email": "entreprise.profile@example.ci", "password": "testpass123",
+            "first_name": "S", "last_name": "K",
+            "company_name": "Ivoire Digital", "sector": "EdTech", "address": "Plateau, Abidjan",
+        },
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "entreprise.profile@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    get_response = api_client.get("/api/v1/auth/company-profile/")
+    assert get_response.status_code == 200
+    assert get_response.data["company_name"] == "Ivoire Digital"
+
+    patch_response = api_client.patch(
+        "/api/v1/auth/company-profile/", {"sector": "Technologies éducatives"}, format="json"
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.data["sector"] == "Technologies éducatives"
+    assert patch_response.data["is_partner"] is False
+
+
+def test_company_profile_is_partner_is_read_only(api_client):
+    api_client.post(
+        "/api/v1/auth/register/company/",
+        {
+            "email": "entreprise.ro@example.ci", "password": "testpass123",
+            "first_name": "S", "last_name": "K",
+            "company_name": "RO Corp", "address": "Marcory, Abidjan",
+        },
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "entreprise.ro@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.patch("/api/v1/auth/company-profile/", {"is_partner": True}, format="json")
+    assert response.status_code == 200
+    assert response.data["is_partner"] is False
+
+
+def test_company_profile_forbidden_for_other_roles(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {"email": "notcompany@example.ci", "password": "testpass123", "first_name": "N", "last_name": "C"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "notcompany@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.get("/api/v1/auth/company-profile/")
+    assert response.status_code == 403
+
+
 def _login_parent(api_client, email, children=None):
     api_client.post(
         "/api/v1/auth/register/parent/",
