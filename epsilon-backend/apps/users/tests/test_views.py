@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.users.models import OTPCode, User, UserRole
+from apps.users.models import OTPCode, TeacherProfile, User, UserRole
 
 pytestmark = pytest.mark.django_db
 
@@ -585,3 +585,101 @@ def test_deactivated_account_cannot_login_again(api_client):
         "/api/v1/auth/token/", {"email": "del.relogin@example.ci", "password": "testpass123"}, format="json"
     )
     assert response.status_code == 401
+
+
+def _create_teacher(email, subjects=None, visible=True, active=True, **profile_kwargs):
+    user = User.objects.create_user(
+        email=email, password="testpass123", first_name="Prénom", last_name="Nom",
+        primary_role=UserRole.TEACHER, is_active=active, profile_visible=visible,
+    )
+    TeacherProfile.objects.create(user=user, subjects=subjects or [], **profile_kwargs)
+    return user
+
+
+def test_teacher_directory_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/teachers/")
+    assert response.status_code == 401
+
+
+def test_teacher_directory_forbidden_for_non_teacher(api_client):
+    api_client.post(
+        "/api/v1/auth/register/parent/",
+        {"email": "parent.directory@example.ci", "password": "testpass123", "first_name": "P", "last_name": "D"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "parent.directory@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.get("/api/v1/auth/teachers/")
+    assert response.status_code == 403
+
+
+def test_teacher_directory_excludes_self_hidden_and_inactive(api_client):
+    _login_teacher(api_client, "viewer@example.ci")
+    visible = _create_teacher("visible.colleague@example.ci", subjects=["Maths"])
+    _create_teacher("hidden.colleague@example.ci", subjects=["Maths"], visible=False)
+    _create_teacher("inactive.colleague@example.ci", subjects=["Maths"], active=False)
+
+    response = api_client.get("/api/v1/auth/teachers/")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert len(results) == 1
+    assert results[0]["id"] == visible.id
+
+
+def test_teacher_directory_hides_hourly_rate_and_contact_info(api_client):
+    _login_teacher(api_client, "viewer2@example.ci")
+    _create_teacher("colleague2@example.ci", subjects=["Maths"], hourly_rate="7000")
+
+    response = api_client.get("/api/v1/auth/teachers/")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert "hourly_rate" not in results[0]
+    assert "email" not in results[0]
+    assert "phone" not in results[0]
+
+
+def test_teacher_directory_filter_by_subject(api_client):
+    _login_teacher(api_client, "viewer3@example.ci")
+    _create_teacher("math.teacher@example.ci", subjects=["Mathématiques"])
+    _create_teacher("french.teacher@example.ci", subjects=["Français"])
+
+    response = api_client.get("/api/v1/auth/teachers/?subject=math")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert len(results) == 1
+    assert results[0]["subjects"] == ["Mathématiques"]
+
+
+def test_teacher_directory_detail_includes_bio_and_certifications(api_client):
+    _login_teacher(api_client, "viewer4@example.ci")
+    colleague = _create_teacher("colleague4@example.ci", subjects=["SVT"], bio="Passionnée de sciences.")
+
+    response = api_client.get(f"/api/v1/auth/teachers/{colleague.id}/")
+    assert response.status_code == 200
+    assert response.data["bio"] == "Passionnée de sciences."
+    assert response.data["certifications"] == []
+    assert response.data["current_level"] is None
+
+
+def test_teacher_directory_detail_404_for_self(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {"email": "selfview@example.ci", "password": "testpass123", "first_name": "S", "last_name": "V"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "selfview@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    self_id = User.objects.get(email="selfview@example.ci").id
+
+    response = api_client.get(f"/api/v1/auth/teachers/{self_id}/")
+    assert response.status_code == 404
+
+
+def test_teacher_directory_detail_404_for_unknown_teacher(api_client):
+    _login_teacher(api_client, "viewer5@example.ci")
+    response = api_client.get("/api/v1/auth/teachers/999999/")
+    assert response.status_code == 404

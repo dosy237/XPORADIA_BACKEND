@@ -16,6 +16,16 @@ urlpatterns = [
     path("me/export/", views.MyDataExportView.as_view(), name="my-data-export"),
     path("me/request-deletion/", views.AccountDeletionRequestView.as_view(), name="request-deletion"),
     path("teacher-profile/", views.TeacherProfileView.as_view(), name="teacher-profile"),
+    path(
+        "teachers/",
+        views.TeacherDirectoryViewSet.as_view({"get": "list"}),
+        name="teacher-directory-list",
+    ),
+    path(
+        "teachers/<int:user_id>/",
+        views.TeacherDirectoryViewSet.as_view({"get": "retrieve"}),
+        name="teacher-directory-detail",
+    ),
     path("director-profile/", views.DirectorProfileView.as_view(), name="director-profile"),
     path("company-profile/", views.CompanyProfileView.as_view(), name="company-profile"),
     path("parent-profile/", views.ParentProfileView.as_view(), name="parent-profile"),

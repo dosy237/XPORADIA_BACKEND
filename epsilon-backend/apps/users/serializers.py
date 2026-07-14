@@ -152,6 +152,65 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ["is_partner"]
 
 
+def _current_certification_level(user):
+    from apps.certification.models import Certification, CertificationLevel
+
+    levels_achieved = set(
+        Certification.objects.filter(teacher=user, is_valid=True).values_list("level", flat=True)
+    )
+    for level in [CertificationLevel.GOLD, CertificationLevel.SILVER, CertificationLevel.BRONZE]:
+        if level in levels_achieved:
+            return level
+    return None
+
+
+class TeacherDirectoryCardSerializer(serializers.ModelSerializer):
+    """Vue d'un profil enseignant par un enseignant tiers (annuaire).
+
+    Reflète la matrice de visibilité du cahier des charges pour le rôle
+    Enseignant : nom, photo, matières, niveau de certification et
+    disponibilités sont visibles ; le tarif horaire des cours particuliers
+    ne l'est pas (réservé au parent), ni l'email/téléphone (réservés à
+    l'admin).
+    """
+
+    id = serializers.IntegerField(source="user.id", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", read_only=True)
+    last_name = serializers.CharField(source="user.last_name", read_only=True)
+    avatar = serializers.ImageField(source="user.avatar", read_only=True)
+    current_level = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TeacherProfile
+        fields = [
+            "id", "first_name", "last_name", "avatar", "subjects", "experience_years",
+            "location", "available_for_tutoring", "available_for_employment", "current_level",
+        ]
+        read_only_fields = fields
+
+    def get_current_level(self, obj):
+        return _current_certification_level(obj.user)
+
+
+class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
+    certifications = serializers.SerializerMethodField()
+
+    class Meta(TeacherDirectoryCardSerializer.Meta):
+        fields = TeacherDirectoryCardSerializer.Meta.fields + ["bio", "certifications"]
+        read_only_fields = fields
+
+    def get_certifications(self, obj):
+        from apps.certification.models import Certification
+        from apps.certification.serializers import CertificationSerializer
+
+        qs = (
+            Certification.objects.filter(teacher=obj.user, is_valid=True)
+            .select_related("module")
+            .order_by("-issued_at")
+        )
+        return CertificationSerializer(qs, many=True).data
+
+
 class ChildDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child

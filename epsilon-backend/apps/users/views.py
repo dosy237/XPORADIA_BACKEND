@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -20,6 +20,8 @@ from .serializers import (
     RegisterDirectorSerializer,
     RegisterParentSerializer,
     RegisterTeacherSerializer,
+    TeacherDirectoryCardSerializer,
+    TeacherDirectoryDetailSerializer,
     TeacherProfileSerializer,
     UpdateMeSerializer,
     UserSerializer,
@@ -121,6 +123,54 @@ class TeacherProfileView(generics.RetrieveUpdateAPIView):
         if not self.request.user.has_role(UserRole.TEACHER):
             raise PermissionDenied("Réservé aux enseignants.")
         return TeacherProfile.objects.get(user=self.request.user)
+
+
+class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """Annuaire des enseignants — consultation par un enseignant tiers.
+
+    Réservé au rôle enseignant pour l'instant : la vue directeur (avec
+    prétention salariale) et la vue parent (avec tarif horaire + agenda)
+    exposent des champs différents et feront l'objet d'une story dédiée
+    (D-02 / P-02), pas un simple élargissement de permission ici.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = "user_id"
+    lookup_url_kwarg = "user_id"
+
+    def get_queryset(self):
+        qs = (
+            TeacherProfile.objects.filter(user__is_active=True, user__profile_visible=True)
+            .exclude(user=self.request.user)
+            .select_related("user")
+            .order_by("user__first_name", "user__last_name")
+        )
+        subject = self.request.query_params.get("subject")
+        if subject:
+            # Filtrage en Python : JSONField.__contains n'est pas supporté sur
+            # SQLite (dev). À revisiter avec un index de recherche dédié si
+            # l'annuaire grossit significativement en production (Postgres).
+            needle = subject.lower()
+            matching_ids = [tp.pk for tp in qs if any(needle in s.lower() for s in tp.subjects)]
+            qs = qs.filter(pk__in=matching_ids)
+        return qs
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return TeacherDirectoryDetailSerializer
+        return TeacherDirectoryCardSerializer
+
+    def _check_permission(self):
+        if not self.request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("L'annuaire des enseignants est réservé aux enseignants pour le moment.")
+
+    def list(self, request, *args, **kwargs):
+        self._check_permission()
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        self._check_permission()
+        return super().retrieve(request, *args, **kwargs)
 
 
 class DirectorProfileView(generics.RetrieveUpdateAPIView):
