@@ -1,6 +1,7 @@
 from django.contrib import admin
 
-from apps.notifications.models import Notification, NotificationChannel, NotificationType
+from apps.notifications.models import NotificationType
+from apps.notifications.services import notify_user
 
 from .models import (
     Child,
@@ -31,10 +32,9 @@ class UserAdmin(admin.ModelAdmin):
         for user in queryset.filter(is_documents_validated=False):
             user.is_documents_validated = True
             user.save(update_fields=["is_documents_validated"])
-            Notification.objects.create(
-                user=user,
-                notif_type=NotificationType.SYSTEM,
-                channel=NotificationChannel.INAPP,
+            notify_user(
+                user,
+                NotificationType.SYSTEM,
                 title="Votre compte Xporadia est validé",
                 body=(
                     "Xporadia a validé votre formation présentielle et votre profil. "

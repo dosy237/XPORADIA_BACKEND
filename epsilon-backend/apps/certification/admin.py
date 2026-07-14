@@ -4,7 +4,8 @@ import secrets
 from django.contrib import admin
 from django.utils import timezone
 
-from apps.notifications.models import Notification, NotificationChannel, NotificationType
+from apps.notifications.models import NotificationType
+from apps.notifications.services import notify_user
 
 from .models import Certification, ExamAttempt, ExamQuestion, TrainingModule, TrainingSession
 
@@ -62,10 +63,9 @@ class ExamAttemptAdmin(admin.ModelAdmin):
             attempt.graded_by = request.user
             attempt.graded_at = timezone.now()
             attempt.save(update_fields=["status", "graded_by", "graded_at"])
-            Notification.objects.create(
-                user=attempt.teacher,
-                notif_type=NotificationType.EXAM_RESULT,
-                channel=NotificationChannel.INAPP,
+            notify_user(
+                attempt.teacher,
+                NotificationType.EXAM_RESULT,
                 title="Certification délivrée",
                 body=f"Félicitations, votre niveau {module.target_level} pour « {module.title} » a été validé par Xporadia.",
             )
@@ -82,10 +82,9 @@ class ExamAttemptAdmin(admin.ModelAdmin):
         for attempt in attempts:
             attempt.status = "failed"
             attempt.save(update_fields=["status"])
-            Notification.objects.create(
-                user=attempt.teacher,
-                notif_type=NotificationType.EXAM_RESULT,
-                channel=NotificationChannel.INAPP,
+            notify_user(
+                attempt.teacher,
+                NotificationType.EXAM_RESULT,
                 title="Résultat d'examen",
                 body=f"Votre tentative pour « {attempt.session.module.title} » n'a pas été validée cette fois-ci.",
             )

@@ -1,7 +1,10 @@
+from unittest.mock import patch
+
 import pytest
 from rest_framework.test import APIClient
 
-from apps.notifications.models import Notification, NotificationChannel, NotificationType
+from apps.notifications.models import DeviceToken, Notification, NotificationChannel, NotificationType
+from apps.notifications.services import notify_user
 from apps.users.models import User, UserRole
 
 pytestmark = pytest.mark.django_db
@@ -81,3 +84,91 @@ def test_mark_notification_read_404_for_other_users_notification(authed_client):
     )
     response = authed_client.post(f"/api/v1/notifications/{notification.id}/read/")
     assert response.status_code == 404
+
+
+def test_register_device_requires_authentication(api_client):
+    response = api_client.post(
+        "/api/v1/notifications/devices/register/",
+        {"token": "ExponentPushToken[abc]", "platform": "ios"},
+        format="json",
+    )
+    assert response.status_code == 401
+
+
+def test_register_device_creates_token(authed_client, teacher):
+    response = authed_client.post(
+        "/api/v1/notifications/devices/register/",
+        {"token": "ExponentPushToken[abc]", "platform": "ios"},
+        format="json",
+    )
+    assert response.status_code == 200
+    token = DeviceToken.objects.get(token="ExponentPushToken[abc]")
+    assert token.user == teacher
+    assert token.platform == "ios"
+
+
+def test_register_device_reassigns_token_to_new_user(authed_client, teacher):
+    other = User.objects.create_user(
+        email="deviceowner@example.ci", password="testpass123",
+        first_name="D", last_name="O", primary_role=UserRole.TEACHER,
+    )
+    DeviceToken.objects.create(user=other, token="ExponentPushToken[shared]", platform="android")
+
+    response = authed_client.post(
+        "/api/v1/notifications/devices/register/",
+        {"token": "ExponentPushToken[shared]", "platform": "android"},
+        format="json",
+    )
+    assert response.status_code == 200
+    token = DeviceToken.objects.get(token="ExponentPushToken[shared]")
+    assert token.user == teacher
+
+
+def test_unregister_device_removes_token(authed_client, teacher):
+    DeviceToken.objects.create(user=teacher, token="ExponentPushToken[bye]", platform="ios")
+    response = authed_client.post(
+        "/api/v1/notifications/devices/unregister/", {"token": "ExponentPushToken[bye]"}, format="json"
+    )
+    assert response.status_code == 204
+    assert not DeviceToken.objects.filter(token="ExponentPushToken[bye]").exists()
+
+
+def test_unregister_device_cannot_remove_other_users_token(authed_client, teacher):
+    other = User.objects.create_user(
+        email="deviceowner2@example.ci", password="testpass123",
+        first_name="D", last_name="O", primary_role=UserRole.TEACHER,
+    )
+    DeviceToken.objects.create(user=other, token="ExponentPushToken[notyours]", platform="ios")
+    response = authed_client.post(
+        "/api/v1/notifications/devices/unregister/", {"token": "ExponentPushToken[notyours]"}, format="json"
+    )
+    assert response.status_code == 204
+    assert DeviceToken.objects.filter(token="ExponentPushToken[notyours]").exists()
+
+
+def test_notify_user_creates_inapp_notification_and_sends_push(teacher):
+    DeviceToken.objects.create(user=teacher, token="ExponentPushToken[push]", platform="ios")
+    with patch("apps.notifications.services.requests.post") as mock_post:
+        mock_post.return_value.raise_for_status.return_value = None
+        notification = notify_user(teacher, NotificationType.SYSTEM, title="Titre", body="Corps")
+
+    assert notification.title == "Titre"
+    assert Notification.objects.filter(user=teacher, title="Titre").exists()
+    mock_post.assert_called_once()
+    sent_messages = mock_post.call_args.kwargs["json"]
+    assert sent_messages[0]["to"] == "ExponentPushToken[push]"
+
+
+def test_notify_user_skips_push_call_without_device_tokens(teacher):
+    with patch("apps.notifications.services.requests.post") as mock_post:
+        notify_user(teacher, NotificationType.SYSTEM, title="Titre", body="Corps")
+    mock_post.assert_not_called()
+
+
+def test_notify_user_survives_push_network_failure(teacher):
+    import requests
+
+    DeviceToken.objects.create(user=teacher, token="ExponentPushToken[fail]", platform="ios")
+    with patch("apps.notifications.services.requests.post", side_effect=requests.RequestException("boom")):
+        notification = notify_user(teacher, NotificationType.SYSTEM, title="Titre", body="Corps")
+    assert notification is not None

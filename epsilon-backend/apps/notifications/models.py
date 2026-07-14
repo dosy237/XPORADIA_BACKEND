@@ -74,3 +74,31 @@ class Notification(models.Model):
     def __str__(self):
         statut = "lu" if self.is_read else "non lu"
         return f"[{self.notif_type}] → {self.user.get_full_name()} ({statut})"
+
+
+class DevicePlatform(models.TextChoices):
+    IOS = "ios", "iOS"
+    ANDROID = "android", "Android"
+    WEB = "web", "Web"
+
+
+class DeviceToken(models.Model):
+    """Token push Expo d'un appareil. Un utilisateur peut avoir plusieurs
+    appareils enregistrés (téléphone + tablette, réinstallation...). Le
+    token appartient à l'appareil, pas au compte : à la reconnexion d'un
+    autre utilisateur sur le même appareil, il est simplement réassigné."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="device_tokens"
+    )
+    token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=10, choices=DevicePlatform.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Token push"
+        verbose_name_plural = "Tokens push"
+
+    def __str__(self):
+        return f"{self.token[:24]}... — {self.user.get_full_name()}"
