@@ -13,4 +13,8 @@ urlpatterns = [
     path("otp/resend/", views.ResendOTPView.as_view(), name="otp-resend"),
     path("me/", views.MeView.as_view(), name="me"),
     path("teacher-profile/", views.TeacherProfileView.as_view(), name="teacher-profile"),
+    path("director-profile/", views.DirectorProfileView.as_view(), name="director-profile"),
+    path("parent-profile/", views.ParentProfileView.as_view(), name="parent-profile"),
+    path("children/", views.ChildListCreateView.as_view(), name="children-list"),
+    path("children/<int:pk>/", views.ChildDetailView.as_view(), name="children-detail"),
 ]

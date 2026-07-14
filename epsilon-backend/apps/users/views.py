@@ -1,13 +1,17 @@
 from django.db import transaction
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .models import OTPPurpose, TeacherProfile, UserRole
+from .models import Child, DirectorProfile, OTPPurpose, ParentProfile, TeacherProfile, UserRole
 from .serializers import (
+    ChildDetailSerializer,
     CustomTokenObtainPairSerializer,
+    DirectorProfileSerializer,
+    ParentProfileSerializer,
     RegisterCompanySerializer,
     RegisterDirectorSerializer,
     RegisterParentSerializer,
@@ -17,6 +21,8 @@ from .serializers import (
     UserSerializer,
     VerifyOTPSerializer,
 )
+
+MAX_CHILDREN_PER_PARENT = 5
 from .services import generate_otp, verify_otp
 
 
@@ -109,6 +115,55 @@ class TeacherProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         if not self.request.user.has_role(UserRole.TEACHER):
-            from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Réservé aux enseignants.")
         return TeacherProfile.objects.get(user=self.request.user)
+
+
+class DirectorProfileView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DirectorProfileSerializer
+
+    def get_object(self):
+        if not self.request.user.has_role(UserRole.DIRECTOR):
+            raise PermissionDenied("Réservé aux directeurs d'établissement.")
+        return DirectorProfile.objects.get(user=self.request.user)
+
+
+class ParentProfileView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ParentProfileSerializer
+
+    def get_object(self):
+        if not self.request.user.has_role(UserRole.PARENT):
+            raise PermissionDenied("Réservé aux parents.")
+        return ParentProfile.objects.get(user=self.request.user)
+
+
+class ChildListCreateView(generics.ListCreateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChildDetailSerializer
+    pagination_class = None  # au plus 5 enfants par parent : pas de pagination nécessaire
+
+    def get_parent_profile(self):
+        if not self.request.user.has_role(UserRole.PARENT):
+            raise PermissionDenied("Réservé aux parents.")
+        return ParentProfile.objects.get(user=self.request.user)
+
+    def get_queryset(self):
+        return Child.objects.filter(parent=self.get_parent_profile())
+
+    def perform_create(self, serializer):
+        parent_profile = self.get_parent_profile()
+        if parent_profile.children.count() >= MAX_CHILDREN_PER_PARENT:
+            raise ValidationError("Maximum 5 enfants par parent.")
+        serializer.save(parent=parent_profile)
+
+
+class ChildDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChildDetailSerializer
+
+    def get_queryset(self):
+        if not self.request.user.has_role(UserRole.PARENT):
+            raise PermissionDenied("Réservé aux parents.")
+        return Child.objects.filter(parent__user=self.request.user)

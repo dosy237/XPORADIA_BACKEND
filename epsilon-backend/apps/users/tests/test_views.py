@@ -222,3 +222,198 @@ def test_teacher_profile_forbidden_for_other_roles(api_client):
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     response = api_client.get("/api/v1/auth/teacher-profile/")
     assert response.status_code == 403
+
+
+def test_director_profile_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/director-profile/")
+    assert response.status_code == 401
+
+
+def test_director_profile_get_and_update(api_client):
+    api_client.post(
+        "/api/v1/auth/register/director/",
+        {
+            "email": "directeur.profile@example.ci", "password": "testpass123",
+            "first_name": "D", "last_name": "R",
+            "school_name": "Ecole Test", "address": "Cocody, Abidjan",
+            "levels_taught": ["Primaire"], "student_count": 120,
+        },
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/",
+        {"email": "directeur.profile@example.ci", "password": "testpass123"},
+        format="json",
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    get_response = api_client.get("/api/v1/auth/director-profile/")
+    assert get_response.status_code == 200
+    assert get_response.data["school_name"] == "Ecole Test"
+    assert get_response.data["student_count"] == 120
+
+    patch_response = api_client.patch(
+        "/api/v1/auth/director-profile/",
+        {"student_count": 150, "levels_taught": ["Primaire", "Collège"]},
+        format="json",
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.data["student_count"] == 150
+    assert patch_response.data["levels_taught"] == ["Primaire", "Collège"]
+    # is_partner est en lecture seule : une tentative de le forcer via l'API
+    # ne doit jamais accorder le statut de partenaire.
+    assert patch_response.data["is_partner"] is False
+
+
+def test_director_profile_is_partner_is_read_only(api_client):
+    api_client.post(
+        "/api/v1/auth/register/director/",
+        {
+            "email": "directeur.ro@example.ci", "password": "testpass123",
+            "first_name": "D", "last_name": "R",
+            "school_name": "Ecole RO", "address": "Yopougon, Abidjan",
+        },
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "directeur.ro@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.patch(
+        "/api/v1/auth/director-profile/", {"is_partner": True}, format="json"
+    )
+    assert response.status_code == 200
+    assert response.data["is_partner"] is False
+
+
+def test_director_profile_forbidden_for_other_roles(api_client):
+    api_client.post(
+        "/api/v1/auth/register/parent/",
+        {"email": "notdirector@example.ci", "password": "testpass123", "first_name": "N", "last_name": "D"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "notdirector@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.get("/api/v1/auth/director-profile/")
+    assert response.status_code == 403
+
+
+def _login_parent(api_client, email, children=None):
+    api_client.post(
+        "/api/v1/auth/register/parent/",
+        {
+            "email": email, "password": "testpass123",
+            "first_name": "F", "last_name": "T", "location": "Marcory, Abidjan",
+            "children": children or [],
+        },
+        format="json",
+    )
+    login = api_client.post("/api/v1/auth/token/", {"email": email, "password": "testpass123"}, format="json")
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+
+def test_parent_profile_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/parent-profile/")
+    assert response.status_code == 401
+
+
+def test_parent_profile_get_includes_children_and_update_location(api_client):
+    _login_parent(
+        api_client,
+        "parent.profile@example.ci",
+        children=[{"first_name": "Aïcha", "class_level": "5ème", "target_subjects": ["Anglais"]}],
+    )
+
+    get_response = api_client.get("/api/v1/auth/parent-profile/")
+    assert get_response.status_code == 200
+    assert get_response.data["location"] == "Marcory, Abidjan"
+    assert len(get_response.data["children"]) == 1
+    assert get_response.data["children"][0]["first_name"] == "Aïcha"
+    assert get_response.data["subscription_active"] is False
+
+    patch_response = api_client.patch(
+        "/api/v1/auth/parent-profile/", {"location": "Cocody, Abidjan"}, format="json"
+    )
+    assert patch_response.status_code == 200
+    assert patch_response.data["location"] == "Cocody, Abidjan"
+
+
+def test_parent_profile_forbidden_for_other_roles(api_client):
+    api_client.post(
+        "/api/v1/auth/register/teacher/",
+        {"email": "notparent@example.ci", "password": "testpass123", "first_name": "N", "last_name": "P"},
+        format="json",
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": "notparent@example.ci", "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.get("/api/v1/auth/parent-profile/")
+    assert response.status_code == 403
+
+
+def test_children_requires_authentication(api_client):
+    response = api_client.get("/api/v1/auth/children/")
+    assert response.status_code == 401
+
+
+def test_children_add_list_update_delete(api_client):
+    _login_parent(api_client, "parent.children@example.ci")
+
+    create_response = api_client.post(
+        "/api/v1/auth/children/",
+        {"first_name": "Ibrahim", "class_level": "CM2", "target_subjects": ["Français"]},
+        format="json",
+    )
+    assert create_response.status_code == 201
+    child_id = create_response.data["id"]
+
+    list_response = api_client.get("/api/v1/auth/children/")
+    assert list_response.status_code == 200
+    assert len(list_response.data) == 1
+
+    update_response = api_client.patch(
+        f"/api/v1/auth/children/{child_id}/", {"class_level": "6ème"}, format="json"
+    )
+    assert update_response.status_code == 200
+    assert update_response.data["class_level"] == "6ème"
+
+    delete_response = api_client.delete(f"/api/v1/auth/children/{child_id}/")
+    assert delete_response.status_code == 204
+
+    list_after_delete = api_client.get("/api/v1/auth/children/")
+    assert len(list_after_delete.data) == 0
+
+
+def test_children_max_five_enforced_on_add_endpoint(api_client):
+    _login_parent(
+        api_client,
+        "parent.maxchildren@example.ci",
+        children=[
+            {"first_name": f"Enfant{i}", "class_level": "CM2", "target_subjects": []}
+            for i in range(5)
+        ],
+    )
+    response = api_client.post(
+        "/api/v1/auth/children/",
+        {"first_name": "Sixième", "class_level": "CM1", "target_subjects": []},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_children_isolated_between_parents(api_client):
+    _login_parent(
+        api_client,
+        "parent.a@example.ci",
+        children=[{"first_name": "EnfantA", "class_level": "CM2", "target_subjects": []}],
+    )
+    child_id = api_client.get("/api/v1/auth/children/").data[0]["id"]
+
+    api_client.credentials()
+    _login_parent(api_client, "parent.b@example.ci")
+
+    response = api_client.get(f"/api/v1/auth/children/{child_id}/")
+    assert response.status_code == 404

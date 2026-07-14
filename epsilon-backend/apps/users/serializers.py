@@ -135,6 +135,30 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
         ]
 
 
+class DirectorProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DirectorProfile
+        fields = [
+            "school_name", "address", "levels_taught", "student_count", "is_partner",
+        ]
+        read_only_fields = ["is_partner"]
+
+
+class ChildDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Child
+        fields = ["id", "first_name", "class_level", "target_subjects"]
+
+
+class ParentProfileSerializer(serializers.ModelSerializer):
+    children = ChildDetailSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ParentProfile
+        fields = ["location", "subscription_active", "children"]
+        read_only_fields = ["subscription_active"]
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     username_field = User.USERNAME_FIELD
 
