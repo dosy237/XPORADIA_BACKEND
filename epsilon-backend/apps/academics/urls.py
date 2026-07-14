@@ -17,5 +17,15 @@ urlpatterns = [
         name="subject-list",
     ),
     path("subjects/<int:pk>/", views.SubjectDetailView.as_view(), name="subject-detail"),
+    path(
+        "invitations/<str:token>/",
+        views.TeacherInvitationPreviewView.as_view(),
+        name="teacher-invitation-preview",
+    ),
+    path(
+        "invitations/<str:token>/accept/",
+        views.AcceptTeacherInvitationView.as_view(),
+        name="accept-teacher-invitation",
+    ),
     path("", include(router.urls)),
 ]

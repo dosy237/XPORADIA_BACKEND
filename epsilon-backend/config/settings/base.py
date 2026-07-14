@@ -18,6 +18,12 @@ SECRET_KEY = env("SECRET_KEY", default="changeme-in-production")
 DEBUG = env.bool("DEBUG", default=False)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
 
+# Base des liens d'invitation envoyés par email (ex: invitation d'un
+# enseignant dédié à une matière). En production, ce domaine doit être
+# configuré en Universal Link / App Link pour ouvrir l'app directement ;
+# tant que ce n'est pas fait, le lien ouvre une page web de redirection.
+INVITE_LINK_BASE = env("INVITE_LINK_BASE", default="https://app.xporadia.ci")
+
 # Application definition
 DJANGO_APPS = [
     "django.contrib.admin",

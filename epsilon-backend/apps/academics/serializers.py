@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.users.models import User, UserRole
 
-from .models import Department, SchoolClass, Subject, Track
+from .models import Department, SchoolClass, Subject, TeacherInvitation, Track
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -64,23 +64,46 @@ class SchoolClassSerializer(serializers.ModelSerializer):
 class SubjectSerializer(serializers.ModelSerializer):
     school_class = SchoolClassSerializer(read_only=True)
     teacher = TeacherBasicSerializer(read_only=True)
-    # Le titulaire connaît l'email de l'enseignant qu'il veut ajouter/inviter
-    # sur la matière, pas son ID interne — même logique que homeroom_teacher_email.
-    teacher_email = serializers.SlugRelatedField(
-        slug_field="email",
-        source="teacher",
-        queryset=User.objects.filter(is_active=True),
-        write_only=True,
-        required=False,
-        allow_null=True,
-    )
+    # Le titulaire connaît seulement l'email de l'enseignant qu'il veut
+    # ajouter — pas son ID interne, et pas forcément un compte existant :
+    # si aucun compte enseignant actif ne correspond, une TeacherInvitation
+    # est créée à la place (voir _resolve_teacher_email dans views.py).
+    teacher_email = serializers.EmailField(write_only=True, required=False, allow_null=True)
+    pending_invitation_email = serializers.SerializerMethodField()
+    pending_invitation_token = serializers.SerializerMethodField()
 
     class Meta:
         model = Subject
-        fields = ["id", "school_class", "name", "teacher", "teacher_email", "created_at"]
+        fields = [
+            "id", "school_class", "name", "teacher", "teacher_email",
+            "pending_invitation_email", "pending_invitation_token", "created_at",
+        ]
         read_only_fields = ["id", "school_class", "created_at"]
 
-    def validate_teacher_email(self, user):
-        if not user.has_role(UserRole.TEACHER):
-            raise serializers.ValidationError("L'enseignant dédié doit avoir le rôle enseignant.")
-        return user
+    def _pending_invitation(self, obj):
+        return obj.invitations.filter(is_accepted=False).order_by("-created_at").first()
+
+    def get_pending_invitation_email(self, obj):
+        invitation = self._pending_invitation(obj)
+        return invitation.email if invitation else None
+
+    def get_pending_invitation_token(self, obj):
+        invitation = self._pending_invitation(obj)
+        return invitation.token if invitation else None
+
+
+class TeacherInvitationPreviewSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    school_class_name = serializers.CharField(source="subject.school_class.name", read_only=True)
+    school_name = serializers.CharField(
+        source="subject.school_class.track.department.establishment.school_name", read_only=True
+    )
+    invited_by_name = serializers.CharField(source="invited_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = TeacherInvitation
+        fields = [
+            "token", "email", "subject_name", "school_class_name",
+            "school_name", "invited_by_name", "created_at",
+        ]
+        read_only_fields = fields

@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.academics.models import Department, SchoolClass, Subject, Track
+from apps.academics.models import Department, SchoolClass, Subject, TeacherInvitation, Track
 from apps.notifications.models import Notification
 from apps.users.models import DirectorProfile, TeacherProfile, User, UserRole
 
@@ -266,13 +266,33 @@ def test_homeroom_teacher_creates_subject_and_notifies_dedicated_teacher(api_cli
     assert Notification.objects.filter(user=dedicated, notif_type="class_assignment").exists()
 
 
-def test_subject_dedicated_teacher_must_have_teacher_role(api_client):
+def test_subject_teacher_email_without_teacher_account_creates_invitation(api_client):
+    titulaire = _create_teacher(email="titulaire.noaccount@example.ci")
+    _, school_class = _create_class(school_year="2020-2025", homeroom_teacher=titulaire)
+    _login(api_client, titulaire.email)
+
+    response = api_client.post(
+        f"/api/v1/academics/classes/{school_class.id}/subjects/",
+        {"name": "SVT", "teacher_email": "unknown.teacher@example.ci"},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.data["teacher"] is None
+    assert response.data["pending_invitation_email"] == "unknown.teacher@example.ci"
+    assert response.data["pending_invitation_token"]
+    invitation = TeacherInvitation.objects.get(subject__name="SVT")
+    assert invitation.email == "unknown.teacher@example.ci"
+    assert invitation.invited_by == titulaire
+    assert not invitation.is_accepted
+
+
+def test_subject_teacher_email_matching_non_teacher_account_creates_invitation(api_client):
     titulaire = _create_teacher(email="titulaire.wrongrole@example.ci")
     parent = User.objects.create_user(
         email="parent.subject@example.ci", password="testpass123", first_name="P", last_name="A",
         primary_role=UserRole.PARENT,
     )
-    _, school_class = _create_class(school_year="2020-2025", homeroom_teacher=titulaire)
+    _, school_class = _create_class(school_year="2020-2029", homeroom_teacher=titulaire)
     _login(api_client, titulaire.email)
 
     response = api_client.post(
@@ -280,7 +300,9 @@ def test_subject_dedicated_teacher_must_have_teacher_role(api_client):
         {"name": "SVT", "teacher_email": parent.email},
         format="json",
     )
-    assert response.status_code == 400
+    assert response.status_code == 201
+    assert response.data["teacher"] is None
+    assert TeacherInvitation.objects.filter(email=parent.email).exists()
 
 
 def test_homeroom_teacher_reassigns_dedicated_teacher_and_notifies_new_teacher(api_client):
@@ -335,3 +357,79 @@ def test_my_dedicated_subjects_forbidden_for_non_teacher(api_client):
     _login(api_client, director.email)
     response = api_client.get("/api/v1/academics/my-subjects/")
     assert response.status_code == 403
+
+
+def _create_invitation(email="invited.teacher@example.ci", school_year="2020-2030"):
+    titulaire = _create_teacher(email=f"titulaire.inv.{school_year}@example.ci")
+    _, school_class = _create_class(school_year=school_year, homeroom_teacher=titulaire)
+    subject = Subject.objects.create(school_class=school_class, name="Maths")
+    invitation = TeacherInvitation.objects.create(subject=subject, email=email, invited_by=titulaire)
+    return titulaire, subject, invitation
+
+
+def test_teacher_invitation_preview_is_public(api_client):
+    _, subject, invitation = _create_invitation(school_year="2020-2030")
+    response = api_client.get(f"/api/v1/academics/invitations/{invitation.token}/")
+    assert response.status_code == 200
+    assert response.data["subject_name"] == "Maths"
+    assert response.data["email"] == "invited.teacher@example.ci"
+    assert response.data["school_class_name"] == subject.school_class.name
+
+
+def test_teacher_invitation_preview_404_for_unknown_token(api_client):
+    response = api_client.get("/api/v1/academics/invitations/unknown-token/")
+    assert response.status_code == 404
+
+
+def test_accept_invitation_requires_authentication(api_client):
+    _, _, invitation = _create_invitation(school_year="2020-2031")
+    response = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
+    assert response.status_code == 401
+
+
+def test_accept_invitation_forbidden_for_wrong_email(api_client):
+    _, _, invitation = _create_invitation(email="invited.correct@example.ci", school_year="2020-2032")
+    wrong_teacher = _create_teacher(email="wrong.email@example.ci")
+    _login(api_client, wrong_teacher.email)
+
+    response = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
+    assert response.status_code == 403
+
+
+def test_accept_invitation_forbidden_for_non_teacher(api_client):
+    _, _, invitation = _create_invitation(email="director.email@example.ci", school_year="2020-2033")
+    director, _ = _create_director(email="director.email@example.ci")
+    _login(api_client, director.email)
+
+    response = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
+    assert response.status_code == 403
+
+
+def test_accept_invitation_assigns_teacher_and_notifies_inviter(api_client):
+    titulaire, subject, invitation = _create_invitation(
+        email="accepting.teacher@example.ci", school_year="2020-2034"
+    )
+    invited_teacher = _create_teacher(email="accepting.teacher@example.ci")
+    _login(api_client, invited_teacher.email)
+
+    response = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
+    assert response.status_code == 200
+    subject.refresh_from_db()
+    assert subject.teacher == invited_teacher
+
+    invitation.refresh_from_db()
+    assert invitation.is_accepted is True
+    assert invitation.accepted_by == invited_teacher
+    assert invitation.accepted_at is not None
+    assert Notification.objects.filter(user=titulaire, notif_type="class_assignment").exists()
+
+
+def test_accept_invitation_already_accepted_returns_404(api_client):
+    _, _, invitation = _create_invitation(email="already.accepted@example.ci", school_year="2020-2035")
+    invited_teacher = _create_teacher(email="already.accepted@example.ci")
+    _login(api_client, invited_teacher.email)
+
+    first = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
+    assert first.status_code == 200
+    second = api_client.post(f"/api/v1/academics/invitations/{invitation.token}/accept/")
+    assert second.status_code == 404

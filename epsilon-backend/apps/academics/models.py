@@ -9,6 +9,8 @@ Stories 1 et 2 du chantier "Classes". Le contenu pédagogique (Story 3), la
 bibliothèque (Story 4), les effectifs annuels (Story 5) et l'espace élève
 (Story 6) sont des stories séparées, pas encore construites ici.
 """
+import secrets
+
 from django.conf import settings
 from django.db import models
 
@@ -120,3 +122,43 @@ class Subject(models.Model):
 
     def __str__(self):
         return f"{self.name} — {self.school_class}"
+
+
+class TeacherInvitation(models.Model):
+    """Invitation envoyée par email à un enseignant sans compte Xporadia
+    encore actif, pour devenir l'enseignant dédié d'une Matière. Le lien
+    contenu dans l'email amène la personne à créer son compte (ou à se
+    connecter si elle en a déjà un) puis rattache automatiquement son
+    compte à la matière une fois acceptée."""
+
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="invitations")
+    email = models.EmailField(verbose_name="Email invité")
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sent_teacher_invitations"
+    )
+    token = models.CharField(max_length=43, unique=True, editable=False)
+    is_accepted = models.BooleanField(default=False)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Invitation enseignant"
+        verbose_name_plural = "Invitations enseignant"
+        unique_together = ("subject", "email")
+        ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(24)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        statut = "acceptée" if self.is_accepted else "en attente"
+        return f"Invitation {self.email} → {self.subject} ({statut})"
