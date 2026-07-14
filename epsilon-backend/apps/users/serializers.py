@@ -13,6 +13,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id", "email", "phone", "first_name", "last_name", "avatar",
             "primary_role", "secondary_roles", "all_roles",
             "is_verified", "is_documents_validated", "two_fa_enabled", "created_at",
+            "profile_visible", "notify_email", "notify_sms", "notify_push",
         ]
         read_only_fields = fields
 
