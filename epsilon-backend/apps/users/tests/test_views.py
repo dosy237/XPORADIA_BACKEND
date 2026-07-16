@@ -716,6 +716,18 @@ def test_teacher_directory_filter_by_subject(api_client):
     assert results[0]["subjects"] == ["Mathématiques"]
 
 
+def test_teacher_directory_filter_by_location(api_client):
+    _login_teacher(api_client, "viewer.location@example.ci")
+    _create_teacher("cocody.teacher@example.ci", subjects=["Maths"], location="Cocody, Abidjan")
+    _create_teacher("yopougon.teacher@example.ci", subjects=["Maths"], location="Yopougon, Abidjan")
+
+    response = api_client.get("/api/v1/auth/teachers/?location=cocody")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert len(results) == 1
+    assert results[0]["location"] == "Cocody, Abidjan"
+
+
 def test_teacher_directory_detail_includes_bio_and_certifications(api_client):
     _login_teacher(api_client, "viewer4@example.ci")
     colleague = _create_teacher("colleague4@example.ci", subjects=["SVT"], bio="Passionnée de sciences.")

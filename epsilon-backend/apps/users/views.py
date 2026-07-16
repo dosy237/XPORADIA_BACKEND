@@ -202,6 +202,14 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(pk__in=matching_ids)
         if self.request.query_params.get("available_for_tutoring") == "true":
             qs = qs.filter(available_for_tutoring=True)
+        location = self.request.query_params.get("location")
+        if location:
+            # Filtrage textuel sur la commune/quartier déclaré (ex. "Cocody") —
+            # une recherche géolocalisée par rayon GPS nécessiterait un
+            # fournisseur de géocodage (Google Maps/Mapbox) non configuré
+            # dans cet environnement ; ce filtre couvre le besoin réel du
+            # parent ("un enseignant près de chez moi") sans dépendance externe.
+            qs = qs.filter(location__icontains=location)
         return qs
 
     def get_serializer_class(self):
