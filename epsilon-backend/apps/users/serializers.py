@@ -277,6 +277,36 @@ class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
         return CertificationSerializer(qs, many=True).data
 
 
+class TeacherTutoringCardSerializer(TeacherDirectoryCardSerializer):
+    """Vue d'un profil enseignant par un PARENT — seul rôle pour lequel le
+    tarif horaire des cours particuliers est révélé (voir le docstring de
+    TeacherDirectoryCardSerializer sur la matrice de visibilité)."""
+
+    class Meta(TeacherDirectoryCardSerializer.Meta):
+        fields = TeacherDirectoryCardSerializer.Meta.fields + ["hourly_rate"]
+        read_only_fields = fields
+
+
+class TeacherTutoringDetailSerializer(TeacherTutoringCardSerializer):
+    bio = serializers.CharField(read_only=True)
+    certifications = serializers.SerializerMethodField()
+
+    class Meta(TeacherTutoringCardSerializer.Meta):
+        fields = TeacherTutoringCardSerializer.Meta.fields + ["bio", "certifications"]
+        read_only_fields = fields
+
+    def get_certifications(self, obj):
+        from apps.certification.models import Certification
+        from apps.certification.serializers import CertificationSerializer
+
+        qs = (
+            Certification.objects.filter(teacher=obj.user, is_valid=True)
+            .select_related("module")
+            .order_by("-issued_at")
+        )
+        return CertificationSerializer(qs, many=True).data
+
+
 class EstablishmentDirectoryCardSerializer(serializers.ModelSerializer):
     """Vue publique d'un établissement — alimente le fil d'actualité au même
     titre que les enseignants."""

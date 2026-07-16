@@ -8,9 +8,12 @@ Xporadia — apps/tutoring/models.py
 """
 import uuid
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
- 
- 
+
+from apps.payments.models import Payment
+
+
 class SessionMode(models.TextChoices):
     HOME          = "home",    "À domicile"
     TEACHER_PLACE = "teacher", "Chez l'enseignant"
@@ -54,7 +57,11 @@ class TutoringSession(models.Model):
     confirmed_at    = models.DateTimeField(null=True, blank=True)
     cancelled_at    = models.DateTimeField(null=True, blank=True)
     cancel_reason   = models.TextField(blank=True)
- 
+    payments        = GenericRelation(
+        Payment, content_type_field="content_type", object_id_field="object_id",
+        related_query_name="tutoring_session",
+    )
+
     class Meta:
         verbose_name        = "Séance de cours particulier"
         verbose_name_plural = "Séances de cours particuliers"
@@ -94,6 +101,13 @@ class TutoringReview(models.Model):
  
  
 class TutoringSubscription(models.Model):
+    """Abonnement récurrent parent/enseignant — la facturation périodique
+    réelle (prélèvement Mobile Money automatique mensuel) suppose un
+    ordonnanceur et des rappels d'échec de paiement hors de portée de ce
+    build (EP-05 se concentre sur la réservation à la séance, payée et
+    séquestrée immédiatement) : le modèle existe pour la donnée, mais
+    aucune API n'y est encore rattachée."""
+
     parent      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                      related_name="tutoring_subscriptions",
                                      limit_choices_to={"primary_role": "parent"})

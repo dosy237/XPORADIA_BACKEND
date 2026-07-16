@@ -682,6 +682,28 @@ def test_teacher_directory_hides_hourly_rate_and_contact_info(api_client):
     assert "phone" not in results[0]
 
 
+def test_teacher_directory_reveals_hourly_rate_to_parent(api_client):
+    _create_teacher("colleague.forparent@example.ci", subjects=["Maths"], hourly_rate="7000", available_for_tutoring=True)
+    _login_parent(api_client, "parent.viewrate@example.ci")
+
+    response = api_client.get("/api/v1/auth/teachers/")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert results[0]["hourly_rate"] == "7000.00"
+
+
+def test_teacher_directory_filter_available_for_tutoring(api_client):
+    _login_teacher(api_client, "viewer.tutoring@example.ci")
+    _create_teacher("tutor.available@example.ci", subjects=["Maths"], available_for_tutoring=True)
+    _create_teacher("tutor.unavailable@example.ci", subjects=["Maths"], available_for_tutoring=False)
+
+    response = api_client.get("/api/v1/auth/teachers/?available_for_tutoring=true")
+    assert response.status_code == 200
+    results = response.data["results"]
+    assert len(results) == 1
+    assert results[0]["available_for_tutoring"] is True
+
+
 def test_teacher_directory_filter_by_subject(api_client):
     _login_teacher(api_client, "viewer3@example.ci")
     _create_teacher("math.teacher@example.ci", subjects=["Mathématiques"])

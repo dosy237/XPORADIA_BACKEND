@@ -39,6 +39,8 @@ from .serializers import (
     TeacherDirectoryCardSerializer,
     TeacherDirectoryDetailSerializer,
     TeacherProfileSerializer,
+    TeacherTutoringCardSerializer,
+    TeacherTutoringDetailSerializer,
     UpdateMeSerializer,
     UserSerializer,
     VerifyOTPSerializer,
@@ -198,12 +200,18 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
             needle = subject.lower()
             matching_ids = [tp.pk for tp in qs if any(needle in s.lower() for s in tp.subjects)]
             qs = qs.filter(pk__in=matching_ids)
+        if self.request.query_params.get("available_for_tutoring") == "true":
+            qs = qs.filter(available_for_tutoring=True)
         return qs
 
     def get_serializer_class(self):
+        # Le tarif horaire des cours particuliers n'est révélé qu'au parent
+        # qui cherche un enseignant pour ses enfants (EP-05) — voir le
+        # docstring de TeacherTutoringCardSerializer.
+        is_parent = self.request.user.is_authenticated and self.request.user.has_role(UserRole.PARENT)
         if self.action == "retrieve":
-            return TeacherDirectoryDetailSerializer
-        return TeacherDirectoryCardSerializer
+            return TeacherTutoringDetailSerializer if is_parent else TeacherDirectoryDetailSerializer
+        return TeacherTutoringCardSerializer if is_parent else TeacherDirectoryCardSerializer
 
 
 class EstablishmentDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
