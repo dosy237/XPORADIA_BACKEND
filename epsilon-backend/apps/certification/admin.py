@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
 
-from .models import Certification, ExamAttempt, ExamQuestion, TrainingModule, TrainingSession
+from .models import Certification, ExamAttempt, ExamQuestion, SessionEnrollment, TrainingModule, TrainingSession
 
 CERTIFICATION_VALIDITY_DAYS = 730
 
@@ -24,6 +24,13 @@ class TrainingSessionAdmin(admin.ModelAdmin):
     list_display = ("module", "trainer", "city", "date", "status", "enrolled_count", "capacity")
     list_filter = ("status", "city")
     date_hierarchy = "date"
+
+
+@admin.register(SessionEnrollment)
+class SessionEnrollmentAdmin(admin.ModelAdmin):
+    list_display = ("teacher", "session", "payment_status", "attendance_score", "enrolled_at")
+    list_filter = ("payment_status",)
+    search_fields = ("teacher__email",)
 
 
 @admin.register(ExamQuestion)

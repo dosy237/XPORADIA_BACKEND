@@ -19,5 +19,11 @@ urlpatterns = [
         views.SubmitOnlineExamView.as_view(),
         name="online-exam-submit",
     ),
+    path(
+        "sessions/<uuid:session_id>/enroll/",
+        views.EnrollInSessionView.as_view(),
+        name="session-enroll",
+    ),
+    path("my-enrollments/", views.MySessionEnrollmentsView.as_view(), name="my-session-enrollments"),
     path("", include(router.urls)),
 ]

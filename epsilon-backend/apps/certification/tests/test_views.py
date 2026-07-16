@@ -11,10 +11,13 @@ from apps.certification.models import (
     ExamQuestion,
     ModuleCategory,
     QuestionType,
+    SessionEnrollment,
     SessionStatus,
     TrainingModule,
     TrainingSession,
 )
+from apps.notifications.models import Notification, NotificationType
+from apps.payments.models import Payment, PaymentStatus
 from apps.users.models import DirectorProfile, User, UserRole
 
 pytestmark = pytest.mark.django_db
@@ -344,3 +347,96 @@ def test_submit_online_exam_no_gradable_questions_returns_400(authed_client):
         format="json",
     )
     assert response.status_code == 400
+
+
+def test_teacher_enrolls_in_session_and_pays(authed_client, teacher, trainer):
+    module = make_module(price=20000)
+    session = make_session(module, trainer)
+
+    response = authed_client.post(
+        f"/api/v1/certification/sessions/{session.id}/enroll/",
+        {"operator": "orange", "phone_number": "0102030405"},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.data["payment_status"] == "paid"
+    assert response.data["payment"]["status"] == "completed"
+
+    session.refresh_from_db()
+    assert session.enrolled_count == 1
+
+    payment = Payment.objects.get(user=teacher)
+    assert payment.status == PaymentStatus.COMPLETED
+    assert payment.amount == 20000
+
+    assert Notification.objects.filter(user=teacher, notif_type=NotificationType.SESSION_CONFIRMED).exists()
+    assert Notification.objects.filter(user=trainer, notif_type=NotificationType.SESSION_CONFIRMED).exists()
+
+
+def test_cannot_enroll_twice_in_same_session(authed_client, trainer):
+    module = make_module()
+    session = make_session(module, trainer)
+
+    authed_client.post(
+        f"/api/v1/certification/sessions/{session.id}/enroll/",
+        {"operator": "orange", "phone_number": "0102030405"},
+        format="json",
+    )
+    response = authed_client.post(
+        f"/api/v1/certification/sessions/{session.id}/enroll/",
+        {"operator": "orange", "phone_number": "0102030405"},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_cannot_enroll_in_full_session(authed_client, trainer):
+    module = make_module()
+    session = make_session(module, trainer, capacity=1, enrolled_count=1)
+
+    response = authed_client.post(
+        f"/api/v1/certification/sessions/{session.id}/enroll/",
+        {"operator": "orange", "phone_number": "0102030405"},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_enroll_requires_mobile_money_details(authed_client, trainer):
+    module = make_module()
+    session = make_session(module, trainer)
+
+    response = authed_client.post(
+        f"/api/v1/certification/sessions/{session.id}/enroll/", {}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_enroll_forbidden_for_non_teacher(api_client, trainer):
+    module = make_module()
+    session = make_session(module, trainer)
+    director = User.objects.create_user(
+        email="director.enroll@example.ci", password="testpass123",
+        first_name="Adjoua", last_name="Kone", primary_role=UserRole.DIRECTOR,
+    )
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    response = api_client.post(
+        f"/api/v1/certification/sessions/{session.id}/enroll/",
+        {"operator": "orange", "phone_number": "0102030405"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+def test_my_enrollments_lists_own_only(authed_client, teacher, trainer):
+    module = make_module()
+    session = make_session(module, trainer)
+    SessionEnrollment.objects.create(session=session, teacher=teacher, payment_status="paid")
+
+    response = authed_client.get("/api/v1/certification/my-enrollments/")
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    assert response.data[0]["session"]["id"] == str(session.id)

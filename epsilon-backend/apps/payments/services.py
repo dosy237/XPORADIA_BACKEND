@@ -17,7 +17,7 @@ from .models import Payment, PaymentStatus
 logger = logging.getLogger(__name__)
 
 
-def initiate_payment(user, amount, operator, phone_number, payment_type, content_object):
+def initiate_payment(user, amount, operator, phone_number, payment_type, content_object=None):
     return Payment.objects.create(
         user=user,
         amount=amount,
@@ -37,6 +37,20 @@ def confirm_payment_to_escrow(payment):
     payment.status = PaymentStatus.ESCROW
     payment.operator_tx_id = f"SIM-{secrets.token_hex(6).upper()}"
     payment.save(update_fields=["status", "operator_tx_id"])
+    return payment
+
+
+def confirm_payment_completed(payment):
+    """Paiements sans contrepartie à séquestrer (formation, abonnement) : la
+    somme va directement à la plateforme Xporadia, pas de libération future."""
+    logger.info(
+        "Paiement Mobile Money simulé : %s — %s FCFA via %s complété.",
+        payment.tx_ref, payment.amount, payment.operator,
+    )
+    payment.status = PaymentStatus.COMPLETED
+    payment.operator_tx_id = f"SIM-{secrets.token_hex(6).upper()}"
+    payment.completed_at = timezone.now()
+    payment.save(update_fields=["status", "operator_tx_id", "completed_at"])
     return payment
 
 

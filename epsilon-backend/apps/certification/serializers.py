@@ -1,11 +1,14 @@
 from rest_framework import serializers
 
+from apps.payments.serializers import PaymentSerializer
+
 from .models import (
     Certification,
     CertificationLevel,
     ExamAttempt,
     ExamQuestion,
     QuestionType,
+    SessionEnrollment,
     TrainingModule,
     TrainingSession,
 )
@@ -60,6 +63,16 @@ class TrainingSessionSerializer(serializers.ModelSerializer):
             "start_time", "end_time", "capacity", "enrolled_count", "places_left",
             "is_full", "status",
         ]
+        read_only_fields = fields
+
+
+class SessionEnrollmentSerializer(serializers.ModelSerializer):
+    session = TrainingSessionSerializer(read_only=True)
+    payment = PaymentSerializer(read_only=True)
+
+    class Meta:
+        model = SessionEnrollment
+        fields = ["id", "session", "payment_status", "attendance_score", "payment", "enrolled_at"]
         read_only_fields = fields
 
 

@@ -9,7 +9,9 @@ Xporadia — apps/certification/models.py
 import uuid
 from django.conf import settings
 from django.db import models
- 
+
+from apps.payments.models import Payment
+
  
 class CertificationLevel(models.TextChoices):
     BRONZE = "bronze", "Bronze"
@@ -104,7 +106,15 @@ class SessionEnrollment(models.Model):
                                                  ("paid","Payé"),
                                                  ("refunded","Remboursé")])
     attendance_score = models.PositiveSmallIntegerField(null=True, blank=True)
- 
+    # FK directe plutôt qu'un lien polymorphique : Payment.object_id est un
+    # UUIDField (aligné sur les PK des autres modèles ciblés — TutoringSession
+    # notamment), incompatible avec la PK entière auto-incrémentée de
+    # SessionEnrollment. Un paiement de formation n'a qu'un seul destinataire
+    # possible (une inscription), donc pas besoin de generic relation ici.
+    payment         = models.ForeignKey(
+        Payment, on_delete=models.SET_NULL, null=True, blank=True, related_name="session_enrollment"
+    )
+
     class Meta:
         unique_together = ("session", "teacher")
         verbose_name    = "Inscription session"

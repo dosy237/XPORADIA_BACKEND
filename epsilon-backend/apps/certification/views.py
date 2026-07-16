@@ -13,12 +13,24 @@ from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
 from apps.users.models import DirectorProfile, UserRole
 
-from .models import AttemptStatus, Certification, ExamAttempt, ExamQuestion, TrainingModule, TrainingSession
+from apps.payments.models import MobileOperator, PaymentType
+from apps.payments.services import confirm_payment_completed, initiate_payment
+
+from .models import (
+    AttemptStatus,
+    Certification,
+    ExamAttempt,
+    ExamQuestion,
+    SessionEnrollment,
+    TrainingModule,
+    TrainingSession,
+)
 from .serializers import (
     ExamAttemptResultSerializer,
     ExamQuestionSerializer,
     MyCertificationStatusSerializer,
     ONLINE_GRADABLE_TYPES,
+    SessionEnrollmentSerializer,
     TrainingModuleSerializer,
     TrainingSessionSerializer,
 )
@@ -222,3 +234,80 @@ class SubmitOnlineExamView(APIView):
         attempt.leveled_up = leveled_up
         attempt.new_level = new_level
         return Response(ExamAttemptResultSerializer(attempt).data, status=status.HTTP_201_CREATED)
+
+
+def _get_session(session_id):
+    try:
+        return TrainingSession.objects.select_related("module", "trainer").get(id=session_id)
+    except TrainingSession.DoesNotExist:
+        raise Http404
+
+
+class EnrollInSessionView(APIView):
+    """Inscription (et paiement Mobile Money immédiat) d'un enseignant à une
+    session de formation en présentiel — le paiement va directement à
+    Xporadia (pas de séquestre : il n'y a pas de contrepartie à libérer,
+    contrairement aux cours particuliers)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, session_id):
+        if not request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("Réservé aux enseignants.")
+        session = _get_session(session_id)
+
+        if session.is_full:
+            return Response({"detail": "Cette session est complète."}, status=status.HTTP_400_BAD_REQUEST)
+        if SessionEnrollment.objects.filter(session=session, teacher=request.user).exists():
+            return Response(
+                {"detail": "Vous êtes déjà inscrit(e) à cette session."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        operator = request.data.get("operator")
+        phone_number = request.data.get("phone_number")
+        if operator not in MobileOperator.values or not phone_number:
+            return Response(
+                {"detail": "Opérateur Mobile Money et numéro de téléphone requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment = initiate_payment(
+            user=request.user, amount=session.module.price, operator=operator, phone_number=phone_number,
+            payment_type=PaymentType.TRAINING,
+        )
+        confirm_payment_completed(payment)
+
+        enrollment = SessionEnrollment.objects.create(
+            session=session, teacher=request.user, payment_status="paid", payment=payment
+        )
+        session.enrolled_count += 1
+        session.save(update_fields=["enrolled_count"])
+
+        notify_user(
+            request.user,
+            NotificationType.SESSION_CONFIRMED,
+            title="Inscription confirmée",
+            body=f"Votre inscription à « {session.module.title} » ({session.city}, {session.date}) est confirmée.",
+        )
+        notify_user(
+            session.trainer,
+            NotificationType.SESSION_CONFIRMED,
+            title="Nouvelle inscription",
+            body=f"{request.user.get_full_name()} s'est inscrit(e) à votre session « {session.module.title} ».",
+        )
+
+        return Response(SessionEnrollmentSerializer(enrollment).data, status=status.HTTP_201_CREATED)
+
+
+class MySessionEnrollmentsView(APIView):
+    """Suivi, côté enseignant, des inscriptions aux sessions de formation."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        enrollments = (
+            SessionEnrollment.objects.filter(teacher=request.user)
+            .select_related("session__module", "session__trainer", "payment")
+            .order_by("-enrolled_at")
+        )
+        return Response(SessionEnrollmentSerializer(enrollments, many=True).data)
