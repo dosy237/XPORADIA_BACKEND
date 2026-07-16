@@ -38,6 +38,11 @@ class ExamAttemptAdmin(admin.ModelAdmin):
     list_filter = ("status", "is_retake")
     actions = ["approve_and_issue_certification", "reject_attempt"]
 
+    def get_queryset(self, request):
+        # Les tentatives en ligne sont notées et certifiées automatiquement
+        # par l'API — cet écran d'administration ne traite que le présentiel.
+        return super().get_queryset(request).filter(is_online=False)
+
     @admin.action(description="Approuver et délivrer la certification (change le niveau)")
     def approve_and_issue_certification(self, request, queryset):
         issued = 0
@@ -49,7 +54,7 @@ class ExamAttemptAdmin(admin.ModelAdmin):
             if attempt.score_total is None:
                 skipped += 1
                 continue
-            module = attempt.session.module
+            module = attempt.get_module()
             Certification.objects.create(
                 teacher=attempt.teacher,
                 module=module,
@@ -82,11 +87,12 @@ class ExamAttemptAdmin(admin.ModelAdmin):
         for attempt in attempts:
             attempt.status = "failed"
             attempt.save(update_fields=["status"])
+            module = attempt.get_module()
             notify_user(
                 attempt.teacher,
                 NotificationType.EXAM_RESULT,
                 title="Résultat d'examen",
-                body=f"Votre tentative pour « {attempt.session.module.title} » n'a pas été validée cette fois-ci.",
+                body=f"Votre tentative pour « {module.title if module else '?'} » n'a pas été validée cette fois-ci.",
             )
         self.message_user(request, f"{len(attempts)} tentative(s) marquée(s) échouée(s) et notifiée(s).")
 

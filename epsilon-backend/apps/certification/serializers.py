@@ -1,17 +1,51 @@
 from rest_framework import serializers
 
-from .models import Certification, CertificationLevel, TrainingModule, TrainingSession
+from .models import (
+    Certification,
+    CertificationLevel,
+    ExamAttempt,
+    ExamQuestion,
+    QuestionType,
+    TrainingModule,
+    TrainingSession,
+)
 
 LEVEL_ORDER = [CertificationLevel.BRONZE, CertificationLevel.SILVER, CertificationLevel.GOLD]
+ONLINE_GRADABLE_TYPES = [QuestionType.MCQ, QuestionType.TF]
 
 
 class TrainingModuleSerializer(serializers.ModelSerializer):
+    has_online_exam = serializers.SerializerMethodField()
+
     class Meta:
         model = TrainingModule
         fields = [
             "id", "title", "category", "description", "objectives", "prerequisites",
-            "duration_hours", "price", "target_level",
+            "duration_hours", "price", "target_level", "has_online_exam",
         ]
+
+    def get_has_online_exam(self, obj):
+        return obj.questions.filter(question_type__in=ONLINE_GRADABLE_TYPES, is_active=True).exists()
+
+
+class ExamQuestionSerializer(serializers.ModelSerializer):
+    """Question d'examen en ligne — n'expose jamais correct_answer, pour éviter la triche."""
+
+    class Meta:
+        model = ExamQuestion
+        fields = ["id", "question_type", "text", "options", "points"]
+        read_only_fields = fields
+
+
+class ExamAttemptResultSerializer(serializers.ModelSerializer):
+    module = TrainingModuleSerializer(read_only=True)
+    leveled_up = serializers.BooleanField(read_only=True, default=False)
+    new_level = serializers.CharField(read_only=True, allow_null=True, default=None)
+
+    class Meta:
+        model = ExamAttempt
+        fields = ["id", "module", "score_total", "status", "submitted_at", "leveled_up", "new_level"]
+        read_only_fields = fields
 
 
 class TrainingSessionSerializer(serializers.ModelSerializer):

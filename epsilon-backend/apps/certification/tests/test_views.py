@@ -3,16 +3,19 @@ import datetime
 import pytest
 from rest_framework.test import APIClient
 
+from apps.academics.models import Department, SchoolClass, Subject, Track
 from apps.certification.models import (
     Certification,
     CertificationLevel,
     ExamAttempt,
+    ExamQuestion,
     ModuleCategory,
+    QuestionType,
     SessionStatus,
     TrainingModule,
     TrainingSession,
 )
-from apps.users.models import User, UserRole
+from apps.users.models import DirectorProfile, User, UserRole
 
 pytestmark = pytest.mark.django_db
 
@@ -209,3 +212,135 @@ def test_my_status_current_level_is_highest_achieved(authed_client, teacher, tra
     assert response.data["current_level"] == "gold"
     assert response.data["next_level"] is None
     assert set(response.data["levels_achieved"]) == {"bronze", "gold"}
+
+
+def make_question(module, correct_answer, question_type=QuestionType.MCQ, **kwargs):
+    defaults = {
+        "text": "Question ?",
+        "options": ["a", "b", "c"],
+        "points": 1,
+    }
+    defaults.update(kwargs)
+    return ExamQuestion.objects.create(
+        module=module, question_type=question_type, correct_answer=correct_answer, **defaults
+    )
+
+
+def _create_director(email="director.cert@example.ci"):
+    user = User.objects.create_user(
+        email=email, password="testpass123", first_name="Adjoua", last_name="Kone",
+        primary_role=UserRole.DIRECTOR,
+    )
+    profile = DirectorProfile.objects.create(user=user, school_name="École Test", address="Cocody")
+    return user, profile
+
+
+def _affiliate_teacher_to_establishment(profile, teacher):
+    department = Department.objects.create(establishment=profile, name="Dept")
+    track = Track.objects.create(department=department, name="Track")
+    school_class = SchoolClass.objects.create(track=track, name="Classe", school_year="2025-2026")
+    Subject.objects.create(school_class=school_class, name="Matière", teacher=teacher)
+
+
+def test_online_exam_questions_excludes_open_questions_and_correct_answer(authed_client, teacher):
+    module = make_module()
+    mcq = make_question(module, "a", question_type=QuestionType.MCQ)
+    make_question(module, "vrai réponse ouverte", question_type=QuestionType.OPEN)
+
+    response = authed_client.get(f"/api/v1/certification/modules/{module.id}/online-exam/")
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    assert response.data[0]["id"] == str(mcq.id)
+    assert "correct_answer" not in response.data[0]
+
+
+def test_online_exam_questions_forbidden_for_non_teacher(api_client):
+    director, _ = _create_director()
+    login = api_client.post(
+        "/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json"
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    module = make_module()
+    response = api_client.get(f"/api/v1/certification/modules/{module.id}/online-exam/")
+    assert response.status_code == 403
+
+
+def test_submit_online_exam_passes_and_issues_certification(authed_client, teacher):
+    module = make_module(target_level=CertificationLevel.BRONZE)
+    q1 = make_question(module, "a")
+    q2 = make_question(module, "b")
+    q3 = make_question(module, "vrai", question_type=QuestionType.TF)
+
+    response = authed_client.post(
+        f"/api/v1/certification/modules/{module.id}/online-exam/submit/",
+        {"answers": {str(q1.id): "a", str(q2.id): "b", str(q3.id): "vrai"}},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.data["status"] == "passed"
+    assert float(response.data["score_total"]) == 100.0
+    assert response.data["leveled_up"] is True
+    assert response.data["new_level"] == "bronze"
+
+    assert Certification.objects.filter(teacher=teacher, module=module, is_valid=True).exists()
+    attempt = ExamAttempt.objects.get(teacher=teacher, module=module)
+    assert attempt.is_online is True
+    assert attempt.session is None
+
+
+def test_submit_online_exam_fails_below_threshold_no_certification(authed_client, teacher):
+    module = make_module(target_level=CertificationLevel.BRONZE)
+    q1 = make_question(module, "a")
+    q2 = make_question(module, "b")
+    q3 = make_question(module, "c")
+
+    response = authed_client.post(
+        f"/api/v1/certification/modules/{module.id}/online-exam/submit/",
+        {"answers": {str(q1.id): "a", str(q2.id): "wrong", str(q3.id): "wrong"}},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.data["status"] == "failed"
+    assert not Certification.objects.filter(teacher=teacher, module=module).exists()
+
+
+def test_submit_online_exam_notifies_affiliated_establishment_on_level_up(authed_client, teacher):
+    director, profile = _create_director()
+    _affiliate_teacher_to_establishment(profile, teacher)
+
+    module = make_module(target_level=CertificationLevel.BRONZE)
+    q1 = make_question(module, "a")
+
+    response = authed_client.post(
+        f"/api/v1/certification/modules/{module.id}/online-exam/submit/",
+        {"answers": {str(q1.id): "a"}},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert response.data["leveled_up"] is True
+
+    from apps.notifications.models import Notification, NotificationType
+
+    assert Notification.objects.filter(
+        user=director, notif_type=NotificationType.EXAM_RESULT
+    ).exists()
+
+
+def test_submit_online_exam_requires_answers(authed_client):
+    module = make_module()
+    make_question(module, "a")
+    response = authed_client.post(
+        f"/api/v1/certification/modules/{module.id}/online-exam/submit/", {}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_submit_online_exam_no_gradable_questions_returns_400(authed_client):
+    module = make_module()
+    make_question(module, "texte libre", question_type=QuestionType.OPEN)
+    response = authed_client.post(
+        f"/api/v1/certification/modules/{module.id}/online-exam/submit/",
+        {"answers": {"x": "y"}},
+        format="json",
+    )
+    assert response.status_code == 400

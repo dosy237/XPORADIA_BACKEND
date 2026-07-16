@@ -161,8 +161,14 @@ class ExamAttempt(models.Model):
     id              = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     teacher         = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                          related_name="exam_attempts")
+    # Une tentative en présentiel se rattache à une session (avec assiduité
+    # notée par le formateur) ; une tentative en ligne se rattache
+    # directement au module, sans session ni assiduité — voir is_online.
     session         = models.ForeignKey(TrainingSession, on_delete=models.CASCADE,
-                                         related_name="exam_attempts")
+                                         related_name="exam_attempts", null=True, blank=True)
+    module          = models.ForeignKey(TrainingModule, on_delete=models.CASCADE,
+                                         related_name="exam_attempts", null=True, blank=True)
+    is_online       = models.BooleanField(default=False)
     is_retake       = models.BooleanField(default=False)
     answers         = models.JSONField(default=dict)
     score_auto      = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
@@ -178,19 +184,29 @@ class ExamAttempt(models.Model):
     graded_by       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
                                          null=True, blank=True,
                                          related_name="graded_attempts")
- 
+
+    PASSING_SCORE = 70
+
     class Meta:
         verbose_name        = "Tentative d'examen"
         verbose_name_plural = "Tentatives d'examen"
-        unique_together     = ("teacher", "session", "is_retake")
         ordering            = ["-started_at"]
- 
+
+    def get_module(self):
+        if self.module_id:
+            return self.module
+        return self.session.module if self.session_id else None
+
     def __str__(self):
         t = "rattrapage" if self.is_retake else "principale"
-        return f"Tentative {t} — {self.teacher} — {self.session}"
+        module = self.get_module()
+        return f"Tentative {t} — {self.teacher} — {module.title if module else '?'}"
  
     def compute_total_score(self):
-        if self.score_attendance is not None and self.score_auto is not None:
+        if self.is_online:
+            self.score_total = self.score_auto
+            self.save(update_fields=["score_total"])
+        elif self.score_attendance is not None and self.score_auto is not None:
             manual = self.score_manual or 0
             exam_score = (self.score_auto + manual) / 2
             self.score_total = (self.score_attendance + exam_score) / 2
