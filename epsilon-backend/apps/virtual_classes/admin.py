@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Exercise, VirtualClass
+from .models import Exercise, Submission, VirtualClass
 
 
 class ExerciseInline(admin.TabularInline):
@@ -24,3 +24,10 @@ class ExerciseAdmin(admin.ModelAdmin):
     list_display = ["title", "virtual_class", "status", "deadline"]
     list_filter = ["status"]
     search_fields = ["title", "virtual_class__subject__name"]
+
+
+@admin.register(Submission)
+class SubmissionAdmin(admin.ModelAdmin):
+    list_display = ["child", "exercise", "status", "grade", "submitted_at"]
+    list_filter = ["status"]
+    search_fields = ["child__first_name", "exercise__title"]

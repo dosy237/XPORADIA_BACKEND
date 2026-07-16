@@ -5,19 +5,19 @@
 # "Classes". Rattaché 1:1 à une apps.academics.Subject, créé automatiquement
 # à la création de celle-ci (voir signals.py).
 #
-# La soumission et la correction par l'élève ne sont pas construites ici :
-# le système n'a aujourd'hui aucun compte élève (seulement des ENFANT
-# rattachés à un parent, sans connexion propre). Cette brique arrivera
-# avec la Story 6 ("espace élève personnel"), une fois ce modèle d'accès
-# tranché — construire une Submission maintenant serait une hypothèse
-# prématurée sur cette conception.
+# Story 6 ("espace élève personnel") : il n'existe toujours aucun compte
+# élève propre — l'accès reste médié par le parent, qui soumet un devoir
+# "au nom de" son ENFANT (Child), exactement comme il candidate à un stage
+# en son nom (Epic A) ou l'inscrit dans une classe (Story 5). Voir Submission.
 # ============================================================
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 from apps.academics.models import Subject
+from apps.users.models import Child
 
 
 class VirtualClass(models.Model):
@@ -66,3 +66,40 @@ class Exercise(models.Model):
 
     def __str__(self):
         return f"{self.title} — {self.virtual_class}"
+
+
+class SubmissionStatus(models.TextChoices):
+    SUBMITTED = "submitted", "Soumis"
+    GRADED    = "graded",    "Corrigé"
+
+
+class Submission(models.Model):
+    """Copie rendue par un parent au nom de son enfant pour un Exercise —
+    notée sur 20 (convention scolaire ivoirienne), par l'enseignant dédié
+    de la matière."""
+
+    exercise      = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name="submissions")
+    child         = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="submissions")
+    submitted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="submissions_made"
+    )
+    content       = models.TextField(blank=True)
+    attachments   = models.JSONField(default=list, blank=True)
+    status        = models.CharField(max_length=15, choices=SubmissionStatus.choices, default=SubmissionStatus.SUBMITTED)
+    grade         = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, help_text="Note sur 20")
+    feedback      = models.TextField(blank=True)
+    submitted_at  = models.DateTimeField(auto_now_add=True)
+    graded_at     = models.DateTimeField(null=True, blank=True)
+    graded_by     = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="graded_submissions",
+    )
+
+    class Meta:
+        verbose_name        = "Soumission"
+        verbose_name_plural = "Soumissions"
+        unique_together     = ("exercise", "child")
+        ordering            = ["-submitted_at"]
+
+    def __str__(self):
+        return f"{self.child.first_name} → {self.exercise.title} ({self.status})"

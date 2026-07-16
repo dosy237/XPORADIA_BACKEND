@@ -1,9 +1,10 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.academics.models import Department, SchoolClass, Subject, Track
-from apps.users.models import DirectorProfile, TeacherProfile, User, UserRole
-from apps.virtual_classes.models import Exercise, VirtualClass
+from apps.academics.models import Department, Enrollment, SchoolClass, Subject, Track
+from apps.notifications.models import Notification, NotificationType
+from apps.users.models import Child, DirectorProfile, ParentProfile, TeacherProfile, User, UserRole
+from apps.virtual_classes.models import Exercise, Submission, VirtualClass
 
 pytestmark = pytest.mark.django_db
 
@@ -177,6 +178,255 @@ def test_exercise_detail_forbidden_for_unrelated_teacher(api_client):
     _login(api_client, intruder.email)
     response = api_client.get(f"/api/v1/virtual-classes/exercises/{exercise.id}/")
     assert response.status_code == 403
+
+
+def _create_parent_with_child(child_name="Aicha"):
+    parent_user = User.objects.create_user(
+        email=f"parent.{child_name}@example.ci", password="testpass123",
+        first_name="P", last_name="A", primary_role=UserRole.PARENT,
+    )
+    parent_profile = ParentProfile.objects.create(user=parent_user, location="Cocody")
+    child = Child.objects.create(parent=parent_profile, first_name=child_name, class_level="3eme")
+    return parent_user, child
+
+
+def _enroll_child(child, school_class):
+    return Enrollment.objects.create(child=child, school_class=school_class, status="active")
+
+
+def test_child_subjects_lists_published_exercises_only(api_client):
+    dedicated = _create_teacher("dedicated.childsubj@example.ci")
+    subject = _create_subject("Maths Enfant", dedicated_teacher=dedicated, school_year="2030-2043")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir publié", instructions="...", status="published"
+    )
+    Exercise.objects.create(virtual_class=virtual_class, title="Brouillon", instructions="...", status="draft")
+
+    parent, child = _create_parent_with_child("EnfantSubj")
+    _enroll_child(child, subject.school_class)
+
+    _login(api_client, parent.email)
+    response = api_client.get(f"/api/v1/virtual-classes/children/{child.id}/subjects/")
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    exercises = response.data[0]["exercises"]
+    assert len(exercises) == 1
+    assert exercises[0]["title"] == "Devoir publié"
+    assert exercises[0]["my_submission"] is None
+
+
+def test_child_subjects_forbidden_for_other_parent(api_client):
+    dedicated = _create_teacher("dedicated.otherparent@example.ci")
+    subject = _create_subject("SVT Enfant", dedicated_teacher=dedicated, school_year="2030-2044")
+    parent, child = _create_parent_with_child("EnfantAutre")
+    _enroll_child(child, subject.school_class)
+
+    intruder, _ = _create_parent_with_child("Intrus")
+    _login(api_client, intruder.email)
+    response = api_client.get(f"/api/v1/virtual-classes/children/{child.id}/subjects/")
+    assert response.status_code == 403
+
+
+def test_publishing_exercise_notifies_enrolled_parents(api_client):
+    dedicated = _create_teacher("dedicated.notify@example.ci")
+    subject = _create_subject("Anglais Notif", dedicated_teacher=dedicated, school_year="2030-2045")
+    parent, child = _create_parent_with_child("EnfantNotif")
+    _enroll_child(child, subject.school_class)
+
+    _login(api_client, dedicated.email)
+    response = api_client.post(
+        f"/api/v1/virtual-classes/subjects/{subject.id}/exercises/",
+        {"title": "Devoir Notif", "instructions": "...", "status": "published"},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert Notification.objects.filter(user=parent, notif_type=NotificationType.EXERCISE_PUBLISHED).exists()
+
+
+def test_parent_submits_exercise_on_behalf_of_enrolled_child(api_client):
+    dedicated = _create_teacher("dedicated.submit@example.ci")
+    subject = _create_subject("Physique Submit", dedicated_teacher=dedicated, school_year="2030-2046")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir Submit", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantSubmit")
+    _enroll_child(child, subject.school_class)
+
+    _login(api_client, parent.email)
+    response = api_client.post(
+        f"/api/v1/virtual-classes/exercises/{exercise.id}/submissions/",
+        {"child_id": child.id, "content": "Voici ma réponse."},
+        format="json",
+    )
+    assert response.status_code == 201
+    assert Submission.objects.filter(exercise=exercise, child=child, submitted_by=parent).exists()
+    assert Notification.objects.filter(user=dedicated, notif_type=NotificationType.EXERCISE_SUBMITTED).exists()
+
+
+def test_parent_cannot_submit_twice_for_same_exercise(api_client):
+    dedicated = _create_teacher("dedicated.dup@example.ci")
+    subject = _create_subject("Chimie Dup", dedicated_teacher=dedicated, school_year="2030-2047")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir Dup", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantDup")
+    _enroll_child(child, subject.school_class)
+
+    _login(api_client, parent.email)
+    api_client.post(
+        f"/api/v1/virtual-classes/exercises/{exercise.id}/submissions/",
+        {"child_id": child.id, "content": "Réponse 1"},
+        format="json",
+    )
+    response = api_client.post(
+        f"/api/v1/virtual-classes/exercises/{exercise.id}/submissions/",
+        {"child_id": child.id, "content": "Réponse 2"},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_parent_cannot_submit_for_unenrolled_child(api_client):
+    dedicated = _create_teacher("dedicated.unenrolled@example.ci")
+    subject = _create_subject("Histoire Unenrolled", dedicated_teacher=dedicated, school_year="2030-2048")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir Unenrolled", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantUnenrolled")
+
+    _login(api_client, parent.email)
+    response = api_client.post(
+        f"/api/v1/virtual-classes/exercises/{exercise.id}/submissions/",
+        {"child_id": child.id, "content": "Réponse"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+def test_parent_cannot_submit_for_unpublished_exercise(api_client):
+    dedicated = _create_teacher("dedicated.draft@example.ci")
+    subject = _create_subject("SES Draft", dedicated_teacher=dedicated, school_year="2030-2049")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir Draft", instructions="...", status="draft"
+    )
+    parent, child = _create_parent_with_child("EnfantDraft")
+    _enroll_child(child, subject.school_class)
+
+    _login(api_client, parent.email)
+    response = api_client.post(
+        f"/api/v1/virtual-classes/exercises/{exercise.id}/submissions/",
+        {"child_id": child.id, "content": "Réponse"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+def test_dedicated_teacher_lists_submissions_for_exercise(api_client):
+    dedicated = _create_teacher("dedicated.list2@example.ci")
+    subject = _create_subject("Philo List", dedicated_teacher=dedicated, school_year="2030-2050")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir List", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantList")
+    _enroll_child(child, subject.school_class)
+    Submission.objects.create(exercise=exercise, child=child, submitted_by=parent, content="Réponse")
+
+    _login(api_client, dedicated.email)
+    response = api_client.get(f"/api/v1/virtual-classes/exercises/{exercise.id}/submissions/")
+    assert response.status_code == 200
+    assert len(response.data) == 1
+
+
+def test_dedicated_teacher_grades_submission_and_notifies_parent(api_client):
+    dedicated = _create_teacher("dedicated.grade@example.ci")
+    subject = _create_subject("Anglais Grade", dedicated_teacher=dedicated, school_year="2030-2051")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir Grade", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantGrade")
+    _enroll_child(child, subject.school_class)
+    submission = Submission.objects.create(exercise=exercise, child=child, submitted_by=parent, content="Réponse")
+
+    _login(api_client, dedicated.email)
+    response = api_client.patch(
+        f"/api/v1/virtual-classes/submissions/{submission.id}/",
+        {"grade": 15.5, "feedback": "Bon travail."},
+        format="json",
+    )
+    assert response.status_code == 200
+    submission.refresh_from_db()
+    assert submission.status == "graded"
+    assert float(submission.grade) == 15.5
+    assert submission.graded_by == dedicated
+    assert Notification.objects.filter(user=parent, notif_type=NotificationType.CORRECTION_READY).exists()
+
+
+def test_grading_forbidden_for_non_dedicated_teacher(api_client):
+    dedicated = _create_teacher("dedicated.gradeforbidden@example.ci")
+    intruder = _create_teacher("intruder.grade@example.ci")
+    subject = _create_subject("SVT Grade", dedicated_teacher=dedicated, school_year="2030-2052")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir Grade2", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantGrade2")
+    _enroll_child(child, subject.school_class)
+    submission = Submission.objects.create(exercise=exercise, child=child, submitted_by=parent, content="Réponse")
+
+    _login(api_client, intruder.email)
+    response = api_client.patch(
+        f"/api/v1/virtual-classes/submissions/{submission.id}/",
+        {"grade": 10},
+        format="json",
+    )
+    assert response.status_code == 403
+
+
+def test_parent_views_own_submission_detail(api_client):
+    dedicated = _create_teacher("dedicated.viewdetail@example.ci")
+    subject = _create_subject("Maths ViewDetail", dedicated_teacher=dedicated, school_year="2030-2053")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir ViewDetail", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantViewDetail")
+    _enroll_child(child, subject.school_class)
+    submission = Submission.objects.create(exercise=exercise, child=child, submitted_by=parent, content="Réponse")
+
+    _login(api_client, parent.email)
+    response = api_client.get(f"/api/v1/virtual-classes/submissions/{submission.id}/")
+    assert response.status_code == 200
+
+
+def test_my_submissions_lists_only_own(api_client):
+    dedicated = _create_teacher("dedicated.mysubs@example.ci")
+    subject = _create_subject("Physique MySubs", dedicated_teacher=dedicated, school_year="2030-2054")
+    virtual_class = VirtualClass.objects.get(subject=subject)
+    exercise = Exercise.objects.create(
+        virtual_class=virtual_class, title="Devoir MySubs", instructions="...", status="published"
+    )
+    parent, child = _create_parent_with_child("EnfantMySubs")
+    _enroll_child(child, subject.school_class)
+    Submission.objects.create(exercise=exercise, child=child, submitted_by=parent, content="Réponse")
+
+    other_parent, other_child = _create_parent_with_child("AutreEnfantMySubs")
+
+    _login(api_client, parent.email)
+    response = api_client.get("/api/v1/virtual-classes/my-submissions/")
+    assert response.status_code == 200
+    assert len(response.data) == 1
+
+    _login(api_client, other_parent.email)
+    response = api_client.get("/api/v1/virtual-classes/my-submissions/")
+    assert response.status_code == 200
+    assert len(response.data) == 0
 
 
 def test_dedicated_teacher_updates_and_deletes_exercise(api_client):

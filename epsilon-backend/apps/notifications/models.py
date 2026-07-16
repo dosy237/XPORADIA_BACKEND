@@ -17,6 +17,7 @@ class NotificationType(models.TextChoices):
     PAYMENT_RECEIVED   = "payment_received",   "Paiement reçu"
     CERT_EXPIRY        = "cert_expiry",        "Alerte expiration certification"
     NEW_MESSAGE        = "new_message",        "Nouveau message"
+    EXERCISE_PUBLISHED = "exercise_published", "Devoir publié"
     EXERCISE_SUBMITTED = "exercise_submitted", "Copie soumise"
     CORRECTION_READY   = "correction_ready",   "Correction disponible"
     RECRUITMENT        = "recruitment",        "Recrutement confirmé"
