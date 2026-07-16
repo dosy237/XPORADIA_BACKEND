@@ -5,6 +5,64 @@
 
 ---
 
+## 🚀 Démarrage rapide (dev local, sans Docker)
+
+Pour lancer le projet en local avec des données de test, **ni Docker, ni
+PostgreSQL, ni Redis ne sont nécessaires** — le mode développement utilise
+SQLite et un cache en mémoire, tout est déjà configuré dans
+`config/settings/dev.py`.
+
+```bash
+# 1. Cloner le repo et s'y placer
+git clone <url-du-repo>
+cd epsilon-backend
+
+# 2. Créer l'environnement virtuel et installer les dépendances
+python -m venv venv
+source venv/bin/activate          # Windows : venv\Scripts\activate
+pip install -r requirements/dev.txt
+
+# 3. Créer la base de données (SQLite, un simple fichier db_dev.sqlite3)
+python manage.py migrate
+
+# 4. La remplir avec un jeu de données de démonstration complet et cohérent
+#    (enseignants, établissements, classes, parents/enfants, entreprises,
+#    offres d'emploi et de stage, cours particuliers, certifications...)
+python manage.py seed_demo_data
+
+# 5. Lancer le serveur
+python manage.py runserver
+```
+
+**C'est tout.** L'API est disponible sur http://localhost:8000. Aucun
+fichier `.env` n'est requis pour ce chemin — `manage.py` utilise
+`config.settings.dev` par défaut.
+
+Connectez-vous avec n'importe quel compte de démo — voir
+**[SEED_DATA.md](./SEED_DATA.md)** pour la liste complète des emails et le
+détail de ce qui est déjà créé. Le mot de passe commun est `Xporadia2026!`.
+
+Pour repartir de zéro à tout moment :
+
+```bash
+python manage.py seed_demo_data --reset
+```
+
+Ces mêmes étapes sont aussi disponibles via `make` :
+
+```bash
+make install   # venv + dépendances + .env
+make setup     # migrate + seed_demo_data (une seule fois)
+make dev       # lance le serveur
+```
+
+> Docker et PostgreSQL/Redis restent disponibles et documentés plus bas
+> (section [Installation locale](#installation-locale)) pour un
+> environnement plus proche de la production — mais ne sont pas nécessaires
+> pour simplement tester l'application.
+
+---
+
 ## Table des matières
 
 - [Stack technique](#stack-technique)
@@ -87,14 +145,19 @@ pip install -r requirements/dev.txt
 cp .env.example .env
 # Éditez .env : DATABASE_URL, REDIS_URL, SECRET_KEY
 
-# 4. Migrations + lancement
+# 4. Migrations + données de démo + lancement
 python manage.py migrate
-python manage.py createsuperuser
+python manage.py seed_demo_data   # comptes de démo (voir SEED_DATA.md), facultatif mais recommandé
+python manage.py createsuperuser  # facultatif — pour accéder à /admin/
 python manage.py runserver
 
-# 5. (Autre terminal) Celery worker
+# 5. (Autre terminal, facultatif — pas nécessaire pour tester l'app) Celery worker
 celery -A config worker --loglevel=info
 ```
+
+> `.env` n'est en réalité nécessaire que pour l'option Docker ou pour changer
+> de base de données — `config.settings.dev` (utilisé par défaut) fonctionne
+> déjà avec SQLite et un cache en mémoire sans aucune configuration.
 
 **API disponible sur** : http://localhost:8000
 **Documentation** : http://localhost:8000/api/docs/
@@ -118,8 +181,7 @@ xporadia-backend/
 │   ├── virtual_classes/    # EP-09 — Classes virtuelles
 │   ├── library/            # EP-10 — Bibliothèque de ressources
 │   ├── payments/           # EP-07 — Paiements Mobile Money
-│   ├── notifications/      # EP-08 — Notifications push/SMS/email
-│   └── admin_xporadia/      # EP-06 — Back-office administration
+│   └── notifications/      # EP-08 — Notifications push/SMS/email
 ├── config/
 │   ├── settings/
 │   │   ├── base.py         # Settings communs
@@ -474,9 +536,11 @@ PROD_SSH_KEY         → Clé SSH privée
 make help              # Voir toutes les commandes disponibles
 
 make install           # Installation complète (venv + deps + .env)
+make setup             # Créer la base + la remplir de données de démo (voir SEED_DATA.md)
 make dev               # Lancer le serveur de dev
 make migrate           # Appliquer les migrations
 make makemigrations    # Créer les migrations
+make seed              # (Re)remplir la base avec le jeu de données de démo
 make shell             # Django shell interactif
 make test              # Tests avec couverture
 make test-fast         # Tests rapides (sans couverture)

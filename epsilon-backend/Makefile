@@ -3,7 +3,7 @@
 # Usage : make <commande>
 # ============================================================
 
-.PHONY: help install dev migrate shell test lint format clean
+.PHONY: help install setup dev migrate makemigrations seed shell test test-fast lint format clean
 
 help:  ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -13,7 +13,12 @@ install:  ## Installe les dépendances de développement
 	venv/bin/pip install --upgrade pip
 	venv/bin/pip install -r requirements/dev.txt
 	cp .env.example .env
-	@echo "✅ Installation terminée. Éditez .env puis lancez 'make dev'"
+	@echo "✅ Installation terminée. Lancez maintenant 'make setup' puis 'make dev'"
+
+setup:  ## Crée la base de données et la remplit avec des données de démo (à faire une fois après install)
+	venv/bin/python manage.py migrate
+	venv/bin/python manage.py seed_demo_data
+	@echo "✅ Base de données prête, avec des comptes de démo. Voir SEED_DATA.md."
 
 dev:  ## Lance le serveur de développement
 	venv/bin/python manage.py runserver 0.0.0.0:8000
@@ -23,6 +28,9 @@ migrate:  ## Applique les migrations
 
 makemigrations:  ## Crée les migrations
 	venv/bin/python manage.py makemigrations
+
+seed:  ## Remplit (ou re-remplit) la base avec le jeu de données de démo
+	venv/bin/python manage.py seed_demo_data
 
 shell:  ## Lance le shell Django
 	venv/bin/python manage.py shell_plus
