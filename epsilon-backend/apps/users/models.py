@@ -71,6 +71,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     # Sécurité
     two_fa_enabled = models.BooleanField(default=False, verbose_name="2FA activée")
 
+    # Visibilité & préférences (E-14 — Paramètres du compte)
+    profile_visible = models.BooleanField(
+        default=True, verbose_name="Profil public visible"
+    )
+    notify_email = models.BooleanField(default=True, verbose_name="Notifications par email")
+    notify_sms = models.BooleanField(default=False, verbose_name="Notifications par SMS")
+    notify_push = models.BooleanField(default=True, verbose_name="Notifications push")
+
+    # RGPD — droit à l'effacement : on anonymise plutôt que de supprimer la
+    # ligne, pour préserver l'intégrité référentielle des certifications,
+    # recrutements et autres historiques légaux qui pointent vers ce compte.
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -99,3 +112,234 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def has_role(self, role: str) -> bool:
         return role in self.get_all_roles()
+
+
+def _generate_code():
+    import secrets
+    import string
+
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(8))
+
+
+class PreRegistrationCode(models.Model):
+    """Code remis à un enseignant ayant suivi et validé une formation en
+    présentiel Xporadia, avant même de créer son compte sur la plateforme.
+
+    Un enseignant ne devient "officiellement" enseignant Xporadia (habilité à
+    être recommandé, à apparaître dans l'annuaire, à proposer des cours
+    particuliers ou à postuler) qu'après avoir renseigné ce code et qu'un
+    administrateur l'ait validé — c'est ce qui garantit la crédibilité de
+    l'accréditation Xporadia : personne ne peut sauter les étapes.
+    """
+
+    code = models.CharField(max_length=12, unique=True, default=_generate_code)
+    label = models.CharField(
+        max_length=255, blank=True, verbose_name="Session de formation (ex : Cocody, mars 2026)"
+    )
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="preregistration_codes_created"
+    )
+    used_by = models.OneToOneField(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="preregistration_code_used"
+    )
+    is_used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Code de préinscription"
+        verbose_name_plural = "Codes de préinscription"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.code} ({'utilisé' if self.is_used else 'disponible'})"
+
+
+class TeacherProfile(models.Model):
+    """PROFIL_ENSEIGNANT — étend User quand primary_role = teacher."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="teacher_profile"
+    )
+    preregistration_code = models.OneToOneField(
+        PreRegistrationCode, on_delete=models.SET_NULL, null=True, blank=True, related_name="teacher_profile"
+    )
+    subjects = models.JSONField(default=list, blank=True, verbose_name="Matières enseignées")
+    experience_years = models.PositiveSmallIntegerField(default=0, verbose_name="Années d'expérience")
+    hourly_rate = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Tarif horaire (FCFA)"
+    )
+    location = models.CharField(max_length=255, blank=True, verbose_name="Localisation")
+    bio = models.TextField(blank=True, verbose_name="Bio professionnelle")
+    identity_document = models.FileField(
+        upload_to="identity_docs/", null=True, blank=True, verbose_name="Carte d'identité"
+    )
+    available_for_tutoring = models.BooleanField(default=False, verbose_name="Disponible cours particuliers")
+    available_for_employment = models.BooleanField(default=True, verbose_name="Disponible marché de l'emploi")
+
+    class Meta:
+        verbose_name = "Profil enseignant"
+        verbose_name_plural = "Profils enseignants"
+
+    def __str__(self):
+        return f"Profil enseignant — {self.user.get_full_name()}"
+
+
+class TeacherDiploma(models.Model):
+    """Diplôme uploadé par l'enseignant à l'inscription."""
+
+    teacher = models.ForeignKey(
+        TeacherProfile, on_delete=models.CASCADE, related_name="diplomas"
+    )
+    title = models.CharField(max_length=255, verbose_name="Intitulé du diplôme")
+    file = models.FileField(upload_to="diplomas/", verbose_name="Fichier (PDF/image)")
+    obtained_year = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Diplôme"
+        verbose_name_plural = "Diplômes"
+
+    def __str__(self):
+        return f"{self.title} — {self.teacher.user.get_full_name()}"
+
+
+class DirectorProfile(models.Model):
+    """PROFIL_DIRECTEUR — étend User quand primary_role = director."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="director_profile"
+    )
+    school_name = models.CharField(max_length=255, verbose_name="Nom de l'école")
+    address = models.CharField(max_length=255, verbose_name="Adresse")
+    levels_taught = models.JSONField(default=list, blank=True, verbose_name="Niveaux enseignés")
+    legal_documents = models.FileField(
+        upload_to="school_docs/", null=True, blank=True, verbose_name="Documents légaux"
+    )
+    student_count = models.PositiveIntegerField(null=True, blank=True, verbose_name="Effectif")
+    is_partner = models.BooleanField(default=False, verbose_name="École Partenaire Epsilon")
+
+    class Meta:
+        verbose_name = "Profil directeur"
+        verbose_name_plural = "Profils directeurs"
+
+    def __str__(self):
+        return f"{self.school_name} — {self.user.get_full_name()}"
+
+
+class CompanyProfile(models.Model):
+    """PROFIL_ENTREPRISE — étend User quand primary_role = company.
+
+    Ajouté à l'EP-01 : l'épique mentionnait déjà l'entreprise parmi les rôles
+    différenciés, mais aucune US ni entité MCD ne la détaillait. Modèle
+    validé avec le Product Owner, même structure que PROFIL_DIRECTEUR.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="company_profile"
+    )
+    company_name = models.CharField(max_length=255, verbose_name="Raison sociale")
+    sector = models.CharField(max_length=255, blank=True, verbose_name="Secteur d'activité")
+    address = models.CharField(max_length=255, verbose_name="Adresse")
+    legal_documents = models.FileField(
+        upload_to="company_docs/", null=True, blank=True, verbose_name="Documents légaux"
+    )
+    is_partner = models.BooleanField(default=False, verbose_name="Entreprise partenaire premium")
+
+    class Meta:
+        verbose_name = "Profil entreprise"
+        verbose_name_plural = "Profils entreprises"
+
+    def __str__(self):
+        return f"{self.company_name} — {self.user.get_full_name()}"
+
+
+class ParentProfile(models.Model):
+    """PROFIL_PARENT — étend User quand primary_role = parent."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="parent_profile"
+    )
+    location = models.CharField(max_length=255, blank=True, verbose_name="Localisation")
+    subscription_active = models.BooleanField(default=False, verbose_name="Abonnement actif")
+
+    class Meta:
+        verbose_name = "Profil parent"
+        verbose_name_plural = "Profils parents"
+
+    def __str__(self):
+        return f"Profil parent — {self.user.get_full_name()}"
+
+
+class Child(models.Model):
+    """ENFANT — rattaché à un ParentProfile (1 parent possède 0..N enfants)."""
+
+    parent = models.ForeignKey(
+        ParentProfile, on_delete=models.CASCADE, related_name="children"
+    )
+    first_name = models.CharField(max_length=100, verbose_name="Prénom")
+    class_level = models.CharField(max_length=50, verbose_name="Classe")
+    target_subjects = models.JSONField(default=list, blank=True, verbose_name="Matières cibles")
+
+    class Meta:
+        verbose_name = "Enfant"
+        verbose_name_plural = "Enfants"
+
+    def __str__(self):
+        return f"{self.first_name} ({self.class_level})"
+
+
+class OTPPurpose(models.TextChoices):
+    ACCOUNT_VERIFICATION = "account_verification", "Vérification de compte"
+    PASSWORD_RESET = "password_reset", "Réinitialisation mot de passe"
+
+
+class OTPCode(models.Model):
+    """Code de vérification à usage unique (email — simulateur SMS en dev)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="otp_codes")
+    code = models.CharField(max_length=6)
+    purpose = models.CharField(max_length=30, choices=OTPPurpose.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Code OTP"
+        verbose_name_plural = "Codes OTP"
+        ordering = ["-created_at"]
+
+    def is_valid(self) -> bool:
+        from django.utils import timezone
+        return not self.used and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"OTP {self.code} — {self.user.email} ({self.purpose})"
+
+
+class TeacherComment(models.Model):
+    """Commentaire laissé sur le profil public d'un enseignant, depuis le fil
+    d'actualité — anonyme ou non. L'auteur reste toujours enregistré (audit /
+    modération), même quand le commentaire s'affiche comme anonyme aux
+    autres utilisateurs."""
+
+    teacher = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="received_comments"
+    )
+    author = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="written_teacher_comments"
+    )
+    body = models.TextField(max_length=1000, verbose_name="Commentaire")
+    is_anonymous = models.BooleanField(default=False, verbose_name="Publié anonymement")
+    is_hidden = models.BooleanField(default=False, verbose_name="Masqué par modération")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Commentaire sur profil enseignant"
+        verbose_name_plural = "Commentaires sur profils enseignants"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["teacher", "is_hidden"])]
+
+    def __str__(self):
+        auteur = "Anonyme" if self.is_anonymous else self.author.get_full_name()
+        return f"{auteur} → {self.teacher.get_full_name()} : {self.body[:40]}"

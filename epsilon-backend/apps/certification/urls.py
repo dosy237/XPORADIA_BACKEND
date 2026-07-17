@@ -1,5 +1,29 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from . import views
+
 router = DefaultRouter()
-urlpatterns = router.urls
+router.register("modules", views.TrainingModuleViewSet, basename="training-module")
+router.register("sessions", views.TrainingSessionViewSet, basename="training-session")
+
+urlpatterns = [
+    path("my-status/", views.MyCertificationStatusView.as_view(), name="my-certification-status"),
+    path(
+        "modules/<uuid:module_id>/online-exam/",
+        views.OnlineExamQuestionsView.as_view(),
+        name="online-exam-questions",
+    ),
+    path(
+        "modules/<uuid:module_id>/online-exam/submit/",
+        views.SubmitOnlineExamView.as_view(),
+        name="online-exam-submit",
+    ),
+    path(
+        "sessions/<uuid:session_id>/enroll/",
+        views.EnrollInSessionView.as_view(),
+        name="session-enroll",
+    ),
+    path("my-enrollments/", views.MySessionEnrollmentsView.as_view(), name="my-session-enrollments"),
+    path("", include(router.urls)),
+]

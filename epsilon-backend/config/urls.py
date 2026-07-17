@@ -17,6 +17,7 @@ urlpatterns = [
 
     # Apps
     path("api/v1/auth/", include("apps.users.urls")),
+    path("api/v1/academics/", include("apps.academics.urls")),
     path("api/v1/certification/", include("apps.certification.urls")),
     path("api/v1/employment/", include("apps.employment.urls")),
     path("api/v1/internships/", include("apps.internships.urls")),

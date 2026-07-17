@@ -18,6 +18,12 @@ SECRET_KEY = env("SECRET_KEY", default="changeme-in-production")
 DEBUG = env.bool("DEBUG", default=False)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
 
+# Base des liens d'invitation envoyés par email (ex: invitation d'un
+# enseignant dédié à une matière). En production, ce domaine doit être
+# configuré en Universal Link / App Link pour ouvrir l'app directement ;
+# tant que ce n'est pas fait, le lien ouvre une page web de redirection.
+INVITE_LINK_BASE = env("INVITE_LINK_BASE", default="https://app.xporadia.ci")
+
 # Application definition
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -42,6 +48,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.users",
+    "apps.academics",
     "apps.certification",
     "apps.employment",
     "apps.internships",
@@ -50,7 +57,6 @@ LOCAL_APPS = [
     "apps.library",
     "apps.payments",
     "apps.notifications",
-    "apps.admin_xporadia",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -151,7 +157,10 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.CursorPagination",
+    # PageNumberPagination : ne dépend d'aucun champ de tri implicite, contrairement à
+    # CursorPagination dont l'ordering par défaut ("-created") ne correspond au nom d'aucun
+    # champ de nos modèles (created_at) et casse toute liste paginée.
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }

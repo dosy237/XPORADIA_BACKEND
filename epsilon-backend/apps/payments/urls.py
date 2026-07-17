@@ -1,5 +1,7 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
-router = DefaultRouter()
-urlpatterns = router.urls
+from . import views
+
+urlpatterns = [
+    path("my-payments/", views.MyPaymentsView.as_view(), name="my-payments"),
+]

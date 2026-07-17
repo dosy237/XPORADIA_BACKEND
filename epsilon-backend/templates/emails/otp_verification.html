@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Xporadia — Code de vérification</title>
+</head>
+<body style="margin:0; padding:0; background-color:#F1F1F1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F1F1F1; padding: 32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background-color:#FFFFFF; border-radius:20px; overflow:hidden; box-shadow: 0 8px 24px rgba(15,23,42,0.12);">
+          <tr>
+            <td style="background-color:#0F172A; padding: 32px 40px;" align="center">
+              <span style="color:#FFFFFF; font-size:26px; font-weight:800; letter-spacing:0.5px;">Xporadia</span>
+              <div style="color:rgba(255,255,255,0.65); font-size:12px; margin-top:4px;">L'innovation au service de l'éducation</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px 40px 24px 40px;">
+              <p style="color:#0F172A; font-size:16px; margin:0 0 8px 0;">Bonjour {{ first_name }},</p>
+              <p style="color:#5A6A8A; font-size:15px; line-height:22px; margin:0 0 28px 0;">
+                Voici votre code de vérification pour activer votre compte Xporadia. Ce code est valable {{ validity_minutes }} minutes.
+              </p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="background-color:#F8F8F8; border: 1px solid #E2E8F0; border-radius:16px; padding: 24px;">
+                    <span style="color:#FB5406; font-size:36px; font-weight:800; letter-spacing:10px;">{{ code }}</span>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#5A6A8A; font-size:13px; line-height:20px; margin:28px 0 0 0;">
+                Saisissez ce code dans l'application Xporadia pour vérifier votre compte. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email en toute sécurité.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 40px 32px 40px; border-top: 1px solid #E2E8F0;">
+              <p style="color:#5A6A8A; font-size:12px; margin:0;">
+                © Xporadia — Plateforme de certification professionnelle des enseignants du secteur privé africain.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
