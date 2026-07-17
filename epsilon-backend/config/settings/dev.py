@@ -9,12 +9,12 @@ SECRET_KEY = "dev-secret-key-not-for-production-epsilon-2025"
 
 ALLOWED_HOSTS = ["*"]
 
-# Base de données SQLite pour le dev local (pas besoin de PostgreSQL)
+# Base de données : SQLite par défaut (aucune config requise). Si vous avez
+# déjà PostgreSQL en local, renseignez DATABASE_URL dans .env, par exemple :
+#   DATABASE_URL=postgresql://epsilon_user:password@localhost:5432/epsilon_db
+# et cette valeur sera utilisée à la place — aucun autre changement nécessaire.
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db_dev.sqlite3",
-    }
+    "default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db_dev.sqlite3'}")
 }
 
 # Cache local (mémoire) — pas besoin de Redis en dev

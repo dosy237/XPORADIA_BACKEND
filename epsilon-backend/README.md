@@ -61,6 +61,23 @@ make dev       # lance le serveur
 > environnement plus proche de la production — mais ne sont pas nécessaires
 > pour simplement tester l'application.
 
+### Vous avez déjà PostgreSQL en local ?
+
+Aucun changement de code nécessaire — `config.settings.dev` lit `DATABASE_URL`
+si elle est définie, et ne retombe sur SQLite que si elle est absente :
+
+```bash
+createdb epsilon_db   # une fois, si la base n'existe pas encore
+
+cp .env.example .env
+# Dans .env, commentez la ligne SQLite et adaptez celle-ci à vos identifiants :
+# DATABASE_URL=postgresql://epsilon_user:password@localhost:5432/epsilon_db
+
+python manage.py migrate
+python manage.py seed_demo_data
+python manage.py runserver
+```
+
 ---
 
 ## Table des matières
