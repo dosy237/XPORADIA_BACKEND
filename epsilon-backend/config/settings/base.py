@@ -5,6 +5,7 @@ Commun à tous les environnements (dev, staging, prod)
 import os
 from pathlib import Path
 import environ
+from celery.schedules import crontab
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -127,6 +128,16 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Africa/Abidjan"
+
+# Nudges quotidiens d'engagement (voir apps.notifications.tasks) — ne se
+# déclenche que si un beat Celery tourne réellement :
+# `celery -A config beat` en plus du worker `celery -A config worker`.
+CELERY_BEAT_SCHEDULE = {
+    "send-daily-engagement-nudges": {
+        "task": "apps.notifications.tasks.send_daily_engagement_nudges",
+        "schedule": crontab(hour=8, minute=0),
+    },
+}
 
 # Auth
 AUTH_USER_MODEL = "users.User"
