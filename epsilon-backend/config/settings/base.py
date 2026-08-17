@@ -52,11 +52,15 @@ LOCAL_APPS = [
     "apps.certification",
     "apps.employment",
     "apps.internships",
-    "apps.tutoring",
     "apps.virtual_classes",
     "apps.library",
     "apps.payments",
     "apps.notifications",
+    "apps.feed",
+    "apps.messaging",
+    "apps.student_life",
+    "apps.grading",
+    "apps.admin_panel",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -194,3 +198,18 @@ MEDIA_ROOT = BASE_DIR / "media"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Logging — fontTools (dépendance de weasyprint pour le subsetting de
+# police) émet des centaines de lignes DEBUG par PDF généré ("Reading
+# 'maxp' table"...), inutilisables en pratique et bruyantes en prod.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "fontTools": {"level": "WARNING", "propagate": True},
+        "weasyprint": {"level": "WARNING", "propagate": True},
+        "django.utils.autoreload": {"level": "WARNING", "propagate": True},
+    },
+}

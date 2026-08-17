@@ -21,11 +21,15 @@ urlpatterns = [
     path("api/v1/certification/", include("apps.certification.urls")),
     path("api/v1/employment/", include("apps.employment.urls")),
     path("api/v1/internships/", include("apps.internships.urls")),
-    path("api/v1/tutoring/", include("apps.tutoring.urls")),
     path("api/v1/virtual-classes/", include("apps.virtual_classes.urls")),
     path("api/v1/library/", include("apps.library.urls")),
     path("api/v1/payments/", include("apps.payments.urls")),
     path("api/v1/notifications/", include("apps.notifications.urls")),
+    path("api/v1/feed/", include("apps.feed.urls")),
+    path("api/v1/messaging/", include("apps.messaging.urls")),
+    path("api/v1/grading/", include("apps.grading.urls")),
+    path("api/v1/admin-panel/", include("apps.admin_panel.urls")),
+    path("api/v1/student-life/", include("apps.student_life.urls")),
 ]
 
 if settings.DEBUG:
