@@ -238,6 +238,7 @@ class Command(BaseCommand):
                 available_for_tutoring=True, available_for_employment=True,
             ),
         )
+        _attach_demo_image(aminata, "avatar", "enseignante_portrait.jpg", self._images_dir)
 
         ibrahim, _ = self._get_or_create_user(
             "ibrahim.teacher@xporadia.ci", UserRole.TEACHER, "Ibrahim", "Fofana", "+2250700000008"
@@ -879,6 +880,7 @@ class Command(BaseCommand):
                 is_verified=True,
                 is_documents_validated=True,
             )
+            _attach_demo_image(student_user, "avatar", "etudiante_campus.jpg", self._images_dir)
             aicha.user = student_user
             aicha.last_name = "Koné"
             aicha.save(update_fields=["user", "last_name"])
