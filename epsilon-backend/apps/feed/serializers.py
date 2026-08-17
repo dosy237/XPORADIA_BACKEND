@@ -70,10 +70,13 @@ class PostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
         fields = [
-            "id", "author", "title", "body", "hashtags", "images", "visibility",
-            "like_count", "comment_count", "is_liked_by_me", "created_at",
+            "id", "author", "title", "body", "hashtags", "images", "video",
+            "video_duration_seconds", "visibility", "like_count", "comment_count",
+            "is_liked_by_me", "created_at",
         ]
-        read_only_fields = ["id", "author", "hashtags", "images", "created_at"]
+        read_only_fields = [
+            "id", "author", "hashtags", "images", "video", "video_duration_seconds", "created_at",
+        ]
 
     def get_is_liked_by_me(self, obj):
         request = self.context.get("request")
@@ -85,10 +88,16 @@ class PostSerializer(serializers.ModelSerializer):
         return any(like.user_id == request.user.id for like in obj.likes.all())
 
 
+MAX_VIDEO_DURATION_SECONDS = 60
+MAX_VIDEO_SIZE_BYTES = 80 * 1024 * 1024  # garde-fou taille, la durée réelle est validée côté app
+
+
 class CreatePostSerializer(serializers.ModelSerializer):
+    video_duration_seconds = serializers.IntegerField(required=False, allow_null=True)
+
     class Meta:
         model = Post
-        fields = ["title", "body", "visibility"]
+        fields = ["title", "body", "visibility", "video", "video_duration_seconds"]
 
     def validate_body(self, value):
         value = value.strip()
@@ -97,3 +106,16 @@ class CreatePostSerializer(serializers.ModelSerializer):
         if len(value) > 2000:
             raise serializers.ValidationError("2000 caractères maximum.")
         return value
+
+    def validate_video(self, value):
+        if value and value.size > MAX_VIDEO_SIZE_BYTES:
+            raise serializers.ValidationError("Vidéo trop volumineuse.")
+        return value
+
+    def validate(self, attrs):
+        duration = attrs.get("video_duration_seconds")
+        if attrs.get("video") and duration and duration > MAX_VIDEO_DURATION_SECONDS:
+            raise serializers.ValidationError(
+                {"video": f"La vidéo doit durer {MAX_VIDEO_DURATION_SECONDS} secondes maximum."}
+            )
+        return attrs

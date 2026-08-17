@@ -25,6 +25,11 @@ class Post(models.Model):
     )
     title = models.CharField(max_length=150, blank=True, verbose_name="Titre")
     body = models.TextField(max_length=2000, verbose_name="Contenu")
+    # Une publication porte soit des photos (PostImage, plusieurs), soit une
+    # vidéo courte (une seule, 60s max — validé côté app à la sélection ET
+    # ici en garde-fou), jamais les deux à la fois.
+    video = models.FileField(upload_to="posts/videos/", null=True, blank=True)
+    video_duration_seconds = models.PositiveSmallIntegerField(null=True, blank=True)
     # Extraits automatiquement du corps à l'enregistrement (#mot) — permet
     # de parcourir/filtrer par thème sans re-parser le texte à chaque
     # affichage. Voir Post.save().
@@ -57,8 +62,8 @@ class Post(models.Model):
 
 
 class PostImage(models.Model):
-    """Une publication peut porter plusieurs photos (pas de vidéo — hors
-    scope aujourd'hui), affichées en carrousel côté app."""
+    """Une publication peut porter plusieurs photos, affichées en
+    carrousel côté app — voir Post.video pour l'alternative vidéo."""
 
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="images")
     image = models.ImageField(upload_to="posts/")

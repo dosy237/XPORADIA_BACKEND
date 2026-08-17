@@ -97,9 +97,13 @@ class PostViewSet(viewsets.ModelViewSet):
         post = serializer.instance
 
         # Photos multiples — envoyées sous la même clé "images" répétée en
-        # multipart (pas de vidéo, cf. décision produit). Pas de dépendance
-        # à un ordre côté client : l'ordre d'arrivée fait foi.
+        # multipart. Pas de dépendance à un ordre côté client : l'ordre
+        # d'arrivée fait foi. La vidéo (optionnelle, exclusive des photos)
+        # est un champ direct de Post, gérée par le serializer lui-même.
         images = request.FILES.getlist("images")
+        if images and post.video:
+            post.delete()
+            raise ValidationError({"images": "Une publication porte soit des photos, soit une vidéo, pas les deux."})
         if len(images) > MAX_IMAGES_PER_POST:
             post.delete()
             raise ValidationError({"images": f"{MAX_IMAGES_PER_POST} photos maximum par publication."})
