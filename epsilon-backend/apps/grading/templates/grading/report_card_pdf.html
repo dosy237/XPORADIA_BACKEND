@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 1.5cm; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 9.5pt; color: #1a1a1a; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0F172A; padding-bottom: 10px; margin-bottom: 14px; }
+  .brand { font-size: 15pt; font-weight: bold; color: #0F172A; }
+  .establishment { font-size: 9pt; color: #6b7280; margin-top: 2px; }
+  .term-title { text-align: right; font-size: 11pt; font-weight: bold; color: #0F172A; }
+  .student-block { background: #F8F8F8; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; display: flex; justify-content: space-between; }
+  .student-name { font-size: 12pt; font-weight: bold; color: #0F172A; }
+  .student-class { font-size: 9pt; color: #6b7280; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  th { background: #0F172A; color: #fff; text-align: left; padding: 7px 8px; font-size: 8.5pt; }
+  td { padding: 6px 8px; border-bottom: 1px solid #E2E8F0; font-size: 9pt; }
+  .avg-cell { font-weight: bold; text-align: center; }
+  .summary-row { display: flex; justify-content: space-between; background: #0F172A; color: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+  .summary-item { text-align: center; }
+  .summary-value { font-size: 14pt; font-weight: bold; }
+  .summary-label { font-size: 7.5pt; opacity: 0.7; text-transform: uppercase; }
+  .comment-block { background: #FFF7ED; border-left: 3px solid #FB5406; padding: 10px 14px; border-radius: 4px; }
+  .comment-title { font-size: 8pt; font-weight: bold; color: #C2410C; text-transform: uppercase; margin-bottom: 4px; }
+  .footer { margin-top: 20px; font-size: 7.5pt; color: #9ca3af; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="brand">XPORADIA</div>
+      <div class="establishment">{{ establishment_name }}</div>
+    </div>
+    <div class="term-title">Bulletin — {{ term_label }}<br>Année {{ school_year }}</div>
+  </div>
+
+  <div class="student-block">
+    <div>
+      <div class="student-name">{{ student_name }}</div>
+      <div class="student-class">{{ class_name }}</div>
+    </div>
+  </div>
+
+  <table>
+    <tr>
+      <th>Matière</th>
+      <th style="text-align:center">Coefficient</th>
+      <th style="text-align:center">Moyenne</th>
+    </tr>
+    {% for entry in subject_entries %}
+    <tr>
+      <td>{{ entry.subject_name }}</td>
+      <td style="text-align:center">{{ entry.coefficient }}</td>
+      <td class="avg-cell">{{ entry.subject_average|default:"—" }}{% if entry.subject_average %}/20{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <div class="summary-row">
+    <div class="summary-item">
+      <div class="summary-value">{{ general_average }}/20</div>
+      <div class="summary-label">Moyenne générale</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-value">{{ rank }}<span style="font-size:9pt">/{{ class_size }}</span></div>
+      <div class="summary-label">Rang</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-value">{{ class_average }}/20</div>
+      <div class="summary-label">Moyenne de classe</div>
+    </div>
+  </div>
+
+  {% if homeroom_comment %}
+  <div class="comment-block">
+    <div class="comment-title">Appréciation du professeur principal</div>
+    <div>{{ homeroom_comment }}</div>
+  </div>
+  {% endif %}
+
+  <div class="footer">Bulletin généré via Xporadia — {{ published_at }}</div>
+</body>
+</html>
