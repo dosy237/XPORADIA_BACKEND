@@ -251,6 +251,7 @@ class Command(BaseCommand):
                 available_for_tutoring=False, available_for_employment=True,
             ),
         )
+        _attach_demo_image(ibrahim, "avatar", "enseignant_portrait.jpg", self._images_dir)
 
         mariam, _ = self._get_or_create_user(
             "mariam.teacher@xporadia.ci", UserRole.TEACHER, "Mariam", "Coulibaly", "+2250700000009"
@@ -275,6 +276,7 @@ class Command(BaseCommand):
                 levels_taught=["Primaire", "Collège"], student_count=420, is_partner=True,
             ),
         )
+        _attach_demo_image(kouassi, "avatar", "directeur_portrait.jpg", self._images_dir)
 
         adjoua, _ = self._get_or_create_user(
             "adjoua.director@xporadia.ci", UserRole.DIRECTOR, "Adjoua", "Kone", "+2250700000010"
@@ -347,6 +349,7 @@ class Command(BaseCommand):
                 is_partner=True,
             ),
         )
+        _attach_demo_image(nadege, "avatar", "entreprise_rh_portrait.jpg", self._images_dir)
 
         users.update(
             teachers={"awa": awa, "yao": yao, "aminata": aminata, "ibrahim": ibrahim, "mariam": mariam},
