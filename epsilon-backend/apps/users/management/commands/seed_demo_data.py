@@ -1,5 +1,9 @@
 import datetime
+import os
+from pathlib import Path
 
+from django.conf import settings
+from django.core.files import File
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -26,7 +30,7 @@ from apps.employment.models import (
     JobStatus,
     Recruitment,
 )
-from apps.feed.models import Post, PostComment, PostLike
+from apps.feed.models import Post, PostComment, PostImage, PostLike
 from apps.messaging.models import Channel, ChannelType, Message
 from apps.messaging.services import create_subject_channel, ensure_student_messaging
 from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
@@ -61,6 +65,44 @@ TODAY = datetime.date.today
 CERT_VALIDITY_DAYS = 730
 
 
+def _find_frontend_images_dir():
+    """Localise mobile/assets/images/ du dépôt frontend, checkouté à côté du
+    backend (ex. ~/rodrigue/xporadia-backend et ~/rodrigue/xporadia-frontend).
+    Surchargeable via la variable d'environnement FRONTEND_ASSETS_DIR. Ne
+    lève jamais — les images de démo sont un bonus visuel, pas un pré-requis
+    pour que le seed fonctionne."""
+    override = os.environ.get("FRONTEND_ASSETS_DIR")
+    candidates = [Path(override)] if override else []
+
+    siblings_root = Path(settings.BASE_DIR).parent.parent
+    if siblings_root.is_dir():
+        for child in sorted(siblings_root.iterdir()):
+            if child.is_dir() and "frontend" in child.name.lower():
+                candidates.append(child / "epsilon-frontend" / "mobile" / "assets" / "images")
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _attach_demo_image(instance, field_name, filename, images_dir, save=True):
+    """Copie une image du dossier assets/images du frontend vers un
+    ImageField. Idempotent : ne touche à rien si le champ est déjà rempli
+    (évite de dupliquer le fichier stocké à chaque relance du seed)."""
+    field_file = getattr(instance, field_name)
+    if field_file:
+        return False
+    if not images_dir:
+        return False
+    source = images_dir / filename
+    if not source.is_file():
+        return False
+    with source.open("rb") as fh:
+        field_file.save(filename, File(fh), save=save)
+    return True
+
+
 def _payment(user, amount, payment_type, status, content_object=None, operator=MobileOperator.ORANGE):
     payment = Payment.objects.create(
         user=user,
@@ -92,6 +134,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        self._images_dir = _find_frontend_images_dir()
+        if self._images_dir:
+            self.stdout.write(f"Images de démo : {self._images_dir}")
+        else:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Dossier assets/images du frontend introuvable — publications, modules et "
+                    "offres de démo seront créés sans image (voir FRONTEND_ASSETS_DIR)."
+                )
+            )
+
         if options["reset"]:
             demo_users = User.objects.filter(email__endswith="@xporadia.ci")
             # Certification.attempt et TrainingSession.trainer sont en PROTECT :
@@ -349,12 +402,21 @@ class Command(BaseCommand):
             CertificationLevel.SILVER: 25,
             CertificationLevel.GOLD: 50,
         }
+        MODULE_COVER_IMAGES = {
+            "Fondamentaux pédagogiques": "formation.png",
+            "Didactique disciplinaire": "seance_dicdactique_disciplinaire.jpg",
+            "Gestion de classe avancée": "college_fraternite.jpg",
+            "Leadership pédagogique": "nouvelle_promo.jpg",
+        }
         for data in module_defs:
             data.setdefault("points", MODULE_POINTS_BY_LEVEL[data["target_level"]])
             module, created = TrainingModule.objects.get_or_create(title=data["title"], defaults=data)
             modules[module.title] = module
             if created:
                 self.stdout.write(self.style.SUCCESS(f"Module créé : {module.title}"))
+            cover = MODULE_COVER_IMAGES.get(module.title)
+            if cover:
+                _attach_demo_image(module, "cover_image", cover, self._images_dir)
 
         # Questions QCM/Vrai-Faux pour l'examen en ligne du module Bronze de base.
         bronze_module = modules["Fondamentaux pédagogiques"]
@@ -631,6 +693,7 @@ class Command(BaseCommand):
                 places=3, city="Abidjan", skills_wanted=["Curiosité", "Autonomie"],
             ),
         )
+        _attach_demo_image(offer1, "cover_image", "image_abidjan_tech_hub.jpg", self._images_dir)
         application1, _ = InternshipApplication.objects.get_or_create(
             offer=offer1, school=directors["kouassi"], student=children["ibrahim_jr"],
             defaults=dict(motivation="Élève très motivé par le numérique.", status=InternshipApplicationStatus.ACCEPTED),
@@ -660,6 +723,7 @@ class Command(BaseCommand):
                 places=2, city="Abidjan",
             ),
         )
+        _attach_demo_image(offer2, "cover_image", "stagiaire_abidjan_tech_hub.jpg", self._images_dir)
         InternshipApplication.objects.get_or_create(
             offer=offer2, school=directors["kouassi"], student=children["aicha"],
             defaults=dict(motivation="Intéressée par le marketing digital.", status=InternshipApplicationStatus.PENDING),
@@ -698,19 +762,23 @@ class Command(BaseCommand):
         posts_data = [
             dict(
                 author=teachers["awa"],
+                title="Certification Argent décrochée !",
                 body=(
                     "Ravie d'avoir décroché ma certification Argent ce mois-ci ! Merci à l'équipe "
                     "pédagogique Xporadia pour l'accompagnement pendant le module de didactique."
                 ),
                 days_ago=6,
+                images=["seance_dicdactique_disciplinaire.jpg"],
             ),
             dict(
                 author=directors["kouassi"],
+                title="Recrutement — Collège Fraternité",
                 body=(
                     "Le Collège Fraternité recrute deux enseignants de Mathématiques certifiés Or "
                     "pour la rentrée. Les candidatures se font directement via l'annuaire Xporadia."
                 ),
                 days_ago=4,
+                images=["college_fraternite.jpg"],
             ),
             dict(
                 author=teachers["ibrahim"],
@@ -719,14 +787,17 @@ class Command(BaseCommand):
                     "la plateforme : l'outil de suivi de progression change vraiment la donne."
                 ),
                 days_ago=3,
+                images=["bibliotheque_numerique.jpg"],
             ),
             dict(
                 author=companies["nadege"],
+                title="5 nouvelles places de stage",
                 body=(
                     "Abidjan Tech Hub ouvre 5 nouvelles places de stage pour les élèves de Terminale "
                     "intéressés par le développement web. Missions concrètes, encadrement dédié."
                 ),
                 days_ago=2,
+                images=["image_abidjan_tech_hub.jpg", "stagiaire_abidjan_tech_hub.jpg"],
             ),
             dict(
                 author=parents["fatou"],
@@ -735,11 +806,13 @@ class Command(BaseCommand):
                     "les progrès de ma fille depuis la rentrée sont impressionnants."
                 ),
                 days_ago=1,
+                images=["acompagnement_en_svt.jpg", "progres_de_ma_fille.jpg"],
             ),
             dict(
                 author=teachers["aminata"],
                 body="Session de formation continue sur la gestion de classe très enrichissante ce week-end à Cocody.",
                 days_ago=0,
+                images=["formation2.jpg"],
             ),
         ]
 
@@ -754,21 +827,35 @@ class Command(BaseCommand):
         for i, data in enumerate(posts_data):
             post, created = Post.objects.get_or_create(
                 author=data["author"], body=data["body"],
-                defaults=dict(created_at=timezone.now() - datetime.timedelta(days=data["days_ago"])),
+                defaults=dict(
+                    title=data.get("title", ""),
+                    created_at=timezone.now() - datetime.timedelta(days=data["days_ago"]),
+                ),
             )
-            if not created:
-                continue
-            # created_at a auto_now_add=True — on le corrige après coup pour
-            # étaler les publications dans le temps (fil chronologique crédible).
-            Post.objects.filter(pk=post.pk).update(
-                created_at=timezone.now() - datetime.timedelta(days=data["days_ago"])
-            )
-            for liker in likers[: (i % len(likers)) + 2]:
-                PostLike.objects.get_or_create(post=post, user=liker)
-            for j, comment_author in enumerate([teachers["yao"], parents["aya"]][: i % 3]):
-                PostComment.objects.get_or_create(
-                    post=post, author=comment_author, body=comments_bank[(i + j) % len(comments_bank)],
+            if created:
+                # created_at a auto_now_add=True — on le corrige après coup pour
+                # étaler les publications dans le temps (fil chronologique crédible).
+                Post.objects.filter(pk=post.pk).update(
+                    created_at=timezone.now() - datetime.timedelta(days=data["days_ago"])
                 )
+                for liker in likers[: (i % len(likers)) + 2]:
+                    PostLike.objects.get_or_create(post=post, user=liker)
+                for j, comment_author in enumerate([teachers["yao"], parents["aya"]][: i % 3]):
+                    PostComment.objects.get_or_create(
+                        post=post, author=comment_author, body=comments_bank[(i + j) % len(comments_bank)],
+                    )
+            elif data.get("title") and not post.title:
+                # Backfill pour une base déjà seedée avant l'ajout du titre.
+                Post.objects.filter(pk=post.pk).update(title=data["title"])
+
+            if data.get("images") and self._images_dir and not post.images.exists():
+                for order, filename in enumerate(data["images"]):
+                    source = self._images_dir / filename
+                    if not source.is_file():
+                        continue
+                    image = PostImage(post=post, order=order)
+                    with source.open("rb") as fh:
+                        image.image.save(filename, File(fh), save=True)
 
         self.stdout.write(self.style.SUCCESS(f"Fil d'actualité : {len(posts_data)} publication(s) de démo créées."))
 
@@ -1051,6 +1138,19 @@ class Command(BaseCommand):
             Post.objects.filter(pk=post.pk).update(
                 created_at=timezone.now() - datetime.timedelta(days=rng.randint(0, 25), hours=rng.randint(0, 23))
             )
+            # Deux publications de cette série reçoivent une image de démo,
+            # pour varier le rendu du fil au-delà des 6 publications fixes.
+            if i == 0 and self._images_dir:
+                Post.objects.filter(pk=post.pk).update(title="Résultats d'examen")
+                source = self._images_dir / "examen1.jpg"
+                if source.is_file():
+                    with source.open("rb") as fh:
+                        PostImage(post=post, order=0).image.save("examen1.jpg", File(fh), save=True)
+            elif i == 1 and self._images_dir:
+                source = self._images_dir / "bepc_allemand.jpg"
+                if source.is_file():
+                    with source.open("rb") as fh:
+                        PostImage(post=post, order=0).image.save("bepc_allemand.jpg", File(fh), save=True)
             for liker in rng.sample(all_authors, min(rng.randint(0, 8), len(all_authors))):
                 if liker.id != author.id:
                     PostLike.objects.get_or_create(post=post, user=liker)
@@ -1104,7 +1204,7 @@ class Command(BaseCommand):
             if not companies:
                 break
             company_profile = rng.choice(companies)
-            InternshipOffer.objects.get_or_create(
+            bulk_offer, _ = InternshipOffer.objects.get_or_create(
                 company=company_profile.user, title=f"Stage découverte {rng.choice(SUBJECTS_BANK)} #{i}",
                 defaults=dict(
                     domain=rng.choice(["Numérique", "Commerce", "Industrie", "Communication"]),
@@ -1116,6 +1216,8 @@ class Command(BaseCommand):
                     city=rng.choice(CITIES), places=rng.randint(1, 3),
                 ),
             )
+            if i == 0:
+                _attach_demo_image(bulk_offer, "cover_image", "stagiaire_abidjan_tech_hub.jpg", self._images_dir)
 
         # --- Marqueur d'idempotence ---
         User.objects.create_user(

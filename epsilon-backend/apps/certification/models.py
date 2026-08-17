@@ -44,6 +44,7 @@ class TrainingModule(models.Model):
     points       = models.PositiveSmallIntegerField(default=10)
     target_level = models.CharField(max_length=10, choices=CertificationLevel.choices,
                                      default=CertificationLevel.BRONZE)
+    cover_image  = models.ImageField(upload_to="certification_modules/", null=True, blank=True)
     is_active    = models.BooleanField(default=True)
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)

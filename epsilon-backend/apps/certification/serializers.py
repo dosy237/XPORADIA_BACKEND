@@ -24,7 +24,7 @@ class TrainingModuleSerializer(serializers.ModelSerializer):
         model = TrainingModule
         fields = [
             "id", "title", "category", "description", "objectives", "prerequisites",
-            "duration_hours", "price", "target_level", "has_online_exam",
+            "duration_hours", "price", "target_level", "cover_image", "has_online_exam",
         ]
 
     def get_has_online_exam(self, obj):
@@ -40,7 +40,7 @@ class AdminTrainingModuleSerializer(serializers.ModelSerializer):
         model = TrainingModule
         fields = [
             "id", "title", "category", "description", "objectives", "prerequisites",
-            "duration_hours", "price", "points", "target_level", "is_active", "created_at",
+            "duration_hours", "price", "points", "target_level", "cover_image", "is_active", "created_at",
         ]
         read_only_fields = ["id", "created_at"]
 

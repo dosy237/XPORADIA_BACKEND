@@ -32,6 +32,7 @@ class InternshipOffer(models.Model):
     places         = models.PositiveSmallIntegerField(default=1)
     city           = models.CharField(max_length=100)
     skills_wanted  = models.JSONField(default=list, blank=True)
+    cover_image    = models.ImageField(upload_to="internship_offers/", null=True, blank=True)
     is_premium     = models.BooleanField(default=False)
     is_active      = models.BooleanField(default=True)
     created_at     = models.DateTimeField(auto_now_add=True)

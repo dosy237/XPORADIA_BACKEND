@@ -23,6 +23,7 @@ class Post(models.Model):
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="posts"
     )
+    title = models.CharField(max_length=150, blank=True, verbose_name="Titre")
     body = models.TextField(max_length=2000, verbose_name="Contenu")
     # Extraits automatiquement du corps à l'enregistrement (#mot) — permet
     # de parcourir/filtrer par thème sans re-parser le texte à chaque

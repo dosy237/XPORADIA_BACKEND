@@ -70,7 +70,7 @@ class PostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
         fields = [
-            "id", "author", "body", "hashtags", "images", "visibility",
+            "id", "author", "title", "body", "hashtags", "images", "visibility",
             "like_count", "comment_count", "is_liked_by_me", "created_at",
         ]
         read_only_fields = ["id", "author", "hashtags", "images", "created_at"]
@@ -88,7 +88,7 @@ class PostSerializer(serializers.ModelSerializer):
 class CreatePostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
-        fields = ["body", "visibility"]
+        fields = ["title", "body", "visibility"]
 
     def validate_body(self, value):
         value = value.strip()

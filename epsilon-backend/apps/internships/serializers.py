@@ -38,7 +38,7 @@ class InternshipOfferSerializer(serializers.ModelSerializer):
         model = InternshipOffer
         fields = [
             "id", "company", "title", "domain", "missions", "level", "duration_weeks",
-            "period_start", "period_end", "places", "city", "skills_wanted",
+            "period_start", "period_end", "places", "city", "skills_wanted", "cover_image",
             "is_premium", "is_active", "application_count", "created_at",
         ]
         read_only_fields = ["id", "company", "is_premium", "application_count", "created_at"]
