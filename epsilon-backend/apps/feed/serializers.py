@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.users.models import User
 
-from .models import Follow, Post, PostComment, PostImage, PostLike
+from .models import CommentLike, Follow, Post, PostComment, PostImage, PostLike
 
 
 class PostAuthorSerializer(serializers.ModelSerializer):
@@ -34,11 +34,21 @@ class PostAuthorSerializer(serializers.ModelSerializer):
 
 class PostCommentSerializer(serializers.ModelSerializer):
     author = PostAuthorSerializer(read_only=True)
+    like_count = serializers.IntegerField(source="likes.count", read_only=True)
+    is_liked_by_me = serializers.SerializerMethodField()
 
     class Meta:
         model = PostComment
-        fields = ["id", "post", "author", "body", "created_at"]
+        fields = ["id", "post", "author", "body", "like_count", "is_liked_by_me", "created_at"]
         read_only_fields = ["id", "post", "author", "created_at"]
+
+    def get_is_liked_by_me(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        # `likes` est préchargé côté queryset (voir PostCommentListCreateView)
+        # pour éviter une requête par commentaire affiché.
+        return any(like.user_id == request.user.id for like in obj.likes.all())
 
 
 class CreatePostCommentSerializer(serializers.ModelSerializer):

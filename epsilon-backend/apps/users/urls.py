@@ -60,6 +60,7 @@ urlpatterns = [
         views.CompanyDirectoryViewSet.as_view({"get": "retrieve"}),
         name="company-directory-detail",
     ),
+    path("search/people/", views.PeopleSearchView.as_view(), name="people-search"),
     path(
         "teachers/<int:user_id>/comments/",
         views.TeacherCommentListCreateView.as_view(),

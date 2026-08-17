@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -364,6 +365,94 @@ class StudentActivationView(APIView):
         )
 
 
+def _annotate_establishment_activity(qs):
+    """Score d'activité plateforme d'un établissement — élèves inscrits
+    actifs + publications sur le fil + conventions de stage signées.
+    Pondération à 1 point par dimension : une formule simple et vérifiable
+    plutôt qu'un scoring opaque, ajustable ici seul si besoin. Plus un
+    établissement interagit avec la plateforme, plus il est visible en
+    tête d'annuaire — au même titre que le classement des enseignants par
+    points de certification."""
+    from django.db.models import Count, F, IntegerField, OuterRef, Subquery
+    from django.db.models.functions import Coalesce
+
+    from apps.academics.models import Enrollment, EnrollmentStatus
+    from apps.feed.models import Post
+    from apps.internships.models import InternshipConvention
+
+    enrollments = (
+        Enrollment.objects.filter(
+            school_class__track__department__establishment__user_id=OuterRef("user_id"),
+            status=EnrollmentStatus.ACTIVE,
+        )
+        .order_by()
+        .values("school_class__track__department__establishment__user_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    posts = (
+        Post.objects.filter(author_id=OuterRef("user_id"))
+        .order_by()
+        .values("author_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    conventions = (
+        InternshipConvention.objects.filter(
+            application__school_id=OuterRef("user_id"), signed_by_school_at__isnull=False
+        )
+        .order_by()
+        .values("application__school_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    return qs.annotate(
+        _enrollment_count=Coalesce(Subquery(enrollments, output_field=IntegerField()), 0),
+        _post_count=Coalesce(Subquery(posts, output_field=IntegerField()), 0),
+        _convention_count=Coalesce(Subquery(conventions, output_field=IntegerField()), 0),
+    ).annotate(_activity_score=F("_enrollment_count") + F("_post_count") + F("_convention_count"))
+
+
+def _annotate_company_activity(qs):
+    """Symétrique à _annotate_establishment_activity côté entreprise :
+    publications sur le fil + offres de stage publiées + conventions
+    signées côté entreprise."""
+    from django.db.models import Count, F, IntegerField, OuterRef, Subquery
+    from django.db.models.functions import Coalesce
+
+    from apps.feed.models import Post
+    from apps.internships.models import InternshipConvention, InternshipOffer
+
+    posts = (
+        Post.objects.filter(author_id=OuterRef("user_id"))
+        .order_by()
+        .values("author_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    offers = (
+        InternshipOffer.objects.filter(company_id=OuterRef("user_id"))
+        .order_by()
+        .values("company_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    conventions = (
+        InternshipConvention.objects.filter(
+            application__offer__company_id=OuterRef("user_id"), signed_by_company_at__isnull=False
+        )
+        .order_by()
+        .values("application__offer__company_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    return qs.annotate(
+        _post_count=Coalesce(Subquery(posts, output_field=IntegerField()), 0),
+        _offer_count=Coalesce(Subquery(offers, output_field=IntegerField()), 0),
+        _convention_count=Coalesce(Subquery(conventions, output_field=IntegerField()), 0),
+    ).annotate(_activity_score=F("_post_count") + F("_offer_count") + F("_convention_count"))
+
+
 class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     """Annuaire des enseignants — alimente le fil public (onglet Fil
     d'actualité) : accessible aux visiteurs non connectés comme aux
@@ -376,6 +465,8 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "user_id"
 
     def get_queryset(self):
+        from apps.certification.services import annotate_total_points
+
         qs = (
             TeacherProfile.objects.filter(
                 user__is_active=True,
@@ -385,7 +476,12 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
                 user__is_documents_validated=True,
             )
             .select_related("user")
-            .order_by("user__first_name", "user__last_name")
+        )
+        # Classement par réputation : plus un enseignant a cumulé de points
+        # de certification, plus il est visible en tête d'annuaire — le
+        # nom sert uniquement de repère stable pour les ex æquo.
+        qs = annotate_total_points(qs, user_field="user_id").order_by(
+            "-_total_points", "user__first_name", "user__last_name"
         )
         # Un profil masqué par modération reste néanmoins consultable par
         # le personnel (is_staff) — sinon personne, pas même
@@ -405,6 +501,9 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(pk__in=matching_ids)
         if self.request.query_params.get("available_for_tutoring") == "true":
             qs = qs.filter(available_for_tutoring=True)
+        name = self.request.query_params.get("q")
+        if name:
+            qs = qs.filter(Q(user__first_name__icontains=name) | Q(user__last_name__icontains=name))
         location = self.request.query_params.get("location")
         if location:
             # Filtrage textuel sur la commune/quartier déclaré (ex. "Cocody") —
@@ -441,8 +540,8 @@ class EstablishmentDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
                 user__is_documents_validated=True,
             )
             .select_related("user")
-            .order_by("school_name")
         )
+        qs = _annotate_establishment_activity(qs).order_by("-_activity_score", "school_name")
         location = self.request.query_params.get("location")
         if location:
             qs = qs.filter(address__icontains=location)
@@ -473,17 +572,100 @@ class CompanyDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
                 user__is_documents_validated=True,
             )
             .select_related("user")
-            .order_by("company_name")
         )
+        qs = _annotate_company_activity(qs).order_by("-_activity_score", "company_name")
         sector = self.request.query_params.get("sector")
         if sector:
             qs = qs.filter(sector__icontains=sector)
+        name = self.request.query_params.get("q") or self.request.query_params.get("search")
+        if name:
+            qs = qs.filter(company_name__icontains=name)
         return qs
 
     def get_serializer_class(self):
         if self.action == "retrieve":
             return CompanyDirectoryDetailSerializer
         return CompanyDirectoryCardSerializer
+
+
+class PeopleSearchView(APIView):
+    """Recherche unifiée par nom, tous rôles publics confondus (enseignant,
+    établissement, entreprise) — alimente la barre de recherche du fil
+    d'actualité et de l'annuaire. Réutilise les mêmes règles de visibilité
+    que chaque annuaire dédié plutôt que d'inventer une nouvelle logique."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def _avatar_url(self, user):
+        if not user.avatar:
+            return None
+        return self.request.build_absolute_uri(user.avatar.url)
+
+    def get(self, request):
+        self.request = request
+        query = (request.query_params.get("q") or "").strip()
+        if not query:
+            return Response([])
+
+        results = []
+
+        teachers = (
+            TeacherProfile.objects.filter(user__is_active=True, user__is_documents_validated=True)
+            .select_related("user")
+            .filter(Q(user__first_name__icontains=query) | Q(user__last_name__icontains=query))
+        )
+        if not request.user.is_staff:
+            teachers = teachers.filter(user__profile_visible=True)
+        if request.user.is_authenticated:
+            teachers = teachers.exclude(user=request.user)
+        for profile in teachers[:10]:
+            results.append(
+                {
+                    "type": "teacher",
+                    "id": profile.user_id,
+                    "name": profile.user.get_full_name(),
+                    "avatar": self._avatar_url(profile.user),
+                    "subtitle": profile.user.get_primary_role_display(),
+                }
+            )
+
+        establishments = (
+            DirectorProfile.objects.filter(
+                user__is_active=True, user__profile_visible=True, user__is_documents_validated=True
+            )
+            .select_related("user")
+            .filter(school_name__icontains=query)
+        )
+        for profile in establishments[:10]:
+            results.append(
+                {
+                    "type": "establishment",
+                    "id": profile.user_id,
+                    "name": profile.school_name,
+                    "avatar": self._avatar_url(profile.user),
+                    "subtitle": "Établissement",
+                }
+            )
+
+        companies = (
+            CompanyProfile.objects.filter(
+                user__is_active=True, user__profile_visible=True, user__is_documents_validated=True
+            )
+            .select_related("user")
+            .filter(company_name__icontains=query)
+        )
+        for profile in companies[:10]:
+            results.append(
+                {
+                    "type": "company",
+                    "id": profile.user_id,
+                    "name": profile.company_name,
+                    "avatar": self._avatar_url(profile.user),
+                    "subtitle": "Entreprise",
+                }
+            )
+
+        return Response(results[:20])
 
 
 class TeacherCommentListCreateView(generics.ListCreateAPIView):

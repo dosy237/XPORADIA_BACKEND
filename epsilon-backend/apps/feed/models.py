@@ -141,3 +141,24 @@ class PostComment(models.Model):
 
     def __str__(self):
         return f"{self.author.get_full_name()} → « {self.post.body[:30]} »"
+
+
+class CommentLike(models.Model):
+    """J'aime sur un commentaire — même principe que PostLike, un
+    utilisateur ne peut aimer qu'une fois le même commentaire."""
+
+    comment = models.ForeignKey(PostComment, on_delete=models.CASCADE, related_name="likes")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="comment_likes"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "J'aime sur commentaire"
+        verbose_name_plural = "J'aime sur commentaires"
+        constraints = [
+            models.UniqueConstraint(fields=["comment", "user"], name="unique_comment_like_per_user")
+        ]
+
+    def __str__(self):
+        return f"{self.user.get_full_name()} aime le commentaire {self.comment_id}"

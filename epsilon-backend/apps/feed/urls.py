@@ -20,6 +20,11 @@ urlpatterns = [
         views.PostCommentDeleteView.as_view(),
         name="post-comment-delete",
     ),
+    path(
+        "posts/<int:post_id>/comments/<int:pk>/like/",
+        views.ToggleCommentLikeView.as_view(),
+        name="post-comment-like-toggle",
+    ),
     path("users/<int:user_id>/follow/", views.ToggleFollowView.as_view(), name="follow-toggle"),
     path("my-following/", views.MyFollowingView.as_view(), name="my-following"),
 ]

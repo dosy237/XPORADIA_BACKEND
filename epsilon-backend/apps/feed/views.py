@@ -1,11 +1,16 @@
+from datetime import timedelta
+
+from django.db.models import Case, Count, F, IntegerField, OuterRef, Subquery, Value, When
+from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Follow, Post, PostComment, PostImage, PostLike, PostVisibility
+from .models import CommentLike, Follow, Post, PostComment, PostImage, PostLike, PostVisibility
 from .realtime import broadcast_to_feed, broadcast_to_post
 from .serializers import (
     CreatePostCommentSerializer,
@@ -16,6 +21,73 @@ from .serializers import (
 )
 
 MAX_IMAGES_PER_POST = 6
+
+# Fenêtre de reclassement du fil "à la une" : au-delà, les publications
+# repassent en ordre purement chronologique. Évite qu'une publication très
+# commentée reste épinglée en tête indéfiniment — seule la fraîcheur récente
+# profite du reclassement par activité.
+FEED_RANKING_WINDOW_DAYS = 7
+# Fenêtre d'observation de l'activité d'un auteur (publications, likes et
+# commentaires donnés) utilisée pour estimer si son compte est "actif" —
+# un compte actif voit son contenu récent mis en avant, conformément au
+# principe demandé : plus on participe, plus on est vu.
+AUTHOR_ACTIVITY_WINDOW_DAYS = 30
+
+
+def _rank_for_feed(qs):
+    """Classe le fil par activité (likes/commentaires du post + activité
+    récente de l'auteur), dans une fenêtre récente, avec repli chronologique
+    strict au-delà — un compromis simple et explicable plutôt qu'un vrai
+    moteur de recommandation, cohérent avec la taille de la plateforme."""
+
+    now = timezone.now()
+    ranking_cutoff = now - timedelta(days=FEED_RANKING_WINDOW_DAYS)
+    activity_since = now - timedelta(days=AUTHOR_ACTIVITY_WINDOW_DAYS)
+
+    author_posts = (
+        Post.objects.filter(author_id=OuterRef("author_id"), created_at__gte=activity_since)
+        .order_by()
+        .values("author_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    author_likes_given = (
+        PostLike.objects.filter(user_id=OuterRef("author_id"), created_at__gte=activity_since)
+        .order_by()
+        .values("user_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+    author_comments_given = (
+        PostComment.objects.filter(author_id=OuterRef("author_id"), created_at__gte=activity_since)
+        .order_by()
+        .values("author_id")
+        .annotate(c=Count("id"))
+        .values("c")
+    )
+
+    return (
+        qs.annotate(
+            _like_count=Count("likes", distinct=True),
+            _comment_count=Count("comments", distinct=True),
+            _author_posts=Coalesce(Subquery(author_posts, output_field=IntegerField()), Value(0)),
+            _author_likes_given=Coalesce(Subquery(author_likes_given, output_field=IntegerField()), Value(0)),
+            _author_comments_given=Coalesce(
+                Subquery(author_comments_given, output_field=IntegerField()), Value(0)
+            ),
+            _recent_bucket=Case(
+                When(created_at__gte=ranking_cutoff, then=Value(1)), default=Value(0), output_field=IntegerField()
+            ),
+            _score=(
+                F("_comment_count") * 3
+                + F("_like_count") * 2
+                + F("_author_posts")
+                + F("_author_likes_given")
+                + F("_author_comments_given")
+            ),
+        )
+        .order_by("-_recent_bucket", "-_score", "-created_at")
+    )
 
 
 class IsVerifiedToPublish(permissions.BasePermission):
@@ -45,7 +117,6 @@ class PostViewSet(viewsets.ModelViewSet):
             Post.objects.filter(is_hidden=False)
             .select_related("author")
             .prefetch_related("likes", "comments", "images")
-            .order_by("-created_at")
         )
         if not (self.request.user and self.request.user.is_authenticated):
             qs = qs.filter(visibility=PostVisibility.PUBLIC)
@@ -55,7 +126,16 @@ class PostViewSet(viewsets.ModelViewSet):
         hashtag = self.request.query_params.get("hashtag")
         if hashtag:
             qs = qs.filter(hashtags__contains=[hashtag.lstrip("#")])
-        return qs
+        query = self.request.query_params.get("q")
+        if query:
+            from django.db.models import Q
+
+            qs = qs.filter(Q(title__icontains=query) | Q(body__icontains=query))
+        if author_id:
+            # Fil d'un profil précis : ordre chronologique attendu, pas de
+            # reclassement par activité (voir _rank_for_feed).
+            return qs.order_by("-created_at")
+        return _rank_for_feed(qs)
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -216,6 +296,7 @@ class PostCommentListCreateView(generics.ListCreateAPIView):
         return (
             PostComment.objects.filter(post=self.get_post(), is_hidden=False)
             .select_related("author")
+            .prefetch_related("likes")
             .order_by("created_at")
         )
 
@@ -262,3 +343,25 @@ class PostCommentDeleteView(generics.DestroyAPIView):
             "post_comment_count_updated",
             {"post_id": post_id, "comment_count": PostComment.objects.filter(post_id=post_id).count()},
         )
+
+
+class ToggleCommentLikeView(APIView):
+    """Bascule le j'aime de l'utilisateur courant sur un commentaire —
+    diffusé sur le groupe du post pour que tous les clients qui consultent
+    cette publication voient le compteur bouger en direct."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, post_id, pk):
+        comment = get_object_or_404(PostComment, pk=pk, post_id=post_id, is_hidden=False)
+        like, created = CommentLike.objects.get_or_create(comment=comment, user=request.user)
+        if not created:
+            like.delete()
+            liked = False
+        else:
+            liked = True
+        like_count = comment.likes.count()
+        broadcast_to_post(
+            post_id, "comment_like_updated", {"comment_id": comment.id, "like_count": like_count}
+        )
+        return Response({"liked": liked, "like_count": like_count})
