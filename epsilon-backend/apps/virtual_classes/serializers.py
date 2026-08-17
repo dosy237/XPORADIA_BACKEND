@@ -6,13 +6,15 @@ from .models import Exercise, ExerciseStatus, Submission, VirtualClass
 
 
 class ExerciseSerializer(serializers.ModelSerializer):
+    is_overdue = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = Exercise
         fields = [
-            "id", "title", "instructions", "attachments", "deadline",
-            "status", "published_at", "created_at", "updated_at",
+            "id", "kind", "title", "instructions", "attachments", "deadline",
+            "status", "is_overdue", "published_at", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "published_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "is_overdue", "published_at", "created_at", "updated_at"]
 
 
 class SubmissionChildSerializer(serializers.ModelSerializer):
@@ -26,16 +28,27 @@ class SubmissionSerializer(serializers.ModelSerializer):
     child = SubmissionChildSerializer(read_only=True)
     child_id = serializers.PrimaryKeyRelatedField(source="child", queryset=Child.objects.all(), write_only=True)
     exercise_title = serializers.CharField(source="exercise.title", read_only=True)
+    is_late = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Submission
         fields = [
             "id", "exercise", "exercise_title", "child", "child_id", "content", "attachments",
-            "status", "grade", "feedback", "submitted_at", "graded_at",
+            "status", "grade", "feedback", "is_late", "submitted_at", "updated_at", "graded_at",
         ]
         read_only_fields = [
-            "id", "exercise", "exercise_title", "status", "grade", "feedback", "submitted_at", "graded_at",
+            "id", "exercise", "exercise_title", "status", "grade", "feedback",
+            "is_late", "submitted_at", "updated_at", "graded_at",
         ]
+
+
+class SubmissionEditSerializer(serializers.ModelSerializer):
+    """Modification de sa propre copie, réservée à l'élève/parent auteur,
+    et seulement avant l'échéance — voir SubmissionDetailView."""
+
+    class Meta:
+        model = Submission
+        fields = ["content", "attachments"]
 
 
 class SubmissionGradeSerializer(serializers.ModelSerializer):
@@ -51,10 +64,14 @@ class SubmissionGradeSerializer(serializers.ModelSerializer):
 
 class ChildExerciseSerializer(serializers.ModelSerializer):
     my_submission = serializers.SerializerMethodField()
+    is_overdue = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Exercise
-        fields = ["id", "title", "instructions", "attachments", "deadline", "published_at", "my_submission"]
+        fields = [
+            "id", "kind", "title", "instructions", "attachments", "deadline",
+            "status", "is_overdue", "published_at", "my_submission",
+        ]
         read_only_fields = fields
 
     def get_my_submission(self, obj):

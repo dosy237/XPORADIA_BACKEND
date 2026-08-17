@@ -20,6 +20,18 @@ urlpatterns = [
         views.ExerciseSubmissionsView.as_view(),
         name="exercise-submissions",
     ),
+    path(
+        "exercises/<uuid:exercise_id>/submissions/stats/",
+        views.ExerciseSubmissionStatsView.as_view(),
+        name="exercise-submission-stats",
+    ),
     path("submissions/<int:pk>/", views.SubmissionDetailView.as_view(), name="submission-detail"),
     path("my-submissions/", views.MySubmissionsView.as_view(), name="my-submissions"),
+    path("my-subjects/", views.MySubjectsView.as_view(), name="my-subjects"),
+    path(
+        "classes/<int:class_id>/exercises-overview/",
+        views.HomeroomExercisesOverviewView.as_view(),
+        name="homeroom-exercises-overview",
+    ),
+    path("my-grading-queue/", views.MyGradingQueueView.as_view(), name="my-grading-queue"),
 ]

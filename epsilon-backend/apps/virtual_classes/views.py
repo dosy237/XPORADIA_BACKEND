@@ -1,19 +1,20 @@
 from django.http import Http404
 from django.utils import timezone
-from rest_framework import generics, permissions
+from rest_framework import filters, generics, permissions
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-from apps.academics.models import Enrollment, EnrollmentStatus, Subject
+from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import Child
+from apps.users.models import Child, UserRole
 
 from .models import Exercise, ExerciseStatus, Submission, SubmissionStatus, VirtualClass
 from .serializers import (
     ChildSubjectSerializer,
     ExerciseSerializer,
+    SubmissionEditSerializer,
     SubmissionGradeSerializer,
     SubmissionSerializer,
     VirtualClassSerializer,
@@ -43,6 +44,8 @@ def _notify_enrolled_parents(school_class, notif_type, title, body):
         school_class=school_class, status=EnrollmentStatus.ACTIVE
     ).select_related("child__parent__user")
     for enrollment in enrollments:
+        if not enrollment.child.parent_id:
+            continue  # élève auto-inscrit sans parent rattaché
         parent_user = enrollment.child.parent.user
         if parent_user.id in notified_parent_ids:
             continue
@@ -55,7 +58,7 @@ def _get_own_child(child_id, user):
         child = Child.objects.select_related("parent__user").get(id=child_id)
     except Child.DoesNotExist:
         raise Http404
-    if child.parent.user_id != user.id:
+    if not (child.parent_id and child.parent.user_id == user.id):
         raise PermissionDenied("Cet enfant n'est pas rattaché à votre compte.")
     return child
 
@@ -182,12 +185,16 @@ class ChildSubjectsView(APIView):
 
 
 class ExerciseSubmissionsView(generics.ListCreateAPIView):
-    """Soumissions d'un devoir — le parent soumet au nom de son enfant,
-    l'enseignant dédié consulte les copies reçues."""
+    """Soumissions d'un devoir — l'élève soumet lui-même s'il a activé son
+    compte, sinon son parent soumet en son nom ; l'enseignant dédié
+    consulte, trie et recherche parmi les copies reçues."""
 
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = SubmissionSerializer
     pagination_class = None
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["child__first_name", "child__last_name"]
+    ordering_fields = ["submitted_at", "grade", "status"]
 
     def _get_exercise(self):
         try:
@@ -207,19 +214,25 @@ class ExerciseSubmissionsView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         exercise = self._get_exercise()
         if exercise.status != ExerciseStatus.PUBLISHED:
-            raise PermissionDenied("Ce devoir n'est pas encore publié.")
+            raise PermissionDenied("Ce devoir n'accepte plus de nouvelle soumission.")
         child = serializer.validated_data["child"]
-        if child.parent.user_id != self.request.user.id:
-            raise PermissionDenied("Cet enfant n'est pas rattaché à votre compte.")
+        user = self.request.user
+        # L'élève soumet pour lui-même (compte activé), ou un parent soumet
+        # au nom de son enfant — les deux voies restent ouvertes tant que
+        # tous les élèves n'ont pas de compte propre.
+        is_self = child.user_id == user.id
+        is_parent = bool(child.parent_id) and child.parent.user_id == user.id
+        if not (is_self or is_parent):
+            raise PermissionDenied("Cet élève ne vous est pas rattaché.")
         subject = exercise.virtual_class.subject
         is_enrolled = Enrollment.objects.filter(
             child=child, school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
         ).exists()
         if not is_enrolled:
-            raise PermissionDenied("Cet enfant n'est pas inscrit dans la classe de ce devoir.")
+            raise PermissionDenied("Cet élève n'est pas inscrit dans la classe de ce devoir.")
         if Submission.objects.filter(exercise=exercise, child=child).exists():
             raise ValidationError("Une copie a déjà été soumise pour ce devoir.")
-        serializer.save(exercise=exercise, submitted_by=self.request.user)
+        serializer.save(exercise=exercise, submitted_by=user)
         if subject.teacher:
             notify_user(
                 subject.teacher,
@@ -229,39 +242,189 @@ class ExerciseSubmissionsView(generics.ListCreateAPIView):
             )
 
 
-class SubmissionDetailView(generics.RetrieveUpdateAPIView):
-    """Détail d'une soumission — consultable par l'enseignant dédié et le
-    parent de l'élève concerné ; notable par l'enseignant dédié uniquement."""
+class ExerciseSubmissionStatsView(APIView):
+    """Bandeau de stats pour l'enseignant qui corrige — combien de rendus,
+    en retard, et non-rendus (calculé sur l'effectif inscrit)."""
 
     permission_classes = [permissions.IsAuthenticated]
 
-    def get_serializer_class(self):
-        if self.request.method in ("PUT", "PATCH"):
-            return SubmissionGradeSerializer
-        return SubmissionSerializer
+    def get(self, request, exercise_id):
+        try:
+            exercise = Exercise.objects.select_related("virtual_class__subject__school_class").get(
+                id=exercise_id
+            )
+        except Exercise.DoesNotExist:
+            raise Http404
+        subject = exercise.virtual_class.subject
+        if not _can_view(subject, request.user):
+            raise PermissionDenied("Réservé à l'enseignant dédié ou au titulaire de cette classe.")
+
+        total_enrolled = Enrollment.objects.filter(
+            school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
+        ).count()
+        submissions = Submission.objects.filter(exercise=exercise)
+        submitted_count = submissions.count()
+        late_count = sum(1 for s in submissions if s.is_late)
+        graded_count = submissions.filter(status=SubmissionStatus.GRADED).count()
+
+        return Response(
+            {
+                "total_enrolled": total_enrolled,
+                "submitted_count": submitted_count,
+                "not_submitted_count": max(total_enrolled - submitted_count, 0),
+                "late_count": late_count,
+                "graded_count": graded_count,
+            }
+        )
+
+
+class HomeroomExercisesOverviewView(APIView):
+    """Vue consolidée pour le professeur principal : tous les devoirs de
+    toutes les matières de sa classe, avec leurs stats de rendu — pour ne
+    jamais avoir à rouvrir chaque matière une par une pour savoir qui a
+    rendu quoi. Réservée au titulaire (ou au directeur de l'établissement)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, class_id):
+        try:
+            school_class = SchoolClass.objects.select_related(
+                "homeroom_teacher", "track__department__establishment"
+            ).get(id=class_id)
+        except SchoolClass.DoesNotExist:
+            raise Http404
+
+        is_homeroom = school_class.homeroom_teacher_id == request.user.id
+        is_director = (
+            request.user.has_role(UserRole.DIRECTOR)
+            and school_class.track.department.establishment.user_id == request.user.id
+        )
+        if not (is_homeroom or is_director):
+            raise PermissionDenied("Réservé au titulaire de cette classe ou au directeur de l'établissement.")
+
+        total_enrolled = Enrollment.objects.filter(
+            school_class=school_class, status=EnrollmentStatus.ACTIVE
+        ).count()
+
+        exercises = (
+            Exercise.objects.filter(virtual_class__subject__school_class=school_class)
+            .select_related("virtual_class__subject")
+            .prefetch_related("submissions")
+            .order_by("virtual_class__subject__name", "-created_at")
+        )
+
+        overview = {}
+        for exercise in exercises:
+            subject_name = exercise.virtual_class.subject.name
+            submissions = list(exercise.submissions.all())
+            submitted_count = len(submissions)
+            entry = {
+                "id": str(exercise.id),
+                "kind": exercise.kind,
+                "title": exercise.title,
+                "status": exercise.status,
+                "deadline": exercise.deadline,
+                "total_enrolled": total_enrolled,
+                "submitted_count": submitted_count,
+                "not_submitted_count": max(total_enrolled - submitted_count, 0),
+                "late_count": sum(1 for s in submissions if s.is_late),
+                "graded_count": sum(1 for s in submissions if s.status == SubmissionStatus.GRADED),
+            }
+            overview.setdefault(subject_name, []).append(entry)
+
+        return Response(overview)
+
+
+class MyGradingQueueView(APIView):
+    """Vue agrégée pour le dashboard enseignant : combien de copies
+    attendent une correction, toutes matières dédiées confondues — pour
+    ne pas avoir à ouvrir chaque matière une par une pour le savoir."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("Réservé aux enseignants.")
+
+        exercises = (
+            Exercise.objects.filter(virtual_class__subject__teacher=request.user, status=ExerciseStatus.PUBLISHED)
+            .select_related("virtual_class__subject")
+            .prefetch_related("submissions")
+            .order_by("created_at")
+        )
+
+        queue = []
+        total_pending = 0
+        for exercise in exercises:
+            pending = sum(1 for s in exercise.submissions.all() if s.status != SubmissionStatus.GRADED)
+            if pending > 0:
+                total_pending += pending
+                queue.append({
+                    "exercise_id": str(exercise.id),
+                    "title": exercise.title,
+                    "subject_name": exercise.virtual_class.subject.name,
+                    "pending_count": pending,
+                })
+
+        return Response({"total_pending": total_pending, "exercises": queue[:5]})
+
+
+class SubmissionDetailView(generics.RetrieveUpdateAPIView):
+    """Détail d'une soumission — consultable par l'enseignant dédié et
+    l'élève/parent concerné. Deux chemins d'écriture bien distincts :
+    l'élève/parent peut modifier le CONTENU jusqu'à l'échéance (pas après),
+    l'enseignant dédié peut uniquement NOTER (jamais modifier la copie)."""
+
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return Submission.objects.select_related(
-            "exercise__virtual_class__subject__teacher", "child__parent__user"
+            "exercise__virtual_class__subject__teacher", "child__parent__user", "child__user"
         )
+
+    def _is_owner(self, submission, user):
+        child = submission.child
+        return child.user_id == user.id or (bool(child.parent_id) and child.parent.user_id == user.id)
+
+    def get_serializer_class(self):
+        if self.request.method in ("PUT", "PATCH"):
+            submission = self.get_object()
+            if self._is_owner(submission, self.request.user):
+                return SubmissionEditSerializer
+            return SubmissionGradeSerializer
+        return SubmissionSerializer
 
     def get_object(self):
         submission = generics.get_object_or_404(self.get_queryset(), pk=self.kwargs["pk"])
         subject = submission.exercise.virtual_class.subject
         user = self.request.user
         is_teacher = _can_manage(subject, user)
-        is_parent = submission.child.parent.user_id == user.id
-        if not (is_teacher or is_parent):
-            raise PermissionDenied("Accès réservé à l'enseignant dédié ou au parent de l'élève concerné.")
+        if not (is_teacher or self._is_owner(submission, user)):
+            raise PermissionDenied("Accès réservé à l'enseignant dédié ou à l'élève concerné.")
         return submission
 
     def perform_update(self, serializer):
         submission = serializer.instance
         subject = submission.exercise.virtual_class.subject
-        if not _can_manage(subject, self.request.user):
+        user = self.request.user
+
+        if self._is_owner(submission, user):
+            # Modification du contenu — fermée dès que l'échéance est
+            # passée (même règle que pour un premier dépôt tardif : après
+            # la deadline, on peut encore RENDRE mais plus MODIFIER) et dès
+            # que l'enseignant a fermé le devoir à la correction.
+            exercise = submission.exercise
+            if exercise.status != ExerciseStatus.PUBLISHED:
+                raise PermissionDenied("Ce devoir n'accepte plus de modification (correction en cours).")
+            if exercise.deadline and timezone.now() > exercise.deadline:
+                raise PermissionDenied("La date limite est passée — la copie ne peut plus être modifiée.")
+            serializer.save()
+            return
+
+        if not _can_manage(subject, user):
             raise PermissionDenied("Réservé à l'enseignant dédié de cette matière.")
         submission = serializer.save(
-            status=SubmissionStatus.GRADED, graded_by=self.request.user, graded_at=timezone.now()
+            status=SubmissionStatus.GRADED, graded_by=user, graded_at=timezone.now()
         )
         notify_user(
             submission.submitted_by,
@@ -272,15 +435,46 @@ class SubmissionDetailView(generics.RetrieveUpdateAPIView):
 
 
 class MySubmissionsView(generics.ListAPIView):
-    """Suivi, côté parent, des copies soumises au nom de ses enfants."""
+    """Suivi de ses propres copies rendues — élève (compte activé) ou
+    parent en son nom. Montre tout l'historique de l'élève, y compris les
+    copies rendues par le parent avant que le compte élève n'existe."""
 
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = SubmissionSerializer
     pagination_class = None
 
     def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, "child_profile"):
+            return (
+                Submission.objects.filter(child=user.child_profile)
+                .select_related("exercise", "child")
+                .order_by("-submitted_at")
+            )
         return (
-            Submission.objects.filter(submitted_by=self.request.user)
+            Submission.objects.filter(submitted_by=user)
             .select_related("exercise", "child")
             .order_by("-submitted_at")
         )
+
+
+class MySubjectsView(APIView):
+    """Espace élève — matières de sa classe, avec les devoirs publiés et
+    l'état de sa propre soumission pour chacun. Réservé aux comptes élève
+    activés (voir ChildSubjectsView pour l'équivalent côté parent)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        child = getattr(request.user, "child_profile", None)
+        if not child:
+            raise PermissionDenied("Réservé aux comptes élève.")
+        enrollment = (
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+            .select_related("school_class")
+            .first()
+        )
+        if not enrollment:
+            return Response([])
+        subjects = Subject.objects.filter(school_class=enrollment.school_class).select_related("school_class")
+        return Response(ChildSubjectSerializer(subjects, many=True, context={"child": child}).data)
