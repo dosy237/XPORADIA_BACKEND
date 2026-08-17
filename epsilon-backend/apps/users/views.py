@@ -167,6 +167,28 @@ class MeView(generics.RetrieveUpdateAPIView):
         return UserSerializer
 
 
+class MyAvatarView(APIView):
+    """Photo de profil — tous rôles. Endpoint dédié plutôt que de passer
+    par MeView : le recadrage se fait déjà côté app (sélecteur natif),
+    ici on ne fait que stocker le fichier reçu ou l'effacer."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        avatar = request.FILES.get("avatar")
+        if not avatar:
+            return Response({"avatar": "Fichier requis."}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.avatar = avatar
+        request.user.save(update_fields=["avatar"])
+        return Response(UserSerializer(request.user, context={"request": request}).data)
+
+    def delete(self, request):
+        request.user.avatar = None
+        request.user.save(update_fields=["avatar"])
+        return Response(UserSerializer(request.user, context={"request": request}).data)
+
+
 class TeacherProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = TeacherProfileSerializer

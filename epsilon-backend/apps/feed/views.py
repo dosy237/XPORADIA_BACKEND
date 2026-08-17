@@ -1,7 +1,7 @@
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -235,3 +235,26 @@ class PostCommentListCreateView(generics.ListCreateAPIView):
             {"post_id": comment.post_id, "comment_count": comment.post.comments.count()},
         )
         return Response(comment_data, status=status.HTTP_201_CREATED)
+
+
+class PostCommentDeleteView(generics.DestroyAPIView):
+    """Suppression d'un commentaire — réservée à son auteur (aucune limite
+    de temps, contrairement à certains réseaux) ou un administrateur."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    queryset = PostComment.objects.all()
+
+    def get_object(self):
+        comment = get_object_or_404(PostComment, pk=self.kwargs["pk"], post_id=self.kwargs["post_id"])
+        if comment.author_id != self.request.user.id and not self.request.user.is_staff:
+            raise PermissionDenied("Vous ne pouvez supprimer que vos propres commentaires.")
+        return comment
+
+    def perform_destroy(self, instance):
+        post_id = instance.post_id
+        instance.delete()
+        broadcast_to_post(post_id, "comment_deleted", {"comment_id": instance.id})
+        broadcast_to_feed(
+            "post_comment_count_updated",
+            {"post_id": post_id, "comment_count": PostComment.objects.filter(post_id=post_id).count()},
+        )

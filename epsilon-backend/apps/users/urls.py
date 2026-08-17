@@ -13,6 +13,7 @@ urlpatterns = [
     path("otp/verify/", views.VerifyOTPView.as_view(), name="otp-verify"),
     path("otp/resend/", views.ResendOTPView.as_view(), name="otp-resend"),
     path("me/", views.MeView.as_view(), name="me"),
+    path("me/avatar/", views.MyAvatarView.as_view(), name="me-avatar"),
     path("me/change-password/", views.ChangePasswordView.as_view(), name="change-password"),
     path("me/export/", views.MyDataExportView.as_view(), name="my-data-export"),
     path("me/request-deletion/", views.AccountDeletionRequestView.as_view(), name="request-deletion"),
