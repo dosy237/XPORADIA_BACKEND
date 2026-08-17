@@ -15,6 +15,21 @@ urlpatterns = [
         name="internship-offer-applications",
     ),
     path(
+        "offers/<uuid:offer_id>/distribute/",
+        views.DistributeOfferToSchoolsView.as_view(),
+        name="internship-offer-distribute",
+    ),
+    path(
+        "offer-links/distributed-to-me/",
+        views.MyDistributedOffersView.as_view(),
+        name="internship-offer-links-distributed-to-me",
+    ),
+    path(
+        "offer-links/<int:pk>/publish/",
+        views.PublishOfferForMySchoolView.as_view(),
+        name="internship-offer-link-publish",
+    ),
+    path(
         "applications/<uuid:pk>/",
         views.InternshipApplicationDetailView.as_view(),
         name="internship-application-detail",

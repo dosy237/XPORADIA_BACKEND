@@ -21,13 +21,17 @@ from .models import (
     InternshipConvention,
     InternshipJournal,
     InternshipOffer,
+    InternshipOfferSchoolLink,
+    OfferSchoolLinkStatus,
 )
 from .serializers import (
+    AdminInternshipOfferSerializer,
     CompanyReviewSerializer,
     InternshipApplicationSerializer,
     InternshipConventionSerializer,
     InternshipEvaluationSerializer,
     InternshipJournalSerializer,
+    InternshipOfferSchoolLinkSerializer,
     InternshipOfferSerializer,
 )
 
@@ -85,6 +89,14 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
+    def get_serializer_class(self):
+        # Seul un administrateur peut mettre en avant (is_premium) une
+        # offre — voir AdminInternshipOfferSerializer.
+        user = self.request.user
+        if self.action in ("update", "partial_update") and user.is_authenticated and user.is_staff:
+            return AdminInternshipOfferSerializer
+        return InternshipOfferSerializer
+
     def get_queryset(self):
         user = self.request.user
         base = InternshipOffer.objects.select_related("company__company_profile")
@@ -127,6 +139,73 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
         else:
             company = user
         serializer.save(company=company)
+
+
+class DistributeOfferToSchoolsView(APIView):
+    """L'administrateur Xporadia transmet une offre à des établissements
+    choisis — étape de courtage entre entreprise et écoles, en amont de la
+    candidature (toujours médiée par l'établissement, voir
+    InternshipApplication.school, inchangé)."""
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, offer_id):
+        offer = get_object_or_404(InternshipOffer, pk=offer_id)
+        school_ids = request.data.get("school_ids") or []
+        if not isinstance(school_ids, list) or not school_ids:
+            raise ValidationError({"school_ids": "Précisez au moins un établissement."})
+
+        schools = list(User.objects.filter(id__in=school_ids, primary_role=UserRole.DIRECTOR))
+        if len(schools) != len(set(school_ids)):
+            raise ValidationError({"school_ids": "Un ou plusieurs établissements sont introuvables."})
+
+        links = []
+        for school in schools:
+            link, created = InternshipOfferSchoolLink.objects.get_or_create(offer=offer, school=school)
+            links.append(link)
+            if created:
+                notify_user(
+                    school,
+                    NotificationType.STAGE_UPDATE,
+                    title="Nouvelle offre de stage proposée par Xporadia",
+                    body=f"« {offer.title} » — à publier pour vos élèves si vous êtes intéressé.",
+                    data={"offer_id": str(offer.id)},
+                )
+        serializer = InternshipOfferSchoolLinkSerializer(links, many=True, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MyDistributedOffersView(generics.ListAPIView):
+    """Offres transmises par l'administrateur à l'établissement connecté,
+    en attente de publication ou déjà publiées — tableau de bord Directeur."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = InternshipOfferSchoolLinkSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        _require_director(self.request.user)
+        return InternshipOfferSchoolLink.objects.filter(school=self.request.user).select_related(
+            "offer__company__company_profile", "school__director_profile"
+        )
+
+
+class PublishOfferForMySchoolView(APIView):
+    """L'établissement publie une offre reçue de l'administrateur pour ses
+    élèves — ne change rien à la médiation des candidatures, qui reste
+    gérée normalement via OfferApplicationsView."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        _require_director(request.user)
+        link = get_object_or_404(InternshipOfferSchoolLink, pk=pk, school=request.user)
+        if link.status != OfferSchoolLinkStatus.PUBLISHED:
+            link.status = OfferSchoolLinkStatus.PUBLISHED
+            link.published_at = timezone.now()
+            link.save(update_fields=["status", "published_at"])
+        serializer = InternshipOfferSchoolLinkSerializer(link, context={"request": request})
+        return Response(serializer.data)
 
 
 class OfferApplicationsView(generics.ListCreateAPIView):

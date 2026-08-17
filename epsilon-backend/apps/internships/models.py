@@ -46,6 +46,40 @@ class InternshipOffer(models.Model):
         return f"{self.title} — {self.domain} ({self.level})"
 
 
+class OfferSchoolLinkStatus(models.TextChoices):
+    SENT      = "sent",      "Envoyée à l'établissement"
+    PUBLISHED = "published", "Publiée par l'établissement"
+
+
+class InternshipOfferSchoolLink(models.Model):
+    """L'administrateur Xporadia fait le courtage entre entreprises et
+    établissements : il transmet une offre à des établissements choisis,
+    qui décident ensuite de la publier pour leurs élèves. Ce lien ne
+    change rien au fait que la candidature reste médiée par l'établissement
+    (InternshipApplication.school) — il conditionne seulement la mise en
+    avant de l'offre auprès de cet établissement précis."""
+
+    offer      = models.ForeignKey(InternshipOffer, on_delete=models.CASCADE, related_name="school_links")
+    school     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                    related_name="internship_offer_links",
+                                    limit_choices_to={"primary_role": "director"})
+    status     = models.CharField(max_length=10, choices=OfferSchoolLinkStatus.choices,
+                                   default=OfferSchoolLinkStatus.SENT)
+    sent_at    = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name        = "Diffusion offre → établissement"
+        verbose_name_plural = "Diffusions offre → établissement"
+        ordering            = ["-sent_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["offer", "school"], name="unique_offer_school_link")
+        ]
+
+    def __str__(self):
+        return f"{self.offer.title} → {self.school.get_full_name()} ({self.status})"
+
+
 class InternshipApplicationStatus(models.TextChoices):
     PENDING  = "pending",  "En attente"
     ACCEPTED = "accepted", "Acceptée"

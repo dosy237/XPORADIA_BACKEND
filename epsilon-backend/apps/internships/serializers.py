@@ -9,6 +9,8 @@ from .models import (
     InternshipEvaluation,
     InternshipJournal,
     InternshipOffer,
+    InternshipOfferSchoolLink,
+    OfferSchoolLinkStatus,
 )
 
 
@@ -34,18 +36,49 @@ class ChildBasicSerializer(serializers.ModelSerializer):
 class InternshipOfferSerializer(serializers.ModelSerializer):
     company = CompanyBasicSerializer(read_only=True)
     application_count = serializers.SerializerMethodField()
+    is_published_by_my_school = serializers.SerializerMethodField()
 
     class Meta:
         model = InternshipOffer
         fields = [
             "id", "company", "title", "domain", "missions", "level", "duration_weeks",
             "period_start", "period_end", "places", "city", "skills_wanted", "cover_image",
-            "is_premium", "is_active", "application_count", "created_at",
+            "is_premium", "is_active", "application_count", "is_published_by_my_school", "created_at",
         ]
         read_only_fields = ["id", "company", "is_premium", "application_count", "created_at"]
 
     def get_application_count(self, obj):
         return obj.applications.count()
+
+    def get_is_published_by_my_school(self, obj):
+        # Utile côté tableau de bord Directeur : indique si CET
+        # établissement a déjà relayé l'offre à ses élèves — voir
+        # InternshipOfferSchoolLink. N'a de sens que pour un établissement ;
+        # toujours False pour les autres rôles.
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.school_links.filter(school=request.user, status=OfferSchoolLinkStatus.PUBLISHED).exists()
+
+
+class InternshipOfferSchoolLinkSerializer(serializers.ModelSerializer):
+    offer = InternshipOfferSerializer(read_only=True)
+    school = SchoolBasicSerializer(read_only=True)
+
+    class Meta:
+        model = InternshipOfferSchoolLink
+        fields = ["id", "offer", "school", "status", "sent_at", "published_at"]
+        read_only_fields = fields
+
+
+class AdminInternshipOfferSerializer(InternshipOfferSerializer):
+    """Réservé au staff (voir InternshipOfferViewSet.get_serializer_class) —
+    seule différence avec InternshipOfferSerializer : is_premium devient
+    modifiable, pour permettre à l'administrateur Xporadia de mettre en
+    avant certaines offres dans le catalogue public."""
+
+    class Meta(InternshipOfferSerializer.Meta):
+        read_only_fields = [f for f in InternshipOfferSerializer.Meta.read_only_fields if f != "is_premium"]
 
 
 class InternshipApplicationSerializer(serializers.ModelSerializer):
