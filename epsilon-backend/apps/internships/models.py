@@ -91,6 +91,11 @@ class InternshipConvention(models.Model):
     application          = models.OneToOneField(InternshipApplication,
                                                  on_delete=models.CASCADE,
                                                  related_name="convention")
+    # Intitulé du poste occupé pendant le stage — distinct du titre de
+    # l'offre (qui peut être plus générique, ex. "Stage développement web")
+    # pour permettre un intitulé plus formel sur le document signé.
+    position_title       = models.CharField(max_length=255, blank=True, verbose_name="Intitulé du poste")
+    document             = models.FileField(upload_to="conventions/", null=True, blank=True)
     pdf_url              = models.URLField(blank=True)
     status               = models.CharField(max_length=15, choices=ConventionStatus.choices,
                                              default=ConventionStatus.GENERATED)
@@ -159,3 +164,33 @@ class InternshipEvaluation(models.Model):
 
     def __str__(self):
         return f"Éval {self.evaluator_type} — {self.convention.application.student.first_name}"
+
+
+class CompanyReview(models.Model):
+    """Avis du stagiaire sur l'entreprise — le pendant réciproque
+    d'InternshipEvaluation (entreprise → stagiaire), désormais possible
+    depuis que l'espace élève existe. Contrairement à l'avis
+    enseignant → établissement (EmployerReview, anonyme), celui-ci n'a
+    pas besoin de l'être : l'entreprise connaît déjà l'identité de son
+    stagiaire par la convention elle-même. Un seul avis par convention,
+    disponible seulement une fois le stage terminé."""
+
+    convention = models.OneToOneField(
+        InternshipConvention, on_delete=models.CASCADE, related_name="company_review"
+    )
+    atmosphere         = models.PositiveSmallIntegerField(help_text="Ambiance, accueil (1-5)")
+    mentorship         = models.PositiveSmallIntegerField(help_text="Qualité de l'encadrement (1-5)")
+    role_accuracy      = models.PositiveSmallIntegerField(help_text="Conformité au poste annoncé (1-5)")
+    learning_value     = models.PositiveSmallIntegerField(help_text="Apport pédagogique (1-5)")
+    comment            = models.TextField(max_length=500, blank=True)
+    created_at         = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Avis entreprise"
+        verbose_name_plural = "Avis entreprise"
+
+    def average_rating(self):
+        return (self.atmosphere + self.mentorship + self.role_accuracy + self.learning_value) / 4
+
+    def __str__(self):
+        return f"Avis — {self.convention.application.offer.company.get_full_name()}"

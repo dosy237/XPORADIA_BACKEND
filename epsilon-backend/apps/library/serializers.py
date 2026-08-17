@@ -15,10 +15,11 @@ class LibraryResourceSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "description", "resource_type", "level", "subject",
             "file_url", "file_size_kb", "tags", "author_name", "is_contributed",
-            "download_count", "avg_rating", "is_archived", "is_favorited", "can_manage", "created_at",
+            "moderation_status", "download_count", "avg_rating", "is_archived",
+            "is_favorited", "can_manage", "created_at",
         ]
         read_only_fields = [
-            "id", "author_name", "is_contributed", "download_count",
+            "id", "author_name", "is_contributed", "moderation_status", "download_count",
             "avg_rating", "is_favorited", "can_manage", "created_at",
         ]
 

@@ -109,3 +109,24 @@ class CertificationAdmin(admin.ModelAdmin):
     list_display = ("teacher", "module", "level", "score_total", "is_valid", "expires_at")
     list_filter = ("level", "is_valid")
     search_fields = ("teacher__email", "qr_code")
+    actions = ["revoke_selected"]
+
+    @admin.action(description="Révoquer la ou les certification(s) sélectionnée(s)")
+    def revoke_selected(self, request, queryset):
+        from django.utils import timezone
+
+        from apps.notifications.models import NotificationType
+        from apps.notifications.services import notify_user
+
+        updated = 0
+        for cert in queryset.filter(is_valid=True):
+            cert.is_valid = False
+            cert.revoked_at = timezone.now()
+            cert.save(update_fields=["is_valid", "revoked_at"])
+            notify_user(
+                cert.teacher, NotificationType.SYSTEM,
+                title="Certification révoquée",
+                body=f"Votre certification « {cert.module.title} » a été révoquée par l'administration.",
+            )
+            updated += 1
+        self.message_user(request, f"{updated} certification(s) révoquée(s) et notifiée(s).")

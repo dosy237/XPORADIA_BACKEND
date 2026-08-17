@@ -21,6 +21,11 @@ urlpatterns = [
     ),
     path("conventions/<uuid:pk>/sign/", views.SignConventionView.as_view(), name="internship-convention-sign"),
     path(
+        "conventions/<uuid:pk>/generate-pdf/",
+        views.GenerateConventionPdfView.as_view(),
+        name="internship-convention-generate-pdf",
+    ),
+    path(
         "conventions/<uuid:convention_id>/journal/",
         views.ConventionJournalView.as_view(),
         name="internship-convention-journal",
@@ -29,6 +34,11 @@ urlpatterns = [
         "conventions/<uuid:convention_id>/evaluations/",
         views.ConventionEvaluationView.as_view(),
         name="internship-convention-evaluations",
+    ),
+    path(
+        "conventions/<uuid:convention_id>/company-review/",
+        views.SubmitCompanyReviewView.as_view(),
+        name="submit-company-review",
     ),
     path("", include(router.urls)),
 ]

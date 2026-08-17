@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.users.models import Child
 
 from .models import (
+    CompanyReview,
     InternshipApplication,
     InternshipConvention,
     InternshipEvaluation,
@@ -65,14 +66,33 @@ class InternshipApplicationSerializer(serializers.ModelSerializer):
 
 class InternshipConventionSerializer(serializers.ModelSerializer):
     application = InternshipApplicationSerializer(read_only=True)
+    channel_id = serializers.SerializerMethodField()
+    has_company_review = serializers.SerializerMethodField()
+    can_review_company = serializers.SerializerMethodField()
 
     class Meta:
         model = InternshipConvention
         fields = [
-            "id", "application", "pdf_url", "status",
+            "id", "application", "position_title", "document", "pdf_url", "status", "channel_id",
             "signed_by_school_at", "signed_by_company_at", "generated_at",
+            "has_company_review", "can_review_company",
         ]
-        read_only_fields = fields
+        read_only_fields = ["id", "application", "document", "pdf_url", "status", "channel_id",
+                             "signed_by_school_at", "signed_by_company_at", "generated_at",
+                             "has_company_review", "can_review_company"]
+
+    def get_channel_id(self, obj):
+        return getattr(getattr(obj, "channel", None), "id", None)
+
+    def get_has_company_review(self, obj):
+        return hasattr(obj, "company_review")
+
+    def get_can_review_company(self, obj):
+        from django.utils import timezone
+
+        if self.get_has_company_review(obj):
+            return False
+        return obj.application.offer.period_end <= timezone.localdate()
 
 
 class InternshipJournalSerializer(serializers.ModelSerializer):
@@ -90,3 +110,16 @@ class InternshipEvaluationSerializer(serializers.ModelSerializer):
             "skills", "global_rating", "comment", "attestation_url", "created_at",
         ]
         read_only_fields = ["id", "evaluator_type", "created_at"]
+
+
+class CompanyReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompanyReview
+        fields = ["id", "atmosphere", "mentorship", "role_accuracy", "learning_value", "comment", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate(self, attrs):
+        for field in ["atmosphere", "mentorship", "role_accuracy", "learning_value"]:
+            if not (1 <= attrs[field] <= 5):
+                raise serializers.ValidationError({field: "La note doit être comprise entre 1 et 5."})
+        return attrs

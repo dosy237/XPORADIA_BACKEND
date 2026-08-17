@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    CompanyReview,
     InternshipApplication,
     InternshipConvention,
     InternshipEvaluation,
@@ -43,3 +44,12 @@ class InternshipJournalAdmin(admin.ModelAdmin):
 @admin.register(InternshipEvaluation)
 class InternshipEvaluationAdmin(admin.ModelAdmin):
     list_display = ["convention", "evaluator_type", "global_rating", "created_at"]
+
+
+@admin.register(CompanyReview)
+class CompanyReviewAdmin(admin.ModelAdmin):
+    """Avis stagiaire → entreprise — pas de modération nécessaire (non
+    anonyme), juste une visibilité complète pour l'administrateur."""
+
+    list_display = ["convention", "atmosphere", "mentorship", "role_accuracy", "learning_value", "created_at"]
+    search_fields = ["convention__application__offer__company__email"]

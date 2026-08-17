@@ -1,21 +1,23 @@
+from django.db import models
 from django.db.models import F
 from django.http import Http404
 from rest_framework import generics, permissions
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.academics.models import SchoolClass, Subject
+from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
 from apps.users.models import DirectorProfile, UserRole
 
-from .models import LibraryResource, ResourceDownload, ResourceFavorite
+from .models import LibraryResource, ModerationStatus, ResourceDownload, ResourceFavorite
 from .serializers import LibraryResourceSerializer
 
 
 def _affiliated_establishment_ids(user):
     """Établissements où l'utilisateur est directeur, titulaire d'une
-    classe, ou enseignant dédié d'une matière — donc légitime à consulter
-    (et contribuer à) la bibliothèque numérique de cet établissement."""
+    classe, enseignant dédié d'une matière, ou élève/parent inscrit —
+    donc légitime à consulter (et pour le personnel, à contribuer à) la
+    bibliothèque numérique de cet établissement."""
 
     ids = set()
     try:
@@ -32,6 +34,16 @@ def _affiliated_establishment_ids(user):
             "school_class__track__department__establishment_id", flat=True
         )
     )
+    # Élève avec compte propre — accès direct à la bibliothèque de son
+    # établissement, à l'intégralité du fonds (pas seulement son niveau,
+    # voir Story « profil élève »).
+    child = getattr(user, "child_profile", None)
+    if child:
+        ids.update(
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE).values_list(
+                "school_class__track__department__establishment_id", flat=True
+            )
+        )
     return ids
 
 
@@ -64,9 +76,19 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         establishment = self.get_establishment()
+        user = self.request.user
         qs = LibraryResource.objects.filter(
             establishment=establishment, is_archived=False
         ).select_related("author")
+
+        # Le grand public de l'établissement ne voit que les ressources
+        # approuvées ; l'auteur d'une contribution voit en plus la sienne
+        # quel que soit son statut (pour suivre si elle a été acceptée),
+        # le directeur voit tout (file de modération).
+        is_director_here = user.has_role(UserRole.DIRECTOR) and establishment.user_id == user.id
+        if not is_director_here:
+            qs = qs.filter(models.Q(moderation_status=ModerationStatus.APPROVED) | models.Q(author=user))
+
         params = self.request.query_params
         if params.get("subject"):
             qs = qs.filter(subject__iexact=params["subject"])
@@ -81,7 +103,31 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         establishment = self.get_establishment()
-        serializer.save(establishment=establishment, author=self.request.user, is_contributed=True)
+        user = self.request.user
+        is_director = user.has_role(UserRole.DIRECTOR)
+
+        if not is_director:
+            if not user.has_role(UserRole.TEACHER):
+                raise PermissionDenied("Seuls les enseignants et directeurs peuvent publier une ressource.")
+            from apps.users.serializers import _current_certification_level
+
+            if _current_certification_level(user) != "gold":
+                raise PermissionDenied(
+                    "La contribution à la bibliothèque est réservée aux enseignants certifiés Or."
+                )
+
+        file_url = serializer.validated_data.get("file_url")
+        if file_url and LibraryResource.objects.filter(establishment=establishment, file_url=file_url).exists():
+            raise ValidationError("Une ressource avec ce lien existe déjà dans cette bibliothèque.")
+
+        # Le catalogue officiel du directeur reste publié immédiatement ;
+        # une contribution d'enseignant passe par une modération (CDC
+        # US-10-04 : soumission → revue admin → publication ou rejet).
+        moderation_status = ModerationStatus.APPROVED if is_director else ModerationStatus.PENDING
+        serializer.save(
+            establishment=establishment, author=user, is_contributed=not is_director,
+            moderation_status=moderation_status,
+        )
 
 
 class LibraryResourceDetailView(generics.RetrieveUpdateAPIView):
