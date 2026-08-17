@@ -143,6 +143,7 @@ class MyCertificationStatusSerializer(serializers.Serializer):
     @staticmethod
     def build(user):
         from .constants import badge_for_points, points_to_next_level
+        from .services import teacher_total_points
 
         valid_certifications = list(
             Certification.objects.filter(teacher=user, is_valid=True)
@@ -150,7 +151,7 @@ class MyCertificationStatusSerializer(serializers.Serializer):
             .order_by("-issued_at")
         )
         levels_achieved = {c.level for c in valid_certifications}
-        total_points = sum(c.points_awarded for c in valid_certifications)
+        total_points = teacher_total_points(user)
         current_level = badge_for_points(total_points)
         next_info = points_to_next_level(total_points)
         return {

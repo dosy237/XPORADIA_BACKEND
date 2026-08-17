@@ -254,23 +254,50 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
 
 def _current_certification_level(user):
     from apps.certification.constants import badge_for_points
-    from apps.certification.models import Certification
+    from apps.certification.services import teacher_total_points
 
-    total_points = sum(
-        Certification.objects.filter(teacher=user, is_valid=True).values_list("points_awarded", flat=True)
-    )
-    return badge_for_points(total_points)
+    return badge_for_points(teacher_total_points(user))
 
 
 def _teacher_total_points(user):
-    from apps.certification.models import Certification
+    from apps.certification.services import teacher_total_points
 
-    return sum(
-        Certification.objects.filter(teacher=user, is_valid=True).values_list("points_awarded", flat=True)
-    )
+    return teacher_total_points(user)
 
 
-class TeacherDirectoryCardSerializer(serializers.ModelSerializer):
+class FollowStatsMixin(serializers.Serializer):
+    """Compteurs sociaux communs à toute fiche d'annuaire consultable
+    (enseignant, établissement, entreprise) — c'est ce qui permet, en
+    tapant sur un compte n'importe où dans l'app, d'ouvrir un vrai profil
+    public avec ses abonnés, ses abonnements et ses publications, comme un
+    réseau social plutôt qu'une simple fiche catalogue."""
+
+    followers_count = serializers.SerializerMethodField()
+    following_count = serializers.SerializerMethodField()
+    is_following = serializers.SerializerMethodField()
+    posts_count = serializers.SerializerMethodField()
+
+    def get_followers_count(self, obj):
+        return obj.user.followers.count()
+
+    def get_following_count(self, obj):
+        return obj.user.following.count()
+
+    def get_is_following(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        from apps.feed.models import Follow
+
+        return Follow.objects.filter(follower=request.user, followed=obj.user).exists()
+
+    def get_posts_count(self, obj):
+        from apps.feed.models import Post
+
+        return Post.objects.filter(author=obj.user, is_hidden=False).count()
+
+
+class TeacherDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializer):
     """Vue d'un profil enseignant par un enseignant tiers (annuaire).
 
     Reflète la matrice de visibilité du cahier des charges pour le rôle
@@ -293,6 +320,7 @@ class TeacherDirectoryCardSerializer(serializers.ModelSerializer):
             "id", "first_name", "last_name", "avatar", "subjects", "experience_years",
             "location", "available_for_tutoring", "available_for_employment",
             "current_level", "total_points",
+            "followers_count", "following_count", "is_following", "posts_count",
         ]
         read_only_fields = fields
 
@@ -376,7 +404,7 @@ class TeacherTutoringDetailSerializer(TeacherTutoringCardSerializer):
         return CertificationSerializer(qs, many=True).data
 
 
-class EstablishmentDirectoryCardSerializer(serializers.ModelSerializer):
+class EstablishmentDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializer):
     """Vue publique d'un établissement — alimente le fil d'actualité au même
     titre que les enseignants."""
 
@@ -385,7 +413,10 @@ class EstablishmentDirectoryCardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DirectorProfile
-        fields = ["id", "school_name", "address", "levels_taught", "student_count", "is_partner", "avatar"]
+        fields = [
+            "id", "school_name", "address", "levels_taught", "student_count", "is_partner", "avatar",
+            "followers_count", "following_count", "is_following", "posts_count",
+        ]
         read_only_fields = fields
 
 
@@ -426,7 +457,7 @@ class EstablishmentDirectoryDetailSerializer(EstablishmentDirectoryCardSerialize
         return len(self._reviews(obj))
 
 
-class CompanyDirectoryCardSerializer(serializers.ModelSerializer):
+class CompanyDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializer):
     """Vue publique d'une entreprise — symétrique à l'annuaire établissements,
     pour que les enseignants et stagiaires puissent la découvrir dans
     l'Annuaire général avant de postuler à ses offres."""
@@ -436,7 +467,10 @@ class CompanyDirectoryCardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CompanyProfile
-        fields = ["id", "company_name", "sector", "address", "is_partner", "avatar"]
+        fields = [
+            "id", "company_name", "sector", "address", "is_partner", "avatar",
+            "followers_count", "following_count", "is_following", "posts_count",
+        ]
         read_only_fields = fields
 
 
