@@ -8,6 +8,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.certification.constants import POINTS_THRESHOLDS
+from apps.certification.models import CertificationLevel
 from apps.certification.serializers import MyCertificationStatusSerializer
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
@@ -407,9 +409,11 @@ class JobSeekingRequestListCreateView(generics.ListCreateAPIView):
         if not user.has_role(UserRole.TEACHER):
             raise PermissionDenied("Réservé aux enseignants.")
         status_data = MyCertificationStatusSerializer.build(user)
-        if status_data["current_level"] != "gold":
+        # "Au moins Or" (Or, Platine ou Diamant) — pas "exactement Or", pour
+        # ne pas exclure les enseignants qui ont dépassé ce palier.
+        if status_data["total_points"] < POINTS_THRESHOLDS[CertificationLevel.GOLD]:
             raise PermissionDenied(
-                "Cette fonctionnalité est un privilège réservé aux enseignants de niveau Or."
+                "Cette fonctionnalité est un privilège réservé aux enseignants de niveau Or ou plus."
             )
         JobSeekingRequest.objects.filter(teacher=user, is_active=True).update(is_active=False)
         serializer.save(teacher=user)

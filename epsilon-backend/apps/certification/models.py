@@ -14,9 +14,12 @@ from apps.payments.models import Payment
 
  
 class CertificationLevel(models.TextChoices):
-    BRONZE = "bronze", "Bronze"
-    SILVER = "silver", "Argent"
-    GOLD   = "gold",   "Or"
+    ZERO     = "zero",     "Zéro"
+    BRONZE   = "bronze",   "Bronze"
+    SILVER   = "silver",   "Argent"
+    GOLD     = "gold",     "Or"
+    PLATINUM = "platinum", "Platine"
+    DIAMOND  = "diamond",  "Diamant"
  
  
 class ModuleCategory(models.TextChoices):

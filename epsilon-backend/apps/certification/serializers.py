@@ -13,7 +13,13 @@ from .models import (
     TrainingSession,
 )
 
-LEVEL_ORDER = [CertificationLevel.BRONZE, CertificationLevel.SILVER, CertificationLevel.GOLD]
+LEVEL_ORDER = [
+    CertificationLevel.BRONZE,
+    CertificationLevel.SILVER,
+    CertificationLevel.GOLD,
+    CertificationLevel.PLATINUM,
+    CertificationLevel.DIAMOND,
+]
 ONLINE_GRADABLE_TYPES = [QuestionType.MCQ, QuestionType.TF]
 
 

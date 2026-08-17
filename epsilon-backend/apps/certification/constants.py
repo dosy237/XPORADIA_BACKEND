@@ -10,20 +10,26 @@ logique ailleurs dans le code.
 """
 from apps.certification.models import CertificationLevel
 
-# {niveau: points minimum requis pour l'atteindre}
+# {niveau: points minimum requis pour l'atteindre} — Zéro est le palier de
+# départ (aucune certification encore validée), pas une absence de niveau :
+# un enseignant a toujours un badge affichable, même à 0 point. Bronze à 1
+# point préserve le comportement historique (la toute première certification
+# validée fait déjà sortir de Zéro) ; Silver/Gold inchangés, Platine et
+# Diamant ajoutés au-dessus.
 POINTS_THRESHOLDS = {
-    CertificationLevel.BRONZE: 0,
+    CertificationLevel.ZERO: 0,
+    CertificationLevel.BRONZE: 1,
     CertificationLevel.SILVER: 25,
     CertificationLevel.GOLD: 75,
+    CertificationLevel.PLATINUM: 200,
+    CertificationLevel.DIAMOND: 400,
 }
 
 
-def badge_for_points(total_points: int) -> str | None:
-    """Renvoie le badge le plus élevé atteint avec ce total de points, ou
-    None si l'enseignant n'a encore aucune certification (0 point)."""
-    if total_points <= 0:
-        return None
-    badge = None
+def badge_for_points(total_points: int) -> str:
+    """Renvoie le badge le plus élevé atteint avec ce total de points —
+    toujours au moins Zéro, jamais None."""
+    badge = CertificationLevel.ZERO
     for level, threshold in sorted(POINTS_THRESHOLDS.items(), key=lambda kv: kv[1]):
         if total_points >= threshold:
             badge = level
@@ -58,7 +64,10 @@ RETAKE_FEE_RATIO = 0.5
 # jamais affiché publiquement, jamais utilisé pour brider ce qu'un
 # établissement peut réellement proposer.
 SALARY_RANGES_FCFA_PER_MONTH = {
+    CertificationLevel.ZERO: (60_000, 90_000),
     CertificationLevel.BRONZE: (80_000, 120_000),
     CertificationLevel.SILVER: (120_000, 200_000),
     CertificationLevel.GOLD: (200_000, 350_000),
+    CertificationLevel.PLATINUM: (350_000, 500_000),
+    CertificationLevel.DIAMOND: (500_000, 750_000),
 }
