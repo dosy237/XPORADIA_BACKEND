@@ -15,6 +15,11 @@ class MobileOperator(models.TextChoices):
     ORANGE = "orange", "Orange Money CI"
     WAVE   = "wave",   "Wave"
     MTN    = "mtn",    "MTN MoMo"
+
+
+class PaymentMethod(models.TextChoices):
+    MOBILE_MONEY = "mobile_money", "Mobile Money"
+    BANK_CARD    = "bank_card",    "Carte bancaire"
  
  
 class PaymentStatus(models.TextChoices):
@@ -27,11 +32,12 @@ class PaymentStatus(models.TextChoices):
  
  
 class PaymentType(models.TextChoices):
-    TRAINING     = "training",     "Formation"
-    TUTORING     = "tutoring",     "Cours particulier"
-    SUBSCRIPTION = "subscription", "Abonnement directeur"
-    COMMISSION   = "commission",   "Commission recrutement"
-    RETAKE_FEE   = "retake_fee",   "Frais de rattrapage"
+    TRAINING        = "training",        "Formation"
+    TUTORING        = "tutoring",        "Cours particulier"
+    SUBSCRIPTION    = "subscription",    "Abonnement directeur"
+    COMMISSION      = "commission",      "Commission recrutement"
+    RETAKE_FEE      = "retake_fee",      "Frais de rattrapage"
+    PAYROLL_INVOICE = "payroll_invoice", "Facture paie enseignants"
  
  
 class Payment(models.Model):
@@ -40,8 +46,17 @@ class Payment(models.Model):
                                         related_name="payments")
     amount         = models.PositiveIntegerField(help_text="FCFA")
     currency       = models.CharField(max_length=5, default="XOF")
-    operator       = models.CharField(max_length=10, choices=MobileOperator.choices)
-    phone_number   = models.CharField(max_length=20)
+    method         = models.CharField(max_length=15, choices=PaymentMethod.choices,
+                                       default=PaymentMethod.MOBILE_MONEY)
+    # Mobile Money — renseignés seulement si method=MOBILE_MONEY
+    operator       = models.CharField(max_length=10, choices=MobileOperator.choices, blank=True)
+    phone_number   = models.CharField(max_length=20, blank=True)
+    # Carte bancaire — renseignés seulement si method=BANK_CARD. Jamais de
+    # vrai PAN/CVV stocké, même en test : uniquement les 4 derniers
+    # chiffres d'un numéro FICTIF non identifié (voir apps.payments.services,
+    # aucune intégration bancaire réelle pour l'instant).
+    card_last4       = models.CharField(max_length=4, blank=True)
+    card_holder_name = models.CharField(max_length=150, blank=True)
     tx_ref         = models.CharField(max_length=100, unique=True)
     operator_tx_id = models.CharField(max_length=100, blank=True)
     status         = models.CharField(max_length=15, choices=PaymentStatus.choices,
