@@ -214,10 +214,12 @@ class Command(BaseCommand):
                 available_for_tutoring=True, available_for_employment=True,
             ),
         )
+        _attach_demo_image(awa, "avatar", "avatar_awa_bamba.jpg", self._images_dir)
 
         yao, _ = self._get_or_create_user(
             "yao.teacher@xporadia.ci", UserRole.TEACHER, "Yao", "Kouassi", "+2250700000006"
         )
+        _attach_demo_image(yao, "avatar", "avatar_yao_kouassi.jpg", self._images_dir)
         TeacherProfile.objects.get_or_create(
             user=yao,
             defaults=dict(
@@ -238,7 +240,7 @@ class Command(BaseCommand):
                 available_for_tutoring=True, available_for_employment=True,
             ),
         )
-        _attach_demo_image(aminata, "avatar", "enseignante_portrait.jpg", self._images_dir)
+        _attach_demo_image(aminata, "avatar", "avatar_aminata_diarra.jpg", self._images_dir)
 
         ibrahim, _ = self._get_or_create_user(
             "ibrahim.teacher@xporadia.ci", UserRole.TEACHER, "Ibrahim", "Fofana", "+2250700000008"
@@ -251,11 +253,12 @@ class Command(BaseCommand):
                 available_for_tutoring=False, available_for_employment=True,
             ),
         )
-        _attach_demo_image(ibrahim, "avatar", "enseignant_portrait.jpg", self._images_dir)
+        _attach_demo_image(ibrahim, "avatar", "avatar_ibrahim_fofana.jpg", self._images_dir)
 
         mariam, _ = self._get_or_create_user(
             "mariam.teacher@xporadia.ci", UserRole.TEACHER, "Mariam", "Coulibaly", "+2250700000009"
         )
+        _attach_demo_image(mariam, "avatar", "avatar_mariam_coulibaly.jpg", self._images_dir)
         TeacherProfile.objects.get_or_create(
             user=mariam,
             defaults=dict(
@@ -276,7 +279,7 @@ class Command(BaseCommand):
                 levels_taught=["Primaire", "Collège"], student_count=420, is_partner=True,
             ),
         )
-        _attach_demo_image(kouassi, "avatar", "directeur_portrait.jpg", self._images_dir)
+        _attach_demo_image(kouassi, "avatar", "avatar_kouassi_nguessan.jpg", self._images_dir)
 
         adjoua, _ = self._get_or_create_user(
             "adjoua.director@xporadia.ci", UserRole.DIRECTOR, "Adjoua", "Kone", "+2250700000010"
@@ -288,11 +291,13 @@ class Command(BaseCommand):
                 levels_taught=["Collège", "Lycée"], student_count=610, is_partner=False,
             ),
         )
+        _attach_demo_image(adjoua, "avatar", "avatar_adjoua_kone.jpg", self._images_dir)
 
         # --- Parents et enfants ---
         fatou, _ = self._get_or_create_user(
             "fatou.parent@xporadia.ci", UserRole.PARENT, "Fatou", "Traoré", "+2250700000003"
         )
+        _attach_demo_image(fatou, "avatar", "avatar_fatou_traore.jpg", self._images_dir)
         fatou_profile, _ = ParentProfile.objects.get_or_create(
             user=fatou, defaults=dict(location="Marcory, Abidjan", subscription_active=True)
         )
@@ -338,6 +343,7 @@ class Command(BaseCommand):
                 address="Plateau, Abidjan", is_partner=False,
             ),
         )
+        _attach_demo_image(serge, "avatar", "avatar_serge_kouadio.jpg", self._images_dir)
 
         nadege, _ = self._get_or_create_user(
             "rh.entreprise2@xporadia.ci", UserRole.COMPANY, "Nadège", "Yao", "+2250700000013"
@@ -349,7 +355,7 @@ class Command(BaseCommand):
                 is_partner=True,
             ),
         )
-        _attach_demo_image(nadege, "avatar", "entreprise_rh_portrait.jpg", self._images_dir)
+        _attach_demo_image(nadege, "avatar", "avatar_nadege_yao.jpg", self._images_dir)
 
         users.update(
             teachers={"awa": awa, "yao": yao, "aminata": aminata, "ibrahim": ibrahim, "mariam": mariam},
@@ -883,7 +889,7 @@ class Command(BaseCommand):
                 is_verified=True,
                 is_documents_validated=True,
             )
-            _attach_demo_image(student_user, "avatar", "etudiante_campus.jpg", self._images_dir)
+            _attach_demo_image(student_user, "avatar", "avatar_aicha_kone.jpg", self._images_dir)
             aicha.user = student_user
             aicha.last_name = "Koné"
             aicha.save(update_fields=["user", "last_name"])
