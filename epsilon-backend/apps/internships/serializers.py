@@ -16,6 +16,7 @@ class CompanyBasicSerializer(serializers.Serializer):
     id = serializers.IntegerField(source="company_profile.id")
     company_name = serializers.CharField(source="company_profile.company_name")
     address = serializers.CharField(source="company_profile.address")
+    avatar = serializers.ImageField(read_only=True)
 
 
 class SchoolBasicSerializer(serializers.Serializer):
