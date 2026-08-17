@@ -2,14 +2,23 @@ from rest_framework import serializers
 
 from apps.users.models import Child, User, UserRole
 
-from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, Track
+from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, TimetableSlot, Track
+
+
+class DelegateBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "first_name", "last_name", "email"]
+        read_only_fields = fields
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
+    track_delegates = DelegateBasicSerializer(many=True, read_only=True)
+
     class Meta:
         model = Department
-        fields = ["id", "name", "description", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = ["id", "name", "description", "track_delegates", "created_at"]
+        read_only_fields = ["id", "track_delegates", "created_at"]
 
 
 class TrackSerializer(serializers.ModelSerializer):
@@ -17,11 +26,15 @@ class TrackSerializer(serializers.ModelSerializer):
     department_id = serializers.PrimaryKeyRelatedField(
         source="department", queryset=Department.objects.all(), write_only=True
     )
+    class_delegates = DelegateBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = Track
-        fields = ["id", "department", "department_id", "name", "description", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = [
+            "id", "department", "department_id", "name", "description",
+            "class_delegates", "created_at",
+        ]
+        read_only_fields = ["id", "class_delegates", "created_at"]
 
 
 class TeacherBasicSerializer(serializers.ModelSerializer):
@@ -75,10 +88,10 @@ class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
         fields = [
-            "id", "school_class", "name", "teacher", "teacher_email",
+            "id", "school_class", "name", "coefficient", "teacher", "teacher_email",
             "pending_invitation_email", "pending_invitation_token", "created_at",
         ]
-        read_only_fields = ["id", "school_class", "created_at"]
+        read_only_fields = ["id", "school_class", "coefficient", "created_at"]
 
     def _pending_invitation(self, obj):
         return obj.invitations.filter(is_accepted=False).order_by("-created_at").first()
@@ -124,3 +137,23 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         model = Enrollment
         fields = ["id", "child", "school_class", "status", "enrolled_at", "ended_at"]
         read_only_fields = fields
+
+
+class TimetableSlotSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    weekday_label = serializers.CharField(source="get_weekday_display", read_only=True)
+
+    class Meta:
+        model = TimetableSlot
+        fields = [
+            "id", "school_class", "subject", "subject_name", "weekday", "weekday_label",
+            "start_time", "end_time", "room",
+        ]
+        read_only_fields = ["id", "school_class", "subject_name", "weekday_label"]
+
+    def validate(self, attrs):
+        start = attrs.get("start_time", getattr(self.instance, "start_time", None))
+        end = attrs.get("end_time", getattr(self.instance, "end_time", None))
+        if start and end and start >= end:
+            raise serializers.ValidationError("L'heure de fin doit être après l'heure de début.")
+        return attrs

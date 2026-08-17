@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.academics.models import Department, Enrollment, SchoolClass, Subject, Track
+from apps.academics.models import Department, Enrollment, SchoolClass, Subject, TimetableSlot, Track, Weekday
 from apps.certification.models import (
     Certification,
     CertificationLevel,
@@ -26,6 +26,10 @@ from apps.employment.models import (
     JobStatus,
     Recruitment,
 )
+from apps.feed.models import Post, PostComment, PostLike
+from apps.messaging.models import Channel, ChannelType, Message
+from apps.messaging.services import create_subject_channel, ensure_student_messaging
+from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
 from apps.internships.models import (
     ConventionStatus,
     InternshipApplication,
@@ -40,7 +44,6 @@ from apps.library.models import LibraryResource, ModerationStatus, ResourceType,
 from apps.notifications.services import notify_user
 from apps.notifications.models import NotificationType
 from apps.payments.models import MobileOperator, Payment, PaymentStatus, PaymentType
-from apps.tutoring.models import TutoringReview, TutoringSession, TutoringSessionStatus
 from apps.users.models import (
     Child,
     CompanyProfile,
@@ -51,6 +54,7 @@ from apps.users.models import (
     UserRole,
 )
 from apps.virtual_classes.models import Exercise, ExerciseStatus, Submission, VirtualClass
+from apps.grading.models import EstablishmentJoinRequest, JoinRequestStatus
 
 DEMO_PASSWORD = "Xporadia2026!"
 TODAY = datetime.date.today
@@ -108,8 +112,12 @@ class Command(BaseCommand):
             self._seed_library(establishments, users)
             self._seed_employment(users)
             self._seed_internships(users, establishments)
-            self._seed_tutoring(users)
             self._seed_training_enrollment(users, modules)
+            self._seed_feed(users)
+            self._seed_student_activation(establishments, users)
+            self._seed_bulk_expansion(establishments, users, modules)
+            self._seed_self_registration_flow(establishments)
+            self._seed_admin_accounts()
 
         self.stdout.write(self.style.SUCCESS(f"\nJeu de données de démonstration prêt."))
         self.stdout.write(self.style.SUCCESS(f"Mot de passe commun de démo : {DEMO_PASSWORD}"))
@@ -336,7 +344,13 @@ class Command(BaseCommand):
             ),
         ]
         modules = {}
+        MODULE_POINTS_BY_LEVEL = {
+            CertificationLevel.BRONZE: 10,
+            CertificationLevel.SILVER: 25,
+            CertificationLevel.GOLD: 50,
+        }
         for data in module_defs:
+            data.setdefault("points", MODULE_POINTS_BY_LEVEL[data["target_level"]])
             module, created = TrainingModule.objects.get_or_create(title=data["title"], defaults=data)
             modules[module.title] = module
             if created:
@@ -385,7 +399,8 @@ class Command(BaseCommand):
         attempt = ExamAttempt.objects.create(teacher=teacher, score_total=score, status="graded")
         Certification.objects.create(
             teacher=teacher, module=module, attempt=attempt, level=module.target_level,
-            score_total=score, qr_code=f"XPO-CERT-{teacher.id}-{module.target_level}-DEMO",
+            points_awarded=module.points, score_total=score,
+            qr_code=f"XPO-CERT-{teacher.id}-{module.target_level}-DEMO",
             expires_at=TODAY() + datetime.timedelta(days=CERT_VALIDITY_DAYS),
         )
         self.stdout.write(self.style.SUCCESS(f"Certification {module.target_level} créée pour {teacher.email}"))
@@ -653,40 +668,6 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     # Cours particuliers
     # ------------------------------------------------------------------
-    def _seed_tutoring(self, users):
-        teachers = users["teachers"]
-        parents = users["parents"]
-
-        completed_session, created = TutoringSession.objects.get_or_create(
-            teacher=teachers["aminata"], parent=parents["fatou"],
-            child_name="Aïcha", child_level="5ème", subject="SVT", mode="home",
-            date=TODAY() - datetime.timedelta(days=5),
-            defaults=dict(
-                start_time="16:00", duration_min=90, address="Marcory, Abidjan",
-                gross_amount=8500, status=TutoringSessionStatus.COMPLETED,
-                escrow_released=True, released_at=timezone.now(),
-                confirmed_at=timezone.now() - datetime.timedelta(days=6),
-            ),
-        )
-        if created:
-            payment = _payment(parents["fatou"], 8500, PaymentType.TUTORING, PaymentStatus.COMPLETED, completed_session)
-            TutoringReview.objects.get_or_create(
-                session=completed_session, author=parents["fatou"],
-                defaults=dict(author_type="parent", rating=5, comment="Excellente pédagogue, ma fille progresse vite."),
-            )
-
-        confirmed_session, created = TutoringSession.objects.get_or_create(
-            teacher=teachers["awa"], parent=parents["aya"],
-            child_name="Kouadio", child_level="6ème", subject="Mathématiques", mode="online",
-            date=TODAY() + datetime.timedelta(days=4),
-            defaults=dict(
-                start_time="17:00", duration_min=60, gross_amount=6000,
-                status=TutoringSessionStatus.CONFIRMED, confirmed_at=timezone.now(),
-            ),
-        )
-        if created:
-            _payment(parents["aya"], 6000, PaymentType.TUTORING, PaymentStatus.ESCROW, confirmed_session)
-
     # ------------------------------------------------------------------
     # Inscription à une session de formation (paiement direct plateforme)
     # ------------------------------------------------------------------
@@ -704,3 +685,581 @@ class Command(BaseCommand):
             enrollment.save(update_fields=["payment"])
             session.enrolled_count += 1
             session.save(update_fields=["enrolled_count"])
+
+    # ------------------------------------------------------------------
+    # Fil d'actualité — publications, j'aime, commentaires
+    # ------------------------------------------------------------------
+    def _seed_feed(self, users):
+        teachers = users["teachers"]
+        directors = users["directors"]
+        parents = users["parents"]
+        companies = users["companies"]
+
+        posts_data = [
+            dict(
+                author=teachers["awa"],
+                body=(
+                    "Ravie d'avoir décroché ma certification Argent ce mois-ci ! Merci à l'équipe "
+                    "pédagogique Xporadia pour l'accompagnement pendant le module de didactique."
+                ),
+                days_ago=6,
+            ),
+            dict(
+                author=directors["kouassi"],
+                body=(
+                    "Le Collège Fraternité recrute deux enseignants de Mathématiques certifiés Or "
+                    "pour la rentrée. Les candidatures se font directement via l'annuaire Xporadia."
+                ),
+                days_ago=4,
+            ),
+            dict(
+                author=teachers["ibrahim"],
+                body=(
+                    "Petit retour d'expérience après ma première session de cours particuliers via "
+                    "la plateforme : l'outil de suivi de progression change vraiment la donne."
+                ),
+                days_ago=3,
+            ),
+            dict(
+                author=companies["nadege"],
+                body=(
+                    "Abidjan Tech Hub ouvre 5 nouvelles places de stage pour les élèves de Terminale "
+                    "intéressés par le développement web. Missions concrètes, encadrement dédié."
+                ),
+                days_ago=2,
+            ),
+            dict(
+                author=parents["fatou"],
+                body=(
+                    "Merci à la communauté enseignante pour vos conseils sur l'accompagnement en SVT — "
+                    "les progrès de ma fille depuis la rentrée sont impressionnants."
+                ),
+                days_ago=1,
+            ),
+            dict(
+                author=teachers["aminata"],
+                body="Session de formation continue sur la gestion de classe très enrichissante ce week-end à Cocody.",
+                days_ago=0,
+            ),
+        ]
+
+        likers = [teachers["yao"], teachers["mariam"], parents["aya"], directors["adjoua"], parents["bakary"]]
+        comments_bank = [
+            "Merci pour ce retour, très utile !",
+            "Félicitations, bien mérité.",
+            "Je suis intéressé, comment postuler ?",
+            "Xporadia continue de prouver sa valeur sur le terrain.",
+        ]
+
+        for i, data in enumerate(posts_data):
+            post, created = Post.objects.get_or_create(
+                author=data["author"], body=data["body"],
+                defaults=dict(created_at=timezone.now() - datetime.timedelta(days=data["days_ago"])),
+            )
+            if not created:
+                continue
+            # created_at a auto_now_add=True — on le corrige après coup pour
+            # étaler les publications dans le temps (fil chronologique crédible).
+            Post.objects.filter(pk=post.pk).update(
+                created_at=timezone.now() - datetime.timedelta(days=data["days_ago"])
+            )
+            for liker in likers[: (i % len(likers)) + 2]:
+                PostLike.objects.get_or_create(post=post, user=liker)
+            for j, comment_author in enumerate([teachers["yao"], parents["aya"]][: i % 3]):
+                PostComment.objects.get_or_create(
+                    post=post, author=comment_author, body=comments_bank[(i + j) % len(comments_bank)],
+                )
+
+        self.stdout.write(self.style.SUCCESS(f"Fil d'actualité : {len(posts_data)} publication(s) de démo créées."))
+
+    # ------------------------------------------------------------------
+    # Compte élève de démonstration — activation directe (sans passer par
+    # le lien email) pour que le profil Élève soit testable immédiatement,
+    # avec emploi du temps, canaux de matière peuplés, et espace personnel
+    # (objectif de vie, bucket list, note) déjà renseignés.
+    # ------------------------------------------------------------------
+    def _seed_student_activation(self, establishments, users):
+        children = users["children"]
+        aicha = children["aicha"]
+
+        if not aicha.user_id:
+            student_user = User.objects.create_user(
+                email="aicha.eleve@xporadia.ci",
+                password="Xporadia2026!",
+                first_name=aicha.first_name,
+                last_name="Koné",
+                primary_role=UserRole.STUDENT,
+                is_verified=True,
+                is_documents_validated=True,
+            )
+            aicha.user = student_user
+            aicha.last_name = "Koné"
+            aicha.save(update_fields=["user", "last_name"])
+        ensure_student_messaging(aicha)
+
+        cinquieme = establishments["kouassi"]["classes"]["5eme"]
+        subj_anglais = establishments["kouassi"]["subjects"]["anglais"]
+        subj_svt = establishments["kouassi"]["subjects"]["svt"]
+
+        TimetableSlot.objects.get_or_create(
+            school_class=cinquieme, subject=subj_anglais, weekday=Weekday.MONDAY,
+            defaults=dict(start_time="08:00", end_time="09:00", room="Salle 12"),
+        )
+        TimetableSlot.objects.get_or_create(
+            school_class=cinquieme, subject=subj_svt, weekday=Weekday.MONDAY,
+            defaults=dict(start_time="09:00", end_time="10:00", room="Labo SVT"),
+        )
+        TimetableSlot.objects.get_or_create(
+            school_class=cinquieme, subject=subj_anglais, weekday=Weekday.WEDNESDAY,
+            defaults=dict(start_time="10:15", end_time="11:15", room="Salle 12"),
+        )
+
+        # Canal de matière SVT créé par l'enseignant dédié (action délibérée,
+        # pas automatique — voir apps.messaging.services), avec un message
+        # d'accueil pour que le fil de démonstration ne soit pas vide.
+        svt_channel = Channel.objects.filter(channel_type=ChannelType.SUBJECT, subject=subj_svt).first()
+        if not svt_channel:
+            svt_channel = create_subject_channel(subj_svt, subj_svt.teacher)
+            Message.objects.create(
+                channel=svt_channel, author=subj_svt.teacher,
+                body="Bienvenue dans le canal de SVT — postez vos questions ici entre deux cours.",
+            )
+
+        LifeGoal.objects.get_or_create(
+            child=aicha,
+            defaults=dict(
+                description="Devenir ingénieure en informatique et travailler sur des projets qui aident les écoles africaines.",
+                related_subjects=["Mathématiques", "SVT", "Anglais"],
+            ),
+        )
+        BucketListItem.objects.get_or_create(
+            child=aicha, title="Terminer ma certification en algorithmique junior",
+            defaults=dict(description="Module découverte proposé par Xporadia."),
+        )
+        BucketListItem.objects.get_or_create(
+            child=aicha, title="Lire un livre de développement personnel par mois", defaults=dict(is_done=True),
+        )
+        PersonalNote.objects.get_or_create(
+            child=aicha, subject=subj_anglais, title="Vocabulaire — la famille",
+            defaults=dict(content="Mother, father, sibling, cousin, nephew, niece..."),
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Compte élève de démo activé : aicha.eleve@xporadia.ci / Xporadia2026! "
+                "(emploi du temps, canal de matière et espace personnel peuplés)."
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Expansion massive — bien plus de comptes, classes, publications,
+    # ressources et candidatures pour que l'app soit dense et crédible en
+    # démonstration plutôt que peuplée du strict minimum fonctionnel.
+    # Idempotent : ne s'exécute qu'une fois (marqueur ci-dessous).
+    # ------------------------------------------------------------------
+    def _seed_bulk_expansion(self, establishments, users, modules):
+        modules_list = list(modules.values())
+        import random
+
+        if User.objects.filter(email="bulk.seed.marker@xporadia.ci").exists():
+            self.stdout.write("Expansion massive déjà présente, ignorée (idempotence).")
+            return
+
+        rng = random.Random(42)
+
+        FIRST_NAMES_F = [
+            "Adjoua", "Akissi", "Affoué", "Aya", "Ama", "Rokia", "Fatoumata", "Mariame",
+            "Nafissatou", "Salimata", "Djeneba", "Aïssata", "Kadiatou", "Assetou", "Bintou",
+            "Awa", "Coumba", "Ramatoulaye", "Khady", "Ndèye",
+        ]
+        FIRST_NAMES_M = [
+            "Yao", "Kouassi", "Koffi", "Konan", "Kouame", "Adama", "Moussa", "Ibrahim",
+            "Souleymane", "Mamadou", "Sekou", "Boubacar", "Cheikh", "Abdoulaye", "Lassina",
+            "Drissa", "Issouf", "Bakary", "Sidiki", "Vamara",
+        ]
+        LAST_NAMES = [
+            "Kouassi", "Kone", "Traore", "Coulibaly", "Diabate", "Ouattara", "Bamba", "Diarra",
+            "Toure", "Camara", "Sanogo", "Kante", "Sangare", "Fofana", "Diallo", "Cisse",
+            "Yeo", "Silue", "Soro", "N'Guessan", "Kouame", "Assi", "Brou", "Angoua", "Kacou",
+        ]
+        CITIES = ["Abidjan", "Bouaké", "Yamoussoukro", "San-Pédro", "Korhogo", "Daloa", "Man", "Gagnoa"]
+        SUBJECTS_BANK = [
+            "Mathématiques", "Physique-Chimie", "SVT", "Français", "Anglais", "Histoire-Géographie",
+            "Philosophie", "EPS", "Arts Plastiques", "Espagnol", "Allemand", "Économie",
+        ]
+        SCHOOL_LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1ere", "tle"]
+        POST_TOPICS = [
+            ("Ravi(e) d'avoir terminé le module {module} cette semaine, la formation était dense mais "
+             "vraiment utile pour ma pratique en classe. #{hashtag1} #formation"),
+            ("Nouvelle promotion d'élèves accueillie ce matin à {city}. Une rentrée pleine d'énergie "
+             "! #{hashtag1} #rentree"),
+            ("Question à la communauté : quelles ressources conseillez-vous pour préparer le BEPC en "
+             "{subject} ? #{hashtag1} #entraide"),
+            ("Session de cours particuliers très enrichissante hier soir avec un élève de {level}. "
+             "Les progrès en quelques semaines sont impressionnants. #{hashtag1} #tutorat"),
+            ("Notre établissement recrute des enseignants certifiés en {subject} pour {city}. "
+             "Candidatures ouvertes via l'annuaire Xporadia. #{hashtag1} #recrutement"),
+            ("Petit rappel pour les élèves : la bibliothèque numérique s'est enrichie de nouvelles "
+             "fiches de révision en {subject} cette semaine. #{hashtag1} #bibliotheque"),
+            ("Fier de mes élèves qui ont particulièrement bien réussi le dernier contrôle de "
+             "{subject}. Le travail paie ! #{hashtag1} #reussite"),
+            ("Stage de découverte très riche pour nos élèves de {level} chez nos entreprises "
+             "partenaires cette semaine. #{hashtag1} #stage"),
+        ]
+        HASHTAGS_BANK = [
+            "education", "xporadia", "pedagogie", "cotedivoire", "enseignement", "college", "lycee",
+            "certification", "abidjan", "afrique",
+        ]
+        COMMENTS_BANK = [
+            "Merci pour ce partage !", "Bravo, bien mérité.", "Très intéressant, merci.",
+            "Je suis intéressé, comment en savoir plus ?", "Xporadia continue de faire la différence.",
+            "Excellente initiative.", "Bon courage pour la suite !",
+        ]
+
+        # --- 1. Enseignants supplémentaires (25) ---
+        new_teachers = []
+        for i in range(25):
+            is_f = rng.random() < 0.5
+            first = rng.choice(FIRST_NAMES_F if is_f else FIRST_NAMES_M)
+            last = rng.choice(LAST_NAMES)
+            email = f"teacher{i}.{first.lower()}@xporadia.ci"
+            if User.objects.filter(email=email).exists():
+                continue
+            user = User.objects.create_user(
+                email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                primary_role=UserRole.TEACHER, is_verified=True, is_documents_validated=True,
+            )
+            TeacherProfile.objects.get_or_create(
+                user=user,
+                defaults=dict(
+                    subjects=[rng.choice(SUBJECTS_BANK) for _ in range(rng.randint(1, 2))],
+                    bio="Enseignant(e) engagé(e) dans la réussite de ses élèves.",
+                    hourly_rate=rng.choice([2500, 3000, 3500, 4000]),
+                    location=rng.choice(CITIES),
+                    experience_years=rng.randint(1, 15),
+                ),
+            )
+            if modules_list:
+                self._issue_certification(user, rng.choice(modules_list), score=rng.randint(65, 98))
+            new_teachers.append(user)
+
+        # --- 2. Classes et matières supplémentaires dans les 2 établissements existants ---
+        new_subjects = []
+        new_classes = []
+        for key in ("kouassi", "adjoua"):
+            dept = establishments[key]["department"]
+            track = establishments[key]["track"]
+            for level in rng.sample(SCHOOL_LEVELS, 3):
+                class_name = f"{level.upper()} {rng.choice('ABC')}"
+                sc, created = SchoolClass.objects.get_or_create(
+                    track=track, name=class_name, school_year="2025-2026",
+                    defaults=dict(
+                        homeroom_teacher=rng.choice(new_teachers) if new_teachers else None, capacity=40,
+                    ),
+                )
+                if created:
+                    new_classes.append(sc)
+                for subject_name in rng.sample(SUBJECTS_BANK, 4):
+                    subj, s_created = Subject.objects.get_or_create(
+                        school_class=sc, name=subject_name,
+                        defaults=dict(teacher=rng.choice(new_teachers) if new_teachers else None),
+                    )
+                    if s_created:
+                        new_subjects.append(subj)
+                # Emploi du temps sommaire pour chaque nouvelle classe.
+                if created:
+                    for day in range(5):
+                        subject_of_day = rng.choice(sc.subjects.all()) if sc.subjects.exists() else None
+                        if subject_of_day:
+                            hour = 8 + day
+                            TimetableSlot.objects.get_or_create(
+                                school_class=sc, subject=subject_of_day, weekday=day,
+                                defaults=dict(
+                                    start_time=f"{hour:02d}:00", end_time=f"{hour + 1:02d}:00",
+                                    room=f"Salle {rng.randint(1, 20)}",
+                                ),
+                            )
+
+        # --- 3. Parents et enfants supplémentaires, une partie activés élèves ---
+        new_children = []
+        for i in range(40):
+            is_f = rng.random() < 0.5
+            first = rng.choice(FIRST_NAMES_F if is_f else FIRST_NAMES_M)
+            last = rng.choice(LAST_NAMES)
+            parent_email = f"parent{i}.{first.lower()}@xporadia.ci"
+            if User.objects.filter(email=parent_email).exists():
+                continue
+            parent_user = User.objects.create_user(
+                email=parent_email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                primary_role=UserRole.PARENT, is_verified=True, is_documents_validated=True,
+            )
+            parent_profile, _ = ParentProfile.objects.get_or_create(user=parent_user)
+            child_first = rng.choice(FIRST_NAMES_F if rng.random() < 0.5 else FIRST_NAMES_M)
+            child = Child.objects.create(
+                parent=parent_profile, first_name=child_first, last_name=last,
+                class_level=rng.choice(SCHOOL_LEVELS).upper(),
+            )
+            target_class = rng.choice(new_classes) if new_classes else None
+            if target_class:
+                Enrollment.objects.get_or_create(child=child, school_class=target_class, defaults=dict(status="active"))
+            # Un enfant sur trois environ obtient un compte élève activé.
+            if rng.random() < 0.35:
+                student_user = User.objects.create_user(
+                    email=f"student{i}.{child_first.lower()}@xporadia.ci", password=DEMO_PASSWORD,
+                    first_name=child_first, last_name=last, primary_role=UserRole.STUDENT,
+                    is_verified=True, is_documents_validated=True,
+                )
+                child.user = student_user
+                child.save(update_fields=["user"])
+                ensure_student_messaging(child)
+            new_children.append(child)
+
+        all_authors = (
+            list(users["teachers"].values())
+            + list(users["directors"].values())
+            + new_teachers
+            + [c.user for c in new_children if c.user_id]
+        )
+
+        # --- 4. Abonnements aléatoires (réseau) ---
+        from apps.feed.models import Follow
+
+        follow_pairs = set()
+        for _ in range(120):
+            if len(all_authors) < 2:
+                break
+            a, b = rng.sample(all_authors, 2)
+            follow_pairs.add((a.id, b.id))
+        Follow.objects.bulk_create(
+            [Follow(follower_id=a, followed_id=b) for a, b in follow_pairs], ignore_conflicts=True
+        )
+
+        # --- 5. Publications supplémentaires (60), avec likes et commentaires ---
+        for i in range(60):
+            if not all_authors:
+                break
+            author = rng.choice(all_authors)
+            template = rng.choice(POST_TOPICS)
+            body = template.format(
+                module=rng.choice(modules_list).title if modules_list else "Fondamentaux pédagogiques",
+                city=rng.choice(CITIES),
+                subject=rng.choice(SUBJECTS_BANK),
+                level=rng.choice(SCHOOL_LEVELS).upper(),
+                hashtag1=rng.choice(HASHTAGS_BANK),
+            )
+            post = Post.objects.create(author=author, body=body)
+            Post.objects.filter(pk=post.pk).update(
+                created_at=timezone.now() - datetime.timedelta(days=rng.randint(0, 25), hours=rng.randint(0, 23))
+            )
+            for liker in rng.sample(all_authors, min(rng.randint(0, 8), len(all_authors))):
+                if liker.id != author.id:
+                    PostLike.objects.get_or_create(post=post, user=liker)
+            for _ in range(rng.randint(0, 3)):
+                commenter = rng.choice(all_authors)
+                if commenter.id != author.id:
+                    PostComment.objects.get_or_create(
+                        post=post, author=commenter, body=rng.choice(COMMENTS_BANK)
+                    )
+
+        # --- 6. Bibliothèque enrichie (35 ressources) ---
+        LIB_TITLES = [
+            "Fiche de révision", "Cours complet", "Annale corrigée", "Exercices d'application",
+            "Support de cours", "Corrigé type", "Préparation d'examen",
+        ]
+        for i in range(35):
+            establishment = rng.choice(
+                [establishments["kouassi"]["profile"], establishments["adjoua"]["profile"]]
+            )
+            author = rng.choice(new_teachers) if new_teachers else None
+            subject_name = rng.choice(SUBJECTS_BANK)
+            LibraryResource.objects.get_or_create(
+                establishment=establishment,
+                title=f"{rng.choice(LIB_TITLES)} — {subject_name} {rng.choice(SCHOOL_LEVELS).upper()} #{i}",
+                defaults=dict(
+                    resource_type=rng.choice(list(ResourceType)),
+                    level=rng.choice(list(SchoolLevel)),
+                    subject=subject_name,
+                    file_url=f"https://example.com/library/resource-{i}.pdf",
+                    author=author,
+                    is_contributed=bool(author),
+                    moderation_status=ModerationStatus.APPROVED,
+                ),
+            )
+
+        # --- 7. Offres d'emploi et de stage supplémentaires ---
+        companies = list(CompanyProfile.objects.all())
+        directors = list(users["directors"].values())
+        for i in range(15):
+            director = rng.choice(directors)
+            JobListing.objects.get_or_create(
+                school=director, title=f"Poste enseignant {rng.choice(SUBJECTS_BANK)} #{i}",
+                defaults=dict(
+                    subject=rng.choice(SUBJECTS_BANK), levels=[rng.choice(SCHOOL_LEVELS)],
+                    contract_type=rng.choice(list(ContractType)),
+                    salary_min=rng.randint(150000, 250000), salary_max=rng.randint(250000, 400000),
+                    description="Poste à pourvoir dès que possible.", status=JobStatus.ACTIVE,
+                ),
+            )
+        for i in range(12):
+            if not companies:
+                break
+            company_profile = rng.choice(companies)
+            InternshipOffer.objects.get_or_create(
+                company=company_profile.user, title=f"Stage découverte {rng.choice(SUBJECTS_BANK)} #{i}",
+                defaults=dict(
+                    domain=rng.choice(["Numérique", "Commerce", "Industrie", "Communication"]),
+                    missions="Observation et participation aux activités de l'équipe.",
+                    level=rng.choice(["3e", "2nde", "1ere", "terminale"]),
+                    duration_weeks=rng.randint(1, 4),
+                    period_start=TODAY() + datetime.timedelta(days=rng.randint(10, 60)),
+                    period_end=TODAY() + datetime.timedelta(days=rng.randint(70, 100)),
+                    city=rng.choice(CITIES), places=rng.randint(1, 3),
+                ),
+            )
+
+        # --- Marqueur d'idempotence ---
+        User.objects.create_user(
+            email="bulk.seed.marker@xporadia.ci", password=DEMO_PASSWORD,
+            first_name="Marqueur", last_name="Seed", primary_role=UserRole.ADMIN,
+            is_verified=True, is_active=False,
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Expansion massive : {len(new_teachers)} enseignants, {len(new_children)} enfants, "
+                f"{len(new_classes)} classes, {len(new_subjects)} matières, 60 publications, "
+                "35 ressources bibliothèque, 15 offres d'emploi, 12 offres de stage, "
+                f"{len(follow_pairs)} abonnements."
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Auto-inscription élève — flow complet sans invitation d'un
+    # directeur : compte créé directement par l'élève, puis demande de
+    # rattachement à un établissement (en attente / approuvée mais pas
+    # encore placée / rejetée / cas "Autre" établissement absent de
+    # Xporadia). Idempotent via l'email de chaque compte de démo.
+    # ------------------------------------------------------------------
+    def _seed_self_registration_flow(self, establishments):
+        kouassi_profile = establishments["kouassi"]["profile"]
+
+        def _self_registered_student(email, first_name, last_name, declared_level):
+            if User.objects.filter(email=email).exists():
+                return User.objects.get(email=email), User.objects.get(email=email).child_profile
+            user = User.objects.create_user(
+                email=email, password=DEMO_PASSWORD, first_name=first_name, last_name=last_name,
+                primary_role=UserRole.STUDENT, is_verified=True, is_documents_validated=True,
+            )
+            child = Child.objects.create(
+                parent=None, user=user, first_name=first_name, last_name=last_name,
+                class_level=declared_level,
+            )
+            return user, child
+
+        # 1. Demande en attente — l'élève vient de s'inscrire, le
+        # directeur n'a pas encore statué.
+        _, child_pending = _self_registered_student(
+            "amara.pending@xporadia.ci", "Amara", "Ouattara", "5e"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_pending,
+            defaults=dict(
+                establishment=kouassi_profile, declared_level="5e",
+                status=JoinRequestStatus.PENDING,
+            ),
+        )
+
+        # 2. Demande approuvée, mais l'élève n'est ENCORE inscrit dans
+        # aucune classe — teste directement l'écran "élèves à placer".
+        _, child_approved = _self_registered_student(
+            "salimata.approved@xporadia.ci", "Salimata", "Bamba", "4e"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_approved,
+            defaults=dict(
+                establishment=kouassi_profile, declared_level="4e",
+                status=JoinRequestStatus.APPROVED, reviewed_at=timezone.now(),
+            ),
+        )
+
+        # 3. Demande rejetée — teste l'affichage du motif et la
+        # possibilité de retenter ailleurs.
+        _, child_rejected = _self_registered_student(
+            "ibrahim.rejected@xporadia.ci", "Ibrahim", "Sanogo", "Terminale"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_rejected,
+            defaults=dict(
+                establishment=kouassi_profile, declared_level="Terminale",
+                status=JoinRequestStatus.REJECTED, rejection_reason="Effectif de Terminale déjà complet.",
+                reviewed_at=timezone.now(),
+            ),
+        )
+
+        # 4. Cas "Autre" — établissement pas encore sur Xporadia, reste
+        # en attente indéfiniment jusqu'à ce qu'il nous rejoigne.
+        _, child_other = _self_registered_student(
+            "kadiatou.other@xporadia.ci", "Kadiatou", "Diarra", "3e"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_other,
+            defaults=dict(
+                establishment=None, other_establishment_name="Collège Moderne d'Adjamé",
+                declared_level="3e", status=JoinRequestStatus.PENDING,
+            ),
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Flux d'auto-inscription : 4 élèves de démo (en attente / approuvé non placé / "
+                "rejeté / cas \"Autre\") — mot de passe commun Xporadia2026!"
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Comptes administrateurs de démo — 2 admins complets (accès total,
+    # is_superuser=True, contournent volontairement les permissions
+    # Django) + 1 formateur (is_superuser=False, accès Django Admin
+    # réellement restreint via un groupe aux seuls modèles de formation).
+    # Aucun de ces comptes ne peut être créé par inscription publique —
+    # voir apps.users.views.CreateAdminView, seul chemin après le tout
+    # premier bootstrap (manage.py createsuperuser).
+    # ------------------------------------------------------------------
+    def _seed_admin_accounts(self):
+        from django.contrib.auth.models import Group, Permission
+
+        for email, first, last in [
+            ("admin1@xporadia.ci", "Awa", "Koffi"),
+            ("admin2@xporadia.ci", "Moussa", "Diabaté"),
+        ]:
+            if not User.objects.filter(email=email).exists():
+                User.objects.create_superuser(
+                    email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                )
+
+        # Groupe "Formateurs" — permissions Django réellement limitées aux
+        # modèles de formation, jamais tout le reste de la plateforme.
+        formateurs_group, _ = Group.objects.get_or_create(name="Formateurs")
+        training_models = ["trainingmodule", "trainingsession", "examquestion", "sessionenrollment"]
+        formateurs_group.permissions.set(
+            Permission.objects.filter(
+                content_type__app_label="certification", content_type__model__in=training_models,
+            )
+        )
+
+        formateur_email = "formateur@xporadia.ci"
+        if not User.objects.filter(email=formateur_email).exists():
+            formateur = User.objects.create_user(
+                email=formateur_email, password=DEMO_PASSWORD, first_name="Solange", last_name="Yao",
+                primary_role=UserRole.ADMIN, is_staff=True, is_superuser=False,
+                is_verified=True, is_documents_validated=True,
+            )
+            formateur.groups.add(formateurs_group)
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Comptes admin de démo : admin1@xporadia.ci, admin2@xporadia.ci (accès total), "
+                "formateur@xporadia.ci (accès Django Admin limité à la formation) — "
+                f"mot de passe commun {DEMO_PASSWORD}"
+            )
+        )

@@ -2,14 +2,20 @@
 Xporadia — Modèle utilisateur personnalisé
 Le modèle User est la fondation de toute la plateforme.
 """
+from django.core.validators import RegexValidator
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+
+hex_color_validator = RegexValidator(
+    regex=r"^#[0-9A-Fa-f]{6}$", message="Couleur invalide — format attendu : #RRGGBB."
+)
 
 
 class UserRole(models.TextChoices):
     TEACHER = "teacher", "Enseignant"
     DIRECTOR = "director", "Directeur d'établissement"
     PARENT = "parent", "Parent d'élève"
+    STUDENT = "student", "Élève"
     COMPANY = "company", "Entreprise"
     TRAINER = "trainer", "Formateur partenaire"
     ADMIN = "admin", "Administrateur Xporadia"
@@ -29,6 +35,8 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("primary_role", UserRole.ADMIN)
+        extra_fields.setdefault("is_verified", True)
+        extra_fields.setdefault("is_documents_validated", True)
         return self.create_user(email, password, **extra_fields)
 
 
@@ -246,6 +254,18 @@ class CompanyProfile(models.Model):
     )
     is_partner = models.BooleanField(default=False, verbose_name="Entreprise partenaire premium")
 
+    # Branding utilisé sur les documents générés (convention de stage PDF) —
+    # choisi une fois par l'entreprise, réutilisé sur toutes ses conventions
+    # plutôt que ressaisi à chaque génération.
+    brand_primary_color = models.CharField(
+        max_length=7, default="#0F172A", validators=[hex_color_validator],
+        verbose_name="Couleur principale (hex)",
+    )
+    brand_secondary_color = models.CharField(
+        max_length=7, default="#FB5406", validators=[hex_color_validator],
+        verbose_name="Couleur secondaire (hex)",
+    )
+
     class Meta:
         verbose_name = "Profil entreprise"
         verbose_name_plural = "Profils entreprises"
@@ -272,12 +292,29 @@ class ParentProfile(models.Model):
 
 
 class Child(models.Model):
-    """ENFANT — rattaché à un ParentProfile (1 parent possède 0..N enfants)."""
+    """ENFANT — rattaché à un ParentProfile (1 parent possède 0..N enfants).
 
+    `user` est nul tant que l'élève n'a pas activé son propre compte
+    (Story 6 — espace élève) : jusque-là, l'accès reste médié par le
+    parent, exactement comme avant. Une fois le compte activé, `user`
+    pointe vers le compte STUDENT que l'élève utilise pour se connecter
+    lui-même — toutes les données existantes (inscriptions, soumissions)
+    restent inchangées, elles gagnent simplement un accès direct.
+    """
+
+    # Nul pour un élève auto-inscrit sans compte parent (inscription
+    # directe à la création de son propre compte élève, voir
+    # apps.grading — module Vie scolaire, flux d'auto-inscription). Un
+    # enfant ajouté par un parent garde toujours ce lien.
     parent = models.ForeignKey(
-        ParentProfile, on_delete=models.CASCADE, related_name="children"
+        ParentProfile, on_delete=models.CASCADE, related_name="children", null=True, blank=True
+    )
+    user = models.OneToOneField(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="child_profile",
+        verbose_name="Compte élève (une fois activé)",
     )
     first_name = models.CharField(max_length=100, verbose_name="Prénom")
+    last_name = models.CharField(max_length=100, blank=True, verbose_name="Nom")
     class_level = models.CharField(max_length=50, verbose_name="Classe")
     target_subjects = models.JSONField(default=list, blank=True, verbose_name="Matières cibles")
 
@@ -287,6 +324,77 @@ class Child(models.Model):
 
     def __str__(self):
         return f"{self.first_name} ({self.class_level})"
+
+
+class ChildClaimRequestStatus(models.TextChoices):
+    PENDING = "pending", "En attente"
+    APPROVED = "approved", "Approuvée"
+    REJECTED = "rejected", "Rejetée"
+
+
+class ChildClaimRequest(models.Model):
+    """Un parent demande à être rattaché à un enfant qui s'est auto-inscrit
+    seul (Child.parent nul — voir le flux d'auto-inscription dans
+    apps.grading). Jamais d'écriture automatique : l'enfant lui-même doit
+    approuver avant que Child.parent ne soit renseigné, même principe que
+    partout ailleurs dans l'app (aucune décision automatique sur les
+    données d'un tiers)."""
+
+    parent = models.ForeignKey(ParentProfile, on_delete=models.CASCADE, related_name="claim_requests")
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="claim_requests")
+    status = models.CharField(max_length=10, choices=ChildClaimRequestStatus.choices, default=ChildClaimRequestStatus.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Demande de rattachement parent-enfant"
+        verbose_name_plural = "Demandes de rattachement parent-enfant"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.parent.user.get_full_name()} -> {self.child.first_name} ({self.status})"
+
+
+class StudentActivationInvite(models.Model):
+    """Invitation envoyée par email à un élève pour qu'il active son propre
+    compte Xporadia, rattaché à sa fiche ENFANT existante. Même logique que
+    TeacherInvitation (academics) et PreRegistrationCode : le lien amène
+    l'élève à choisir son mot de passe, ce qui crée son compte STUDENT et
+    le relie à Child — déclenchant la création de ses messageries privées
+    avec les enseignants dédiés de ses matières (voir apps.messaging).
+
+    `parent_notified_at` trace l'envoi de la notification de transparence
+    au parent au moment de l'activation — garde-fou pour les élèves les
+    plus jeunes plutôt qu'un blocage : le parent est informé, pas sollicité
+    pour autoriser.
+    """
+
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="activation_invites")
+    email = models.EmailField(verbose_name="Email de l'élève")
+    invited_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="sent_student_invitations"
+    )
+    token = models.CharField(max_length=43, unique=True, editable=False)
+    is_accepted = models.BooleanField(default=False)
+    parent_notified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Invitation d'activation élève"
+        verbose_name_plural = "Invitations d'activation élève"
+        ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            import secrets
+
+            self.token = secrets.token_urlsafe(24)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        statut = "acceptée" if self.is_accepted else "en attente"
+        return f"Invitation élève {self.email} ({statut})"
 
 
 class OTPPurpose(models.TextChoices):

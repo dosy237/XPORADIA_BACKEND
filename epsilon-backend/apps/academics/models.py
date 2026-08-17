@@ -7,7 +7,8 @@ classe et un enseignant dédié par matière.
 
 Stories 1, 2 et 5 du chantier "Classes" (structure, matières, effectifs).
 Le contenu pédagogique (Story 3) et la bibliothèque (Story 4) vivent dans
-d'autres apps ; l'espace élève (Story 6) n'est pas encore construit.
+d'autres apps ; l'espace élève (Story 6) est construit — voir apps.users
+(Child.user, StudentActivationInvite) et apps.messaging.
 """
 import secrets
 
@@ -15,6 +16,38 @@ from django.conf import settings
 from django.db import models
 
 from apps.users.models import Child, DirectorProfile
+
+
+class DelegatedTask(models.TextChoices):
+    """Tâches que le directeur peut confier à un enseignant de confiance,
+    à l'échelle de TOUT l'établissement — pas une par classe/filière comme
+    Department.track_delegates ou Track.class_delegates, qui restent
+    scopées à un objet précis. Pense "censeur" dans une école réelle :
+    souvent un enseignant ordinaire, chargé en plus de la gestion des
+    emplois du temps pour toute l'école, sans que ça en fasse un rôle de
+    compte à part — juste une capacité en plus, révocable à tout moment.
+    Cette liste est volontairement extensible : d'autres tâches
+    (surveillance, discipline, etc.) pourront s'y ajouter sans toucher au
+    mécanisme lui-même."""
+
+    TIMETABLE = "timetable", "Gestion des emplois du temps"
+
+
+class TaskDelegation(models.Model):
+    establishment = models.ForeignKey(DirectorProfile, on_delete=models.CASCADE, related_name="task_delegations")
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_delegations_received"
+    )
+    task = models.CharField(max_length=20, choices=DelegatedTask.choices)
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Délégation de tâche"
+        verbose_name_plural = "Délégations de tâches"
+        unique_together = ("establishment", "teacher", "task")
+
+    def __str__(self):
+        return f"{self.teacher.get_full_name()} — {self.get_task_display()} ({self.establishment.school_name})"
 
 
 class Department(models.Model):
@@ -27,6 +60,13 @@ class Department(models.Model):
     )
     name = models.CharField(max_length=200, verbose_name="Nom du département")
     description = models.TextField(blank=True)
+    # La création d'un DÉPARTEMENT reste exclusivement du ressort du
+    # directeur, jamais délégable — seule la création des FILIÈRES en
+    # dessous peut être confiée à un enseignant de confiance.
+    track_delegates = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name="delegated_departments",
+        verbose_name="Enseignants autorisés à créer des filières ici",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -47,6 +87,12 @@ class Track(models.Model):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="tracks")
     name = models.CharField(max_length=200, verbose_name="Nom de la filière")
     description = models.TextField(blank=True)
+    # Symétrique à Department.track_delegates, un niveau plus bas — délègue
+    # la création des CLASSES de cette filière.
+    class_delegates = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name="delegated_tracks",
+        verbose_name="Enseignants autorisés à créer des classes ici",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -103,6 +149,13 @@ class Subject(models.Model):
 
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="subjects")
     name = models.CharField(max_length=150, verbose_name="Nom de la matière")
+    # Poids de cette matière dans la moyenne générale de CETTE classe —
+    # fixé par le directeur, jamais par l'enseignant lui-même (qui ne doit
+    # pas pouvoir gonfler l'importance de sa propre matière). Une même
+    # matière peut peser différemment d'une classe à l'autre (Terminale D
+    # vs 6ème), d'où le rattachement au Subject plutôt qu'à un référentiel
+    # global de matières.
+    coefficient = models.PositiveSmallIntegerField(default=1, verbose_name="Coefficient")
     teacher = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -122,6 +175,38 @@ class Subject(models.Model):
 
     def __str__(self):
         return f"{self.name} — {self.school_class}"
+
+
+class Weekday(models.IntegerChoices):
+    MONDAY = 0, "Lundi"
+    TUESDAY = 1, "Mardi"
+    WEDNESDAY = 2, "Mercredi"
+    THURSDAY = 3, "Jeudi"
+    FRIDAY = 4, "Vendredi"
+    SATURDAY = 5, "Samedi"
+
+
+class TimetableSlot(models.Model):
+    """Créneau d'emploi du temps — toute la classe partage le même
+    planning (cohérent avec le fait qu'une Subject n'a qu'un seul
+    enseignant dédié pour toute la classe). Alimente le rappel de révision
+    envoyé la veille de chaque cours (voir apps.virtual_classes management
+    command remind_timetable_revisions)."""
+
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="timetable_slots")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="timetable_slots")
+    weekday = models.IntegerField(choices=Weekday.choices)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    room = models.CharField(max_length=50, blank=True, verbose_name="Salle")
+
+    class Meta:
+        verbose_name = "Créneau d'emploi du temps"
+        verbose_name_plural = "Créneaux d'emploi du temps"
+        ordering = ["weekday", "start_time"]
+
+    def __str__(self):
+        return f"{self.subject.name} — {self.get_weekday_display()} {self.start_time.strftime('%H:%M')}"
 
 
 class TeacherInvitation(models.Model):

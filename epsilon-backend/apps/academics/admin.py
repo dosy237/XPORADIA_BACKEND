@@ -1,6 +1,15 @@
 from django.contrib import admin
 
-from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, Track
+from .models import (
+    Department,
+    Enrollment,
+    SchoolClass,
+    Subject,
+    TaskDelegation,
+    TeacherInvitation,
+    TimetableSlot,
+    Track,
+)
 
 
 class TrackInline(admin.TabularInline):
@@ -37,8 +46,26 @@ class SchoolClassAdmin(admin.ModelAdmin):
 
 @admin.register(Subject)
 class SubjectAdmin(admin.ModelAdmin):
-    list_display = ["name", "school_class", "teacher"]
+    list_display = ["name", "school_class", "teacher", "coefficient"]
     search_fields = ["name", "school_class__name", "teacher__email"]
+
+
+@admin.register(TimetableSlot)
+class TimetableSlotAdmin(admin.ModelAdmin):
+    list_display = ["school_class", "subject", "weekday", "start_time", "end_time", "room"]
+    list_filter = ["weekday"]
+    search_fields = ["school_class__name", "subject__name"]
+
+
+@admin.register(TaskDelegation)
+class TaskDelegationAdmin(admin.ModelAdmin):
+    """Le mécanisme du "censeur" — enseignants délégués sur une tâche
+    précise à l'échelle de l'établissement (voir apps.academics.views,
+    DelegatedTask)."""
+
+    list_display = ["establishment", "teacher", "task", "granted_at"]
+    list_filter = ["task"]
+    search_fields = ["establishment__school_name", "teacher__email"]
 
 
 @admin.register(TeacherInvitation)
