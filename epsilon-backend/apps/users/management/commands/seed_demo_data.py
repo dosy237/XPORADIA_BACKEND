@@ -103,6 +103,25 @@ def _attach_demo_image(instance, field_name, filename, images_dir, save=True):
     return True
 
 
+# Pool réutilisé pour les comptes générés en masse (enseignants/parents/
+# élèves de l'expansion) — un jeu de photos limité forcément partagé entre
+# plusieurs comptes Faker, contrairement aux comptes nommés qui ont chacun
+# la leur (voir les appels _attach_demo_image individuels ci-dessous).
+_BULK_AVATARS_F = [
+    "avatar_awa_bamba.jpg", "avatar_aminata_diarra.jpg", "avatar_mariam_coulibaly.jpg",
+    "avatar_adjoua_kone.jpg", "avatar_fatou_traore.jpg", "avatar_nadege_yao.jpg",
+]
+_BULK_AVATARS_M = [
+    "avatar_yao_kouassi.jpg", "avatar_ibrahim_fofana.jpg", "avatar_kouassi_nguessan.jpg",
+    "avatar_serge_kouadio.jpg",
+]
+
+
+def _attach_bulk_avatar(instance, is_female, index, images_dir):
+    pool = _BULK_AVATARS_F if is_female else _BULK_AVATARS_M
+    _attach_demo_image(instance, "avatar", pool[index % len(pool)], images_dir)
+
+
 def _payment(user, amount, payment_type, status, content_object=None, operator=MobileOperator.ORANGE):
     payment = Payment.objects.create(
         user=user,
@@ -313,6 +332,7 @@ class Command(BaseCommand):
         aya, _ = self._get_or_create_user(
             "aya.parent@xporadia.ci", UserRole.PARENT, "Aya", "Bamba", "+2250700000011"
         )
+        _attach_bulk_avatar(aya, is_female=True, index=1, images_dir=self._images_dir)
         aya_profile, _ = ParentProfile.objects.get_or_create(
             user=aya, defaults=dict(location="Cocody, Abidjan", subscription_active=False)
         )
@@ -324,6 +344,7 @@ class Command(BaseCommand):
         bakary, _ = self._get_or_create_user(
             "bakary.parent@xporadia.ci", UserRole.PARENT, "Bakary", "Diallo", "+2250700000012"
         )
+        _attach_bulk_avatar(bakary, is_female=False, index=1, images_dir=self._images_dir)
         bakary_profile, _ = ParentProfile.objects.get_or_create(
             user=bakary, defaults=dict(location="Yopougon, Abidjan", subscription_active=False)
         )
@@ -1027,6 +1048,7 @@ class Command(BaseCommand):
                 email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
                 primary_role=UserRole.TEACHER, is_verified=True, is_documents_validated=True,
             )
+            _attach_bulk_avatar(user, is_female=is_f, index=i, images_dir=self._images_dir)
             TeacherProfile.objects.get_or_create(
                 user=user,
                 defaults=dict(
@@ -1091,8 +1113,10 @@ class Command(BaseCommand):
                 email=parent_email, password=DEMO_PASSWORD, first_name=first, last_name=last,
                 primary_role=UserRole.PARENT, is_verified=True, is_documents_validated=True,
             )
+            _attach_bulk_avatar(parent_user, is_female=is_f, index=i, images_dir=self._images_dir)
             parent_profile, _ = ParentProfile.objects.get_or_create(user=parent_user)
-            child_first = rng.choice(FIRST_NAMES_F if rng.random() < 0.5 else FIRST_NAMES_M)
+            child_is_f = rng.random() < 0.5
+            child_first = rng.choice(FIRST_NAMES_F if child_is_f else FIRST_NAMES_M)
             child = Child.objects.create(
                 parent=parent_profile, first_name=child_first, last_name=last,
                 class_level=rng.choice(SCHOOL_LEVELS).upper(),
@@ -1107,6 +1131,7 @@ class Command(BaseCommand):
                     first_name=child_first, last_name=last, primary_role=UserRole.STUDENT,
                     is_verified=True, is_documents_validated=True,
                 )
+                _attach_bulk_avatar(student_user, is_female=child_is_f, index=i, images_dir=self._images_dir)
                 child.user = student_user
                 child.save(update_fields=["user"])
                 ensure_student_messaging(child)
