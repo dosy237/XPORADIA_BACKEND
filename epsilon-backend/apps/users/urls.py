@@ -61,6 +61,7 @@ urlpatterns = [
         name="company-directory-detail",
     ),
     path("search/people/", views.PeopleSearchView.as_view(), name="people-search"),
+    path("profile/<int:user_id>/", views.PublicProfileView.as_view(), name="public-profile"),
     path(
         "teachers/<int:user_id>/comments/",
         views.TeacherCommentListCreateView.as_view(),

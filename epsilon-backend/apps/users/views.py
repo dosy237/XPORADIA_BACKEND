@@ -455,6 +455,62 @@ def _annotate_company_activity(qs):
     ).annotate(_activity_score=F("_post_count") + F("_offer_count") + F("_convention_count"))
 
 
+def _public_profile_subtitle(user):
+    """Ligne secondaire affichée sous le nom sur une fiche profil publique
+    minimale — le meilleur résumé disponible selon le rôle, sans dépendre
+    des annuaires dédiés (enseignant/établissement/entreprise) qui ne
+    couvrent pas tous les rôles pouvant publier sur le fil (parent, élève,
+    formateur, administrateur...)."""
+
+    role = user.primary_role
+    if role == UserRole.TEACHER:
+        profile = getattr(user, "teacher_profile", None)
+        if profile and profile.subjects:
+            return ", ".join(profile.subjects)
+        return user.get_primary_role_display()
+    if role == UserRole.DIRECTOR:
+        profile = getattr(user, "director_profile", None)
+        return profile.school_name if profile else user.get_primary_role_display()
+    if role == UserRole.COMPANY:
+        profile = getattr(user, "company_profile", None)
+        return profile.company_name if profile else user.get_primary_role_display()
+    return user.get_primary_role_display()
+
+
+class PublicProfileView(APIView):
+    """Fiche minimale consultable pour n'importe quel rôle — c'est ce qui
+    permet d'ouvrir un vrai profil (photo, abonnés, publications) en tapant
+    sur l'auteur d'une publication du fil, même quand ce n'est ni un
+    enseignant, ni un établissement, ni une entreprise (seuls rôles couverts
+    par un annuaire dédié). Public : un visiteur non connecté peut consulter
+    un profil, comme pour les annuaires."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, user_id):
+        from apps.feed.models import Follow, Post
+
+        user = get_object_or_404(User, pk=user_id)
+        is_following = (
+            request.user.is_authenticated
+            and Follow.objects.filter(follower=request.user, followed=user).exists()
+        )
+        return Response(
+            {
+                "id": user.id,
+                "full_name": user.get_full_name(),
+                "avatar": request.build_absolute_uri(user.avatar.url) if user.avatar else None,
+                "primary_role": user.primary_role,
+                "role_label": user.get_primary_role_display(),
+                "subtitle": _public_profile_subtitle(user),
+                "followers_count": user.followers.count(),
+                "following_count": user.following.count(),
+                "posts_count": Post.objects.filter(author=user, is_hidden=False).count(),
+                "is_following": is_following,
+            }
+        )
+
+
 class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     """Annuaire des enseignants — alimente le fil public (onglet Fil
     d'actualité) : accessible aux visiteurs non connectés comme aux
