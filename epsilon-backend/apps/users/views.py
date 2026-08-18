@@ -76,7 +76,7 @@ class BaseRegisterView(APIView):
         generate_otp(user, purpose=OTPPurpose.ACCOUNT_VERIFICATION)
         return Response(
             {
-                "user": UserSerializer(user).data,
+                "user": UserSerializer(user, context={"request": request}).data,
                 "detail": "Compte créé. Un code de vérification a été envoyé.",
             },
             status=status.HTTP_201_CREATED,
@@ -115,7 +115,7 @@ class RegisterStudentView(APIView):
         generate_otp(user, purpose=OTPPurpose.ACCOUNT_VERIFICATION)
         return Response(
             {
-                "user": UserSerializer(user).data,
+                "user": UserSerializer(user, context={"request": request}).data,
                 "child_id": child.id,
                 "detail": "Compte créé. Un code de vérification a été envoyé.",
             },
@@ -145,7 +145,9 @@ class VerifyOTPView(APIView):
             )
         request.user.is_verified = True
         request.user.save(update_fields=["is_verified"])
-        return Response({"detail": "Compte vérifié.", "user": UserSerializer(request.user).data})
+        return Response(
+            {"detail": "Compte vérifié.", "user": UserSerializer(request.user, context={"request": request}).data}
+        )
 
 
 class ResendOTPView(APIView):
@@ -360,7 +362,7 @@ class StudentActivationView(APIView):
         ensure_student_messaging(child)
 
         return Response(
-            {"user": UserSerializer(user).data, "detail": "Compte élève activé."},
+            {"user": UserSerializer(user, context={"request": request}).data, "detail": "Compte élève activé."},
             status=status.HTTP_201_CREATED,
         )
 
@@ -789,7 +791,7 @@ class MyDataExportView(APIView):
     def get(self, request):
         user = request.user
         data = {
-            "account": UserSerializer(user).data,
+            "account": UserSerializer(user, context={"request": request}).data,
             "profiles": {},
         }
         for role in user.get_all_roles():
