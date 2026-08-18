@@ -32,9 +32,17 @@ FEED_RANKING_WINDOW_DAYS = 7
 # un compte actif voit son contenu récent mis en avant, conformément au
 # principe demandé : plus on participe, plus on est vu.
 AUTHOR_ACTIVITY_WINDOW_DAYS = 30
+# Une publication qu'on vient soi-même de créer reste épinglée en tête de
+# SON PROPRE fil pendant cette fenêtre, quel que soit son score d'activité
+# — sans ça, l'auteur d'un compte peu actif ne voit pas sa propre
+# publication apparaître juste après l'avoir postée (elle peut légitimement
+# être classée au-delà de la première page côté serveur, mais côté
+# utilisateur "je publie et ça n'apparaît pas" est une régression, pas un
+# comportement de classement acceptable).
+OWN_POST_PIN_WINDOW_MINUTES = 60
 
 
-def _rank_for_feed(qs):
+def _rank_for_feed(qs, viewer_id=None):
     """Classe le fil par activité (likes/commentaires du post + activité
     récente de l'auteur), dans une fenêtre récente, avec repli chronologique
     strict au-delà — un compromis simple et explicable plutôt qu'un vrai
@@ -43,6 +51,7 @@ def _rank_for_feed(qs):
     now = timezone.now()
     ranking_cutoff = now - timedelta(days=FEED_RANKING_WINDOW_DAYS)
     activity_since = now - timedelta(days=AUTHOR_ACTIVITY_WINDOW_DAYS)
+    own_post_pin_cutoff = now - timedelta(minutes=OWN_POST_PIN_WINDOW_MINUTES)
 
     author_posts = (
         Post.objects.filter(author_id=OuterRef("author_id"), created_at__gte=activity_since)
@@ -78,6 +87,14 @@ def _rank_for_feed(qs):
             _recent_bucket=Case(
                 When(created_at__gte=ranking_cutoff, then=Value(1)), default=Value(0), output_field=IntegerField()
             ),
+            _own_recent_bucket=Case(
+                When(
+                    author_id=viewer_id, created_at__gte=own_post_pin_cutoff,
+                    then=Value(1),
+                ),
+                default=Value(0),
+                output_field=IntegerField(),
+            ) if viewer_id else Value(0, output_field=IntegerField()),
             _score=(
                 F("_comment_count") * 3
                 + F("_like_count") * 2
@@ -86,7 +103,7 @@ def _rank_for_feed(qs):
                 + F("_author_comments_given")
             ),
         )
-        .order_by("-_recent_bucket", "-_score", "-created_at")
+        .order_by("-_own_recent_bucket", "-_recent_bucket", "-_score", "-created_at")
     )
 
 
@@ -135,7 +152,8 @@ class PostViewSet(viewsets.ModelViewSet):
             # Fil d'un profil précis : ordre chronologique attendu, pas de
             # reclassement par activité (voir _rank_for_feed).
             return qs.order_by("-created_at")
-        return _rank_for_feed(qs)
+        viewer_id = self.request.user.id if self.request.user.is_authenticated else None
+        return _rank_for_feed(qs, viewer_id=viewer_id)
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
