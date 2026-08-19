@@ -31,7 +31,7 @@ from apps.employment.models import (
     JobStatus,
     Recruitment,
 )
-from apps.feed.models import Post, PostComment, PostImage, PostLike
+from apps.feed.models import Follow, Post, PostComment, PostImage, PostLike
 from apps.messaging.models import Channel, ChannelType, Message
 from apps.messaging.services import create_subject_channel, ensure_student_messaging
 from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
@@ -1115,6 +1115,11 @@ class Command(BaseCommand):
             child=aicha, subject=subj_anglais, title="Vocabulaire — la famille",
             defaults=dict(content="Mother, father, sibling, cousin, nephew, niece..."),
         )
+
+        # Abonnement à son enseignante de SVT — donnée réelle pour la bande
+        # "activité récente" du dashboard élève (fil social filtré sur les
+        # personnes suivies), pas une note d'école au sens propre.
+        Follow.objects.get_or_create(follower=aicha.user, followed=subj_svt.teacher)
 
         self.stdout.write(
             self.style.SUCCESS(
