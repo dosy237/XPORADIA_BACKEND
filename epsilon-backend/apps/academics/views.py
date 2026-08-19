@@ -1029,7 +1029,11 @@ class MyClassView(APIView):
             .first()
         )
         if not enrollment:
-            return Response({"school_class_name": None, "homeroom_teacher": None, "classmates": []})
+            return Response({
+                "school_class_name": None, "homeroom_teacher": None, "classmates": [],
+                "establishment_name": None, "class_level": child.class_level, "status": None,
+                "birth_date": child.birth_date,
+            })
 
         school_class = enrollment.school_class
         classmates = (
@@ -1049,6 +1053,10 @@ class MyClassView(APIView):
                     {"id": e.child.id, "first_name": e.child.first_name, "last_name": e.child.last_name}
                     for e in classmates
                 ],
+                "establishment_name": school_class.track.department.establishment.school_name,
+                "class_level": child.class_level,
+                "status": enrollment.status,
+                "birth_date": child.birth_date,
             }
         )
 

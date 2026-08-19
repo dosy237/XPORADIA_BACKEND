@@ -1,5 +1,6 @@
 import datetime
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from django.conf import settings
@@ -58,7 +59,17 @@ from apps.users.models import (
     UserRole,
 )
 from apps.virtual_classes.models import Exercise, ExerciseStatus, Submission, VirtualClass
-from apps.grading.models import EstablishmentJoinRequest, JoinRequestStatus
+from apps.grading import services as grading_services
+from apps.grading.models import (
+    EstablishmentJoinRequest,
+    Evaluation,
+    EvaluationType,
+    Grade,
+    JoinRequestStatus,
+    ReportCard,
+    SubjectReportEntry,
+    Term,
+)
 
 DEMO_PASSWORD = "Xporadia2026!"
 TODAY = datetime.date.today
@@ -180,6 +191,7 @@ class Command(BaseCommand):
             modules = self._seed_certification_catalog(users)
             self._seed_certifications(users, modules)
             establishments = self._seed_academics(users)
+            self._seed_grading(users, establishments)
             self._seed_virtual_classes(establishments, users)
             self._seed_library(establishments, users)
             self._seed_employment(users)
@@ -322,11 +334,15 @@ class Command(BaseCommand):
         )
         aicha, _ = Child.objects.get_or_create(
             parent=fatou_profile, first_name="Aïcha",
-            defaults=dict(class_level="5ème", target_subjects=["Anglais", "Maths"]),
+            defaults=dict(
+                class_level="5ème", target_subjects=["Anglais", "Maths"], birth_date=datetime.date(2013, 11, 20),
+            ),
         )
         ibrahim_child, _ = Child.objects.get_or_create(
             parent=fatou_profile, first_name="Ibrahim Jr",
-            defaults=dict(class_level="CM2", target_subjects=["Français"]),
+            defaults=dict(
+                class_level="CM2", target_subjects=["Français"], birth_date=datetime.date(2015, 3, 10),
+            ),
         )
 
         aya, _ = self._get_or_create_user(
@@ -338,7 +354,9 @@ class Command(BaseCommand):
         )
         kouadio, _ = Child.objects.get_or_create(
             parent=aya_profile, first_name="Kouadio",
-            defaults=dict(class_level="6ème", target_subjects=["Mathématiques"]),
+            defaults=dict(
+                class_level="6ème", target_subjects=["Mathématiques"], birth_date=datetime.date(2014, 6, 15),
+            ),
         )
 
         bakary, _ = self._get_or_create_user(
@@ -350,7 +368,9 @@ class Command(BaseCommand):
         )
         mariam_child, _ = Child.objects.get_or_create(
             parent=bakary_profile, first_name="Mariam Jr",
-            defaults=dict(class_level="5ème", target_subjects=["Anglais"]),
+            defaults=dict(
+                class_level="5ème", target_subjects=["Anglais"], birth_date=datetime.date(2013, 9, 2),
+            ),
         )
 
         # --- Entreprises ---
@@ -547,6 +567,12 @@ class Command(BaseCommand):
         subj_svt, _ = Subject.objects.get_or_create(
             school_class=cinquieme, name="SVT", defaults=dict(teacher=teachers["aminata"])
         )
+        # Complète les matières déclarées dans l'objectif de vie d'Aïcha
+        # (LifeGoal.related_subjects, voir _seed_bulk_expansion) — sans ça
+        # "Mathématiques" n'aurait jamais de note réelle pour elle.
+        subj_maths_5e, _ = Subject.objects.get_or_create(
+            school_class=cinquieme, name="Mathématiques", defaults=dict(teacher=teachers["mariam"])
+        )
 
         # --- Établissement 2 : Institution Sainte Marie ---
         dept2, _ = Department.objects.get_or_create(
@@ -575,6 +601,133 @@ class Command(BaseCommand):
             "adjoua": {"profile": directors["adjoua"].director_profile, "department": dept2, "track": track2,
                        "classes": {"6eme": sixieme}, "subjects": {"maths_6e": subj_maths_6e}},
         }
+
+    # ------------------------------------------------------------------
+    # Vie scolaire — trimestres, évaluations, notes, bulletins publiés.
+    # Scopé aux classes "nommées" (celles où sont inscrits nos enfants de
+    # démo identifiés) et pas aux classes générées en masse : c'est de
+    # cette donnée précise dont a besoin le tableau de bord élève
+    # (tendance de moyenne, radar de compétences) — mieux vaut peu de
+    # classes mais des notes réellement cohérentes et exploitables que
+    # beaucoup de classes avec des notes anecdotiques.
+    # ------------------------------------------------------------------
+    def _homeroom_comment(self, general_average):
+        # Jugé sur la moyenne elle-même, pas sur le rang relatif : avec des
+        # classes de démo à faible effectif, "2e sur 2" ne veut rien dire
+        # (une bonne moyenne y serait quand même qualifiée de "difficile").
+        average = float(general_average)
+        if average >= 16:
+            return "Excellent trimestre, élève très sérieux et impliqué en classe."
+        if average >= 13:
+            return "Bon trimestre, des résultats réguliers. Continuez ainsi."
+        if average >= 10:
+            return "Trimestre correct, des efforts supplémentaires permettraient de progresser encore."
+        return "Trimestre difficile, un accompagnement renforcé est recommandé."
+
+    def _seed_grading(self, users, establishments):
+        import random
+
+        rng = random.Random(2026)
+
+        # Calendrier réaliste d'une année scolaire ivoirienne à 3 trimestres
+        # (primaire/collège/lycée) — les 2 établissements de démo n'ont que
+        # ces niveaux, donc pas de découpage en semestres ici (réservé au
+        # supérieur, absent du jeu de données pour l'instant).
+        SCHOOL_YEAR = "2025-2026"
+        TERM_DATES = [
+            (1, datetime.date(2025, 9, 15), datetime.date(2025, 12, 19)),
+            (2, datetime.date(2026, 1, 5), datetime.date(2026, 3, 27)),
+            (3, datetime.date(2026, 4, 13), datetime.date(2026, 6, 30)),
+        ]
+
+        def score_for(base, term_index):
+            # Légère progression au fil de l'année + bruit plausible,
+            # arrondi au demi-point comme un vrai relevé de notes.
+            value = base + term_index * 0.35 + rng.uniform(-1.2, 1.2)
+            value = max(6.0, min(19.5, value))
+            return Decimal(str(round(value * 2) / 2))
+
+        named_classes = [
+            ("kouassi", establishments["kouassi"]["classes"]["cm2"]),
+            ("kouassi", establishments["kouassi"]["classes"]["5eme"]),
+            ("adjoua", establishments["adjoua"]["classes"]["6eme"]),
+        ]
+
+        for est_key, school_class in named_classes:
+            establishment_profile = establishments[est_key]["profile"]
+            terms = []
+            for number, start, end in TERM_DATES:
+                term, _ = Term.objects.get_or_create(
+                    establishment=establishment_profile, school_year=SCHOOL_YEAR, number=number,
+                    defaults=dict(name=f"Trimestre {number}", start_date=start, end_date=end, is_active=False),
+                )
+                terms.append(term)
+
+            subjects = list(Subject.objects.filter(school_class=school_class))
+            children_in_class = [
+                e.child for e in Enrollment.objects.filter(school_class=school_class, status="active")
+                .select_related("child")
+            ]
+            if not subjects or not children_in_class:
+                continue
+
+            # Profil de base par enfant (niveau général), pour que les
+            # moyennes par matière d'un même élève restent cohérentes entre
+            # elles et dans le temps plutôt que purement aléatoires.
+            base_ability = {child.id: rng.uniform(10.0, 16.0) for child in children_in_class}
+
+            for term_index, term in enumerate(terms):
+                for subject in subjects:
+                    creator = subject.teacher or school_class.homeroom_teacher
+                    homework, _ = Evaluation.objects.get_or_create(
+                        subject=subject, term=term, title=f"Devoir — {subject.name}",
+                        defaults=dict(
+                            eval_type=EvaluationType.HOMEWORK, coefficient=1,
+                            date=term.start_date + datetime.timedelta(days=20), created_by=creator,
+                        ),
+                    )
+                    exam, _ = Evaluation.objects.get_or_create(
+                        subject=subject, term=term, title=f"Composition — {subject.name}",
+                        defaults=dict(
+                            eval_type=EvaluationType.EXAM, coefficient=3,
+                            date=term.end_date - datetime.timedelta(days=10), created_by=creator,
+                        ),
+                    )
+                    for child in children_in_class:
+                        base = base_ability[child.id]
+                        Grade.objects.get_or_create(
+                            evaluation=homework, child=child, defaults=dict(score=score_for(base, term_index)),
+                        )
+                        Grade.objects.get_or_create(
+                            evaluation=exam, child=child, defaults=dict(score=score_for(base, term_index)),
+                        )
+
+                # Publication du bulletin du trimestre pour toute la classe —
+                # même logique que GenerateReportCardsView.post(), sans PDF ni
+                # notification (superflu pour des données de démo).
+                result = grading_services.compute_class_rankings(school_class, term)
+                for entry in result["ranked"]:
+                    child = entry["child"]
+                    report_card, _ = ReportCard.objects.update_or_create(
+                        child=child, term=term,
+                        defaults=dict(
+                            school_class=school_class, general_average=entry["general_average"],
+                            class_average=result["class_average"], rank=entry["rank"],
+                            class_size=entry["class_size"],
+                            homeroom_comment=self._homeroom_comment(entry["general_average"]),
+                        ),
+                    )
+                    report_card.subject_entries.all().delete()
+                    for subject in subjects:
+                        subject_avg = grading_services.compute_subject_average(child, subject, term)
+                        SubjectReportEntry.objects.create(
+                            report_card=report_card, subject_name=subject.name,
+                            subject_average=subject_avg, coefficient=subject.coefficient,
+                        )
+
+        self.stdout.write(
+            self.style.SUCCESS("Vie scolaire : 3 trimestres notés et bulletins publiés pour les classes nommées.")
+        )
 
     # ------------------------------------------------------------------
     # Espace numérique (cours/exercices) + soumissions d'élève

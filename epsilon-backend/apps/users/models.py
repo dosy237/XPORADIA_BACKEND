@@ -317,6 +317,7 @@ class Child(models.Model):
     last_name = models.CharField(max_length=100, blank=True, verbose_name="Nom")
     class_level = models.CharField(max_length=50, verbose_name="Classe")
     target_subjects = models.JSONField(default=list, blank=True, verbose_name="Matières cibles")
+    birth_date = models.DateField(null=True, blank=True, verbose_name="Date de naissance")
 
     class Meta:
         verbose_name = "Enfant"
