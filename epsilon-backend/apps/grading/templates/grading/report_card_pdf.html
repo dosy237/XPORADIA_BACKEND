@@ -31,7 +31,7 @@
       <div class="brand">XPORADIA</div>
       <div class="establishment">{{ establishment_name }}</div>
     </div>
-    <div class="term-title">Bulletin — {{ term_label }}<br>Année {{ school_year }}</div>
+    <div class="term-title">Bulletin, {{ term_label }}<br>Année {{ school_year }}</div>
   </div>
 
   <div class="student-block">
@@ -46,12 +46,14 @@
       <th>Matière</th>
       <th style="text-align:center">Coefficient</th>
       <th style="text-align:center">Moyenne</th>
+      <th>Appréciation</th>
     </tr>
     {% for entry in subject_entries %}
     <tr>
       <td>{{ entry.subject_name }}</td>
       <td style="text-align:center">{{ entry.coefficient }}</td>
-      <td class="avg-cell">{{ entry.subject_average|default:"—" }}{% if entry.subject_average %}/20{% endif %}</td>
+      <td class="avg-cell">{{ entry.subject_average|default:"Non noté" }}{% if entry.subject_average %}/20{% endif %}</td>
+      <td>{{ entry.teacher_comment }}</td>
     </tr>
     {% endfor %}
   </table>
@@ -78,6 +80,6 @@
   </div>
   {% endif %}
 
-  <div class="footer">Bulletin généré via Xporadia — {{ published_at }}</div>
+  <div class="footer">Bulletin généré via Xporadia, {{ published_at }}</div>
 </body>
 </html>

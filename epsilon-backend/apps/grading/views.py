@@ -18,6 +18,7 @@ from .models import (
     JoinRequestStatus,
     EstablishmentJoinRequest,
     ReportCard,
+    SubjectAppreciation,
     SubjectReportEntry,
     Term,
 )
@@ -29,6 +30,18 @@ from .serializers import (
     ReportCardSerializer,
     TermSerializer,
 )
+
+
+def _require_class_manage_access(school_class, user):
+    """Titulaire de la classe OU directeur de l'établissement — même
+    principe que apps.academics.views._require_roster_access pour le
+    passage de classe en masse : le titulaire n'est jamais exclu au
+    profit du seul directeur."""
+    if school_class.homeroom_teacher_id == user.id:
+        return
+    if user.has_role(UserRole.DIRECTOR) and school_class.track.department.establishment.user_id == user.id:
+        return
+    raise PermissionDenied("Réservé au titulaire de cette classe ou au directeur de l'établissement.")
 
 
 def _require_director_establishment(user):
@@ -195,6 +208,27 @@ class EvaluationGradesView(APIView):
         return Response(GradeSerializer(saved, many=True).data)
 
 
+class ClassTermsView(generics.ListAPIView):
+    """Trimestres de l'établissement d'une classe — pour le sélecteur de
+    trimestre de "Bulletins du trimestre". Un établissement peut n'avoir
+    aucun trimestre marqué actif (MyActiveTermView renvoie alors 404) :
+    le titulaire doit pouvoir choisir manuellement dans la liste
+    complète plutôt que rester bloqué."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TermSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        school_class = get_object_or_404(
+            SchoolClass.objects.select_related("track__department__establishment"),
+            pk=self.kwargs["class_id"],
+        )
+        _require_class_manage_access(school_class, self.request.user)
+        establishment = school_class.track.department.establishment
+        return Term.objects.filter(establishment=establishment)
+
+
 class SubjectTermsView(generics.ListAPIView):
     """Trimestres de l'établissement de cette matière — pour le
     sélecteur de trimestre du tableur de notes. Distinct de
@@ -242,6 +276,10 @@ class SubjectGradeGridView(APIView):
             (g.evaluation_id, g.child_id): g
             for g in Grade.objects.filter(evaluation__in=evaluations)
         }
+        appreciations_by_child = {
+            a.child_id: a.comment
+            for a in SubjectAppreciation.objects.filter(subject=subject, term=term)
+        }
 
         students = []
         for enrollment in enrollments:
@@ -264,6 +302,10 @@ class SubjectGradeGridView(APIView):
                 # Moyenne de CETTE matière uniquement — jamais pondérée
                 # par Subject.coefficient, jamais la moyenne générale.
                 "subject_average": services.compute_subject_average(child, subject, term),
+                # Brouillon d'appréciation de matière — copié dans
+                # SubjectReportEntry.teacher_comment à la génération du
+                # bulletin, voir GenerateReportCardsView.
+                "appreciation": appreciations_by_child.get(child.id, ""),
             })
 
         return Response({
@@ -334,6 +376,31 @@ class SubjectGradeGridView(APIView):
         })
 
 
+class SubjectStudentAppreciationView(APIView):
+    """Sauvegarde le brouillon d'appréciation de matière d'UN élève — un
+    élève à la fois, pour le même geste de saisie que le tableur (tap sur
+    le nom, saisie courte, sauvegarde). Distinct des notes elles-mêmes :
+    n'écrit jamais dans Grade/Evaluation."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, subject_id, term_id, child_id):
+        subject = get_object_or_404(Subject, pk=subject_id)
+        _require_subject_teacher(subject, request.user)
+        term = get_object_or_404(Term, pk=term_id)
+
+        if not Enrollment.objects.filter(
+            school_class=subject.school_class, child_id=child_id, status=EnrollmentStatus.ACTIVE
+        ).exists():
+            raise ValidationError({"child_id": "Cet élève n'est pas inscrit activement dans cette classe."})
+
+        comment = (request.data.get("comment") or "").strip()
+        appreciation, _ = SubjectAppreciation.objects.update_or_create(
+            subject=subject, child_id=child_id, term=term, defaults={"comment": comment}
+        )
+        return Response({"child_id": child_id, "comment": appreciation.comment})
+
+
 class ClassReportPreviewView(APIView):
     """Aperçu des moyennes calculées AVANT publication — pour que le
     directeur (ou le titulaire) vérifie que tout est cohérent avant de
@@ -347,14 +414,7 @@ class ClassReportPreviewView(APIView):
             SchoolClass.objects.select_related("track__department__establishment"), pk=class_id
         )
         term = get_object_or_404(Term, pk=term_id)
-        user = request.user
-        is_director = (
-            user.has_role(UserRole.DIRECTOR)
-            and school_class.track.department.establishment.user_id == user.id
-        )
-        is_homeroom = school_class.homeroom_teacher_id == user.id
-        if not (is_director or is_homeroom):
-            raise PermissionDenied("Réservé au directeur ou au titulaire de cette classe.")
+        _require_class_manage_access(school_class, request.user)
 
         result = services.compute_class_rankings(school_class, term)
         return Response({
@@ -364,6 +424,10 @@ class ClassReportPreviewView(APIView):
                     "child": e["child"].id, "first_name": e["child"].first_name,
                     "last_name": e["child"].last_name, "general_average": e["general_average"],
                     "rank": e["rank"],
+                    "avatar": (
+                        request.build_absolute_uri(e["child"].user.avatar.url)
+                        if e["child"].user_id and e["child"].user.avatar else None
+                    ),
                 }
                 for e in result["ranked"]
             ],
@@ -376,10 +440,14 @@ class ClassReportPreviewView(APIView):
 
 class GenerateReportCardsView(APIView):
     """Génération ET publication des bulletins de TOUTE une classe pour un
-    trimestre, en un seul geste — jamais élève par élève. Réservée au
-    directeur (contrôle éditorial avant que les familles voient quoi que
-    ce soit). Republier écrase le bulletin précédent du même trimestre
-    (utile si une erreur de note est corrigée après une 1re publication)."""
+    trimestre, en un seul geste — jamais élève par élève. Le titulaire de
+    la classe valide et déclenche cette génération pour SA classe ; le
+    directeur conserve la capacité de le faire aussi, en supervision,
+    mais n'est plus le seul chemin possible (même principe que le passage
+    de classe en masse). Republier écrase le bulletin précédent du même
+    trimestre (utile si une erreur de note est corrigée après une 1re
+    publication, AVANT republication — un bulletin déjà consulté sans
+    republication explicite reste figé)."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -388,12 +456,17 @@ class GenerateReportCardsView(APIView):
             SchoolClass.objects.select_related("track__department__establishment"), pk=class_id
         )
         term = get_object_or_404(Term, pk=term_id)
-        if school_class.track.department.establishment.user_id != request.user.id:
-            raise PermissionDenied("Cette classe n'appartient pas à votre établissement.")
+        _require_class_manage_access(school_class, request.user)
 
         homeroom_comments = request.data.get("homeroom_comments", {})  # {child_id: "commentaire"}
         result = services.compute_class_rankings(school_class, term)
         subjects = list(Subject.objects.filter(school_class=school_class))
+        # Brouillons d'appréciation de matière saisis depuis le tableur —
+        # copiés dans l'entrée figée, jamais recalculés après publication.
+        appreciations_by_key = {
+            (a.subject_id, a.child_id): a.comment
+            for a in SubjectAppreciation.objects.filter(subject__in=subjects, term=term)
+        }
 
         created_or_updated = []
         for entry in result["ranked"]:
@@ -415,6 +488,7 @@ class GenerateReportCardsView(APIView):
                 SubjectReportEntry.objects.create(
                     report_card=report_card, subject_name=subject.name,
                     subject_average=subject_avg, coefficient=subject.coefficient,
+                    teacher_comment=appreciations_by_key.get((subject.id, child.id), ""),
                 )
 
             from .pdf import generate_and_attach_report_card
@@ -436,7 +510,8 @@ class GenerateReportCardsView(APIView):
                 )
 
         return Response(
-            ReportCardSerializer(created_or_updated, many=True).data, status=status.HTTP_201_CREATED
+            ReportCardSerializer(created_or_updated, many=True, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
         )
 
 

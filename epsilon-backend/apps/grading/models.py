@@ -108,6 +108,30 @@ class Grade(models.Model):
         return f"{self.child.first_name} — {self.evaluation.title} : {self.score if not self.is_excused else 'dispensé'}"
 
 
+class SubjectAppreciation(models.Model):
+    """Brouillon d'appréciation de l'enseignant dédié pour UN élève, dans
+    SA matière, pour UN trimestre — saisi depuis le tableur de notes,
+    indépendamment des notes elles-mêmes (un enseignant peut apprécier un
+    élève avant d'avoir fini de le noter). Copié dans
+    SubjectReportEntry.teacher_comment (figé) au moment de la génération
+    du bulletin — ce brouillon lui-même reste modifiable après, sans
+    jamais affecter un bulletin déjà publié."""
+
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="appreciations")
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="subject_appreciations")
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name="subject_appreciations")
+    comment = models.CharField(max_length=300, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Appréciation de matière"
+        verbose_name_plural = "Appréciations de matière"
+        unique_together = ("subject", "child", "term")
+
+    def __str__(self):
+        return f"{self.child.first_name} — {self.subject.name} ({self.term})"
+
+
 class ReportCard(models.Model):
     """Bulletin d'un élève pour un trimestre — figé à la publication
     (les moyennes ne sont jamais recalculées après coup pour un bulletin

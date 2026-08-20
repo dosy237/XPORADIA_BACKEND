@@ -88,7 +88,7 @@ def compute_class_rankings(school_class, term) -> list[dict]:
     pour que le directeur voie tout de suite qui n'a encore aucune note."""
     enrollments = Enrollment.objects.filter(
         school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).select_related("child")
+    ).select_related("child__user")
 
     ranked = []
     without_average = []

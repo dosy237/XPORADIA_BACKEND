@@ -6,6 +6,7 @@ urlpatterns = [
     path("terms/", views.TermListCreateView.as_view(), name="term-list"),
     path("terms/<int:pk>/", views.TermDetailView.as_view(), name="term-detail"),
     path("classes/<int:class_id>/active-term/", views.MyActiveTermView.as_view(), name="active-term"),
+    path("classes/<int:class_id>/terms/", views.ClassTermsView.as_view(), name="class-terms"),
     path(
         "subjects/<int:subject_id>/evaluations/",
         views.EvaluationListCreateView.as_view(),
@@ -22,6 +23,11 @@ urlpatterns = [
         "subjects/<int:subject_id>/terms/<int:term_id>/grade-grid/",
         views.SubjectGradeGridView.as_view(),
         name="subject-grade-grid",
+    ),
+    path(
+        "subjects/<int:subject_id>/terms/<int:term_id>/students/<int:child_id>/appreciation/",
+        views.SubjectStudentAppreciationView.as_view(),
+        name="subject-student-appreciation",
     ),
     path(
         "classes/<int:class_id>/terms/<int:term_id>/report-preview/",
