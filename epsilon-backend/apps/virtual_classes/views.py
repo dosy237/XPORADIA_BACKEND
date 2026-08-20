@@ -306,6 +306,10 @@ class ExerciseStudentStatusView(APIView):
                 "child_id": child.id,
                 "first_name": child.first_name,
                 "last_name": child.last_name,
+                "avatar": (
+                    request.build_absolute_uri(child.user.avatar.url)
+                    if child.user_id and child.user.avatar else None
+                ),
                 "status": submission.status if submission else "not_submitted",
                 "submission_id": submission.id if submission else None,
                 "grade": str(submission.grade) if submission and submission.grade is not None else None,

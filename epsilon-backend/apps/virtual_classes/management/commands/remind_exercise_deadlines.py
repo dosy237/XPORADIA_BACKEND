@@ -34,9 +34,14 @@ def _students_without_submission(exercise):
     recipients = []
     for enrollment in enrollments:
         child = enrollment.child
-        # Priorité au compte élève lui-même s'il existe, sinon le parent —
-        # cohérent avec le reste de la plateforme (submitted_by).
-        recipients.append(child.user if child.user_id else child.parent.user)
+        # L'élève est notifié dès qu'il a activé son propre compte ; le
+        # parent, s'il existe, est notifié EN PLUS — jamais à la place.
+        # Le parent seul n'est légitime que si l'enfant n'a pas encore de
+        # compte propre.
+        if child.user_id:
+            recipients.append(child.user)
+        if child.parent_id and child.parent.user_id:
+            recipients.append(child.parent.user)
     return recipients
 
 

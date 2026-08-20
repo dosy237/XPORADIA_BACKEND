@@ -1042,7 +1042,7 @@ class MyClassView(APIView):
         classmates = (
             Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE)
             .exclude(child=child)
-            .select_related("child")
+            .select_related("child__user")
             .order_by("child__first_name")
         )
         teacher = school_class.homeroom_teacher
@@ -1069,6 +1069,10 @@ class MyClassView(APIView):
                 "classmates": [
                     {
                         "id": e.child.id, "first_name": e.child.first_name, "last_name": e.child.last_name,
+                        "avatar": (
+                            request.build_absolute_uri(e.child.user.avatar.url)
+                            if e.child.user_id and e.child.user.avatar else None
+                        ),
                         "can_message": bool(e.child.user_id),
                     }
                     for e in classmates
