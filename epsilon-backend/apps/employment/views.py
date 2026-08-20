@@ -428,7 +428,7 @@ class MyJobSeekingRequestView(APIView):
     def get(self, request):
         request_obj = JobSeekingRequest.objects.filter(teacher=request.user, is_active=True).first()
         return Response({
-            "request": JobSeekingRequestSerializer(request_obj).data if request_obj else None,
+            "request": JobSeekingRequestSerializer(request_obj, context={"request": request}).data if request_obj else None,
         })
 
     def delete(self, request):

@@ -8,7 +8,7 @@ from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitat
 class DelegateBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email"]
+        fields = ["id", "first_name", "last_name", "email", "avatar"]
         read_only_fields = fields
 
 
@@ -40,7 +40,7 @@ class TrackSerializer(serializers.ModelSerializer):
 class TeacherBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "first_name", "last_name", "email"]
+        fields = ["id", "first_name", "last_name", "email", "avatar"]
         read_only_fields = fields
 
 

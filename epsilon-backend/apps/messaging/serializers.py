@@ -56,13 +56,14 @@ class ChannelSerializer(serializers.ModelSerializer):
 
     display_name = serializers.SerializerMethodField()
     subtitle = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Channel
         fields = [
-            "id", "channel_type", "subject_id", "display_name", "subtitle",
+            "id", "channel_type", "subject_id", "display_name", "subtitle", "avatar",
             "last_message", "unread_count", "is_archived", "created_at",
         ]
         read_only_fields = fields
@@ -77,6 +78,18 @@ class ChannelSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         other = obj.memberships.exclude(user=request.user).select_related("user").first() if request else None
         return other.user.get_full_name() if other else "Message privé"
+
+    def get_avatar(self, obj):
+        # Seul un canal "direct" représente une vraie personne — un canal
+        # de classe/matière/stage reste un groupe, sans avatar unique
+        # pertinent (l'écran affiche une icône générique dans ce cas).
+        if obj.channel_type != ChannelType.DIRECT:
+            return None
+        request = self.context.get("request")
+        other = obj.memberships.exclude(user=request.user).select_related("user").first() if request else None
+        if not other or not other.user.avatar:
+            return None
+        return request.build_absolute_uri(other.user.avatar.url) if request else other.user.avatar.url
 
     def get_subtitle(self, obj):
         if obj.channel_type == ChannelType.CLASS:

@@ -9,8 +9,8 @@ from rest_framework.views import APIView
 from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
 from apps.users.models import DirectorProfile, UserRole
 
-from .models import LibraryResource, ModerationStatus, ResourceDownload, ResourceFavorite
-from .serializers import LibraryResourceSerializer
+from .models import LibraryResource, ModerationStatus, ResourceDownload, ResourceFavorite, ResourceRating
+from .serializers import LibraryResourceSerializer, ResourceRatingSerializer
 
 
 def _affiliated_establishment_ids(user):
@@ -197,6 +197,35 @@ class ToggleFavoriteView(APIView):
         resource = self._get_resource(pk, request.user)
         ResourceFavorite.objects.filter(user=request.user, resource=resource).delete()
         return Response(status=204)
+
+
+class RateResourceView(APIView):
+    """Note individuelle de l'utilisateur connecté sur une ressource — un
+    geste, une note à la fois, corrigeable (get_or_create + update). Le
+    signal post_save de ResourceRating recalcule avg_rating/ratings_count,
+    jamais fait à la main ici."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            resource = LibraryResource.objects.select_related("establishment").get(pk=pk, is_archived=False)
+        except LibraryResource.DoesNotExist:
+            raise Http404
+        _require_establishment_access(resource.establishment, request.user)
+
+        score = request.data.get("score")
+        try:
+            score = int(score)
+        except (TypeError, ValueError):
+            raise ValidationError({"score": "Une note entière entre 1 et 5 est requise."})
+        if not (1 <= score <= 5):
+            raise ValidationError({"score": "La note doit être comprise entre 1 et 5."})
+
+        rating, _ = ResourceRating.objects.update_or_create(
+            resource=resource, user=request.user, defaults={"score": score},
+        )
+        return Response(ResourceRatingSerializer(rating).data, status=200)
 
 
 class MyLibraryFavoritesView(generics.ListAPIView):

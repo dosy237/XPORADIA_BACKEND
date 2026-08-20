@@ -21,4 +21,5 @@ urlpatterns = [
         views.ToggleFavoriteView.as_view(),
         name="library-resource-favorite",
     ),
+    path("resources/<uuid:pk>/rate/", views.RateResourceView.as_view(), name="library-resource-rate"),
 ]

@@ -230,7 +230,7 @@ class AdminUserDetailView(APIView):
     def get(self, request, user_id):
         _require_admin(request.user)
         user = get_object_or_404(User, pk=user_id)
-        data = AdminUserListSerializer(user).data
+        data = AdminUserListSerializer(user, context={"request": request}).data
 
         if user.has_role(UserRole.STUDENT):
             child = getattr(user, "child_profile", None)

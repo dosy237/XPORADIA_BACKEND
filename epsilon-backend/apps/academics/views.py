@@ -135,8 +135,11 @@ class TaskDelegationsView(APIView):
         return Response([
             {
                 "id": d.id, "task": d.task, "task_label": d.get_task_display(),
-                "teacher": {"id": d.teacher.id, "first_name": d.teacher.first_name,
-                            "last_name": d.teacher.last_name, "email": d.teacher.email},
+                "teacher": {
+                    "id": d.teacher.id, "first_name": d.teacher.first_name,
+                    "last_name": d.teacher.last_name, "email": d.teacher.email,
+                    "avatar": request.build_absolute_uri(d.teacher.avatar.url) if d.teacher.avatar else None,
+                },
             }
             for d in delegations
         ])
@@ -1047,7 +1050,11 @@ class MyClassView(APIView):
             {
                 "school_class_name": str(school_class),
                 "homeroom_teacher": (
-                    {"first_name": teacher.first_name, "last_name": teacher.last_name} if teacher else None
+                    {
+                        "first_name": teacher.first_name, "last_name": teacher.last_name,
+                        "avatar": request.build_absolute_uri(teacher.avatar.url) if teacher.avatar else None,
+                    }
+                    if teacher else None
                 ),
                 "classmates": [
                     {"id": e.child.id, "first_name": e.child.first_name, "last_name": e.child.last_name}
@@ -1092,24 +1099,29 @@ class ChildClassView(APIView):
         school_class = enrollment.school_class
         teacher = school_class.homeroom_teacher
 
+        def _avatar_url(user):
+            return request.build_absolute_uri(user.avatar.url) if user.avatar else None
+
         teachers = []
         if teacher:
             teachers.append({
                 "id": teacher.id, "first_name": teacher.first_name, "last_name": teacher.last_name,
-                "role_label": "Titulaire",
+                "avatar": _avatar_url(teacher), "role_label": "Titulaire",
             })
         for subject in Subject.objects.filter(school_class=school_class, teacher__isnull=False).select_related("teacher"):
             if subject.teacher_id == (teacher.id if teacher else None):
                 continue  # déjà listé comme titulaire, pas de doublon
             teachers.append({
                 "id": subject.teacher.id, "first_name": subject.teacher.first_name,
-                "last_name": subject.teacher.last_name, "role_label": subject.name,
+                "last_name": subject.teacher.last_name, "avatar": _avatar_url(subject.teacher),
+                "role_label": subject.name,
             })
 
         return Response({
             "school_class_name": str(school_class),
             "homeroom_teacher": (
-                {"first_name": teacher.first_name, "last_name": teacher.last_name} if teacher else None
+                {"first_name": teacher.first_name, "last_name": teacher.last_name, "avatar": _avatar_url(teacher)}
+                if teacher else None
             ),
             "teachers": teachers,
         })

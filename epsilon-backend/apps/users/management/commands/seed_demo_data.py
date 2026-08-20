@@ -45,7 +45,14 @@ from apps.internships.models import (
     InternshipLevel,
     InternshipOffer,
 )
-from apps.library.models import LibraryResource, ModerationStatus, ResourceType, SchoolLevel
+from apps.library.models import (
+    LibraryResource,
+    ModerationStatus,
+    ResourceCategory,
+    ResourceRating,
+    ResourceType,
+    SchoolLevel,
+)
 from apps.notifications.services import notify_user
 from apps.notifications.models import NotificationType
 from apps.payments.models import MobileOperator, Payment, PaymentStatus, PaymentType
@@ -783,30 +790,79 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     def _seed_library(self, establishments, users):
         teachers = users["teachers"]
+        parents = users["parents"]
+        children = users["children"]
         kouassi_profile = establishments["kouassi"]["profile"]
-        LibraryResource.objects.get_or_create(
-            establishment=kouassi_profile,
-            title="Cours — Les fractions au CM2",
-            defaults=dict(
+
+        resource_defs = [
+            dict(
+                title="Cours — Les fractions au CM2",
                 description="Support de cours complet sur les fractions.", resource_type=ResourceType.COURSE,
-                level=SchoolLevel.SIXIEME,
+                category=ResourceCategory.ACADEMIC, level=SchoolLevel.SIXIEME,
                 subject="Mathématiques", file_url="https://example.com/demo/fractions-cm2.pdf",
                 file_size_kb=850, tags=["fractions", "cm2"], author=teachers["mariam"],
-                moderation_status=ModerationStatus.APPROVED,
             ),
-        )
-        LibraryResource.objects.get_or_create(
-            establishment=kouassi_profile,
-            title="Fiche de révision — Vocabulaire de la famille",
-            defaults=dict(
+            dict(
+                title="Fiche de révision — Vocabulaire de la famille",
                 description="Fiche de vocabulaire anglais à réviser avant le contrôle.",
-                resource_type=ResourceType.REVISION,
+                resource_type=ResourceType.REVISION, category=ResourceCategory.ACADEMIC,
                 level=SchoolLevel.CINQUIEME,
                 subject="Anglais", file_url="https://example.com/demo/vocab-famille.pdf",
                 file_size_kb=210, tags=["vocabulaire", "famille"], author=teachers["yao"],
-                moderation_status=ModerationStatus.APPROVED,
             ),
-        )
+            # Rayons de curiosité générale — au-delà du contenu strictement
+            # scolaire, pour que l'écran de bibliothèque présente déjà sa
+            # structure en rayons plutôt qu'un unique rayon "Scolaire".
+            dict(
+                title="Une si longue lettre — Mariama Bâ",
+                description="Roman épistolaire ivoiro-sénégalais, classique de la littérature africaine francophone.",
+                resource_type=ResourceType.COURSE, category=ResourceCategory.LITERATURE,
+                level=SchoolLevel.PREMIERE, subject="Littérature",
+                file_url="https://example.com/demo/une-si-longue-lettre.pdf",
+                file_size_kb=430, tags=["roman", "littérature africaine"], author=teachers["ibrahim"],
+            ),
+            dict(
+                title="Comprendre le changement climatique en Afrique de l'Ouest",
+                description="Vulgarisation scientifique sur les enjeux climatiques régionaux.",
+                resource_type=ResourceType.COURSE, category=ResourceCategory.ENVIRONMENT,
+                level=SchoolLevel.SECONDE, subject="SVT",
+                file_url="https://example.com/demo/climat-afrique-ouest.pdf",
+                file_size_kb=610, tags=["climat", "environnement"], author=teachers["aminata"],
+            ),
+            dict(
+                title="Portrait — Une entrepreneure ivoirienne de la tech",
+                description="Parcours d'une fondatrice de startup abidjanaise, de l'idée au financement.",
+                resource_type=ResourceType.COURSE, category=ResourceCategory.BIOGRAPHY,
+                level=SchoolLevel.TERMINALE, subject="Économie",
+                file_url="https://example.com/demo/portrait-entrepreneure.pdf",
+                file_size_kb=380, tags=["entrepreneuriat", "portrait"], author=teachers["awa"],
+            ),
+        ]
+
+        resources = {}
+        for data in resource_defs:
+            title = data.pop("title")
+            resource, _ = LibraryResource.objects.get_or_create(
+                establishment=kouassi_profile, title=title,
+                defaults=dict(moderation_status=ModerationStatus.APPROVED, **data),
+            )
+            resources[title] = resource
+
+        # Quelques notes individuelles réelles — sans elles, avg_rating/
+        # ratings_count restent à zéro partout et le carrousel "Recommandé
+        # pour toi" retombe systématiquement sur "Nouveautés" en démo.
+        raters = [parents["fatou"], parents["aya"], teachers["ibrahim"]]
+        if children["aicha"].user_id:
+            raters.append(children["aicha"].user)
+        rating_defs = [
+            ("Cours — Les fractions au CM2", [5, 4, 5]),
+            ("Une si longue lettre — Mariama Bâ", [5, 5]),
+            ("Portrait — Une entrepreneure ivoirienne de la tech", [4]),
+        ]
+        for title, scores in rating_defs:
+            resource = resources[title]
+            for rater, score in zip(raters, scores):
+                ResourceRating.objects.get_or_create(resource=resource, user=rater, defaults=dict(score=score))
 
     # ------------------------------------------------------------------
     # Marché de l'emploi
