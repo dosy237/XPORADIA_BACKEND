@@ -145,9 +145,7 @@ class EvaluationGradesView(APIView):
 
     def get(self, request, evaluation_id):
         evaluation = self._get_evaluation(evaluation_id, request.user)
-        enrollments = Enrollment.objects.filter(
-            school_class=evaluation.subject.school_class, status=EnrollmentStatus.ACTIVE
-        ).select_related("child")
+        enrollments = services.active_enrollments(evaluation.subject.school_class)
         existing_grades = {
             g.child_id: g for g in Grade.objects.filter(evaluation=evaluation)
         }
@@ -169,6 +167,17 @@ class EvaluationGradesView(APIView):
         serializer = BulkGradeEntrySerializer(data=entries, many=True)
         serializer.is_valid(raise_exception=True)
 
+        # Borne haute dépendante du barème de CETTE évaluation — vérifiée
+        # ici (pas dans le serializer, générique et partagé avec la
+        # grille multi-évaluations) et avant toute écriture, pour ne
+        # jamais enregistrer une partie du lot puis rejeter le reste.
+        for entry in serializer.validated_data:
+            score = entry.get("score")
+            if score is not None and not (0 <= score <= evaluation.max_score):
+                raise ValidationError(
+                    {"score": f"La note doit être comprise entre 0 et {evaluation.max_score}."}
+                )
+
         valid_child_ids = set(
             Enrollment.objects.filter(
                 school_class=evaluation.subject.school_class, status=EnrollmentStatus.ACTIVE
@@ -184,6 +193,145 @@ class EvaluationGradesView(APIView):
             )
             saved.append(grade)
         return Response(GradeSerializer(saved, many=True).data)
+
+
+class SubjectTermsView(generics.ListAPIView):
+    """Trimestres de l'établissement de cette matière — pour le
+    sélecteur de trimestre du tableur de notes. Distinct de
+    TermListCreateView (réservée au directeur) : l'enseignant dédié n'a
+    pas de DirectorProfile, il ne peut donc pas lister les trimestres par
+    ce biais."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TermSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        subject = get_object_or_404(
+            Subject.objects.select_related("school_class__track__department__establishment"),
+            pk=self.kwargs["subject_id"],
+        )
+        _require_subject_teacher(subject, self.request.user)
+        establishment = subject.school_class.track.department.establishment
+        return Term.objects.filter(establishment=establishment)
+
+
+class SubjectGradeGridView(APIView):
+    """Tableur de notes complet d'une matière pour un trimestre — élèves
+    actifs en lignes, TOUTES les évaluations du trimestre en colonnes, en
+    une seule requête. Distinct d'EvaluationGradesView (une seule colonne
+    à la fois) : réutilise sa logique de récupération d'effectif
+    (services.active_enrollments) plutôt que de la dupliquer, ne calcule
+    ni ne touche jamais la moyenne générale, Subject.coefficient, ni le
+    système de bulletin — uniquement la moyenne de CETTE matière."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_subject(self, subject_id, user):
+        subject = get_object_or_404(Subject.objects.select_related("school_class"), pk=subject_id)
+        _require_subject_teacher(subject, user)
+        return subject
+
+    def get(self, request, subject_id, term_id):
+        subject = self._get_subject(subject_id, request.user)
+        term = get_object_or_404(Term, pk=term_id)
+
+        evaluations = list(Evaluation.objects.filter(subject=subject, term=term).order_by("date", "id"))
+        enrollments = services.active_enrollments(subject.school_class)
+        grades_by_key = {
+            (g.evaluation_id, g.child_id): g
+            for g in Grade.objects.filter(evaluation__in=evaluations)
+        }
+
+        students = []
+        for enrollment in enrollments:
+            child = enrollment.child
+            grades = {}
+            for evaluation in evaluations:
+                grade = grades_by_key.get((evaluation.id, child.id))
+                grades[str(evaluation.id)] = (
+                    {"score": grade.score, "is_excused": grade.is_excused} if grade else None
+                )
+            students.append({
+                "child_id": child.id,
+                "first_name": child.first_name,
+                "last_name": child.last_name,
+                "avatar": (
+                    request.build_absolute_uri(child.user.avatar.url)
+                    if child.user_id and child.user.avatar else None
+                ),
+                "grades": grades,
+                # Moyenne de CETTE matière uniquement — jamais pondérée
+                # par Subject.coefficient, jamais la moyenne générale.
+                "subject_average": services.compute_subject_average(child, subject, term),
+            })
+
+        return Response({
+            "subject": subject.id,
+            "term": TermSerializer(term).data,
+            "evaluations": EvaluationSerializer(evaluations, many=True).data,
+            "students": students,
+        })
+
+    def post(self, request, subject_id, term_id):
+        subject = self._get_subject(subject_id, request.user)
+        term = get_object_or_404(Term, pk=term_id)
+
+        entries = request.data if isinstance(request.data, list) else request.data.get("entries", [])
+        serializer = BulkGradeEntrySerializer(data=entries, many=True)
+        serializer.is_valid(raise_exception=True)
+
+        evaluation_ids = {entry["evaluation"] for entry in serializer.validated_data if entry.get("evaluation")}
+        evaluations_by_id = {
+            e.id: e for e in Evaluation.objects.filter(subject=subject, term=term, id__in=evaluation_ids)
+        }
+        valid_child_ids = set(
+            Enrollment.objects.filter(
+                school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
+            ).values_list("child_id", flat=True)
+        )
+
+        # Borne haute par évaluation, vérifiée intégralement AVANT toute
+        # écriture — jamais enregistrer une partie du lot puis rejeter le
+        # reste (chaque colonne peut avoir un barème différent).
+        errors = []
+        for entry in serializer.validated_data:
+            evaluation = evaluations_by_id.get(entry.get("evaluation"))
+            if not evaluation:
+                continue
+            score = entry.get("score")
+            if score is not None and not (0 <= score <= evaluation.max_score):
+                errors.append(
+                    f"« {evaluation.title} » : la note doit être comprise entre 0 et {evaluation.max_score}."
+                )
+        if errors:
+            raise ValidationError({"score": errors})
+
+        saved = []
+        touched_child_ids = set()
+        for entry in serializer.validated_data:
+            evaluation = evaluations_by_id.get(entry.get("evaluation"))
+            if not evaluation:
+                continue  # évaluation hors matière/trimestre — ignorée, pas d'erreur bloquante
+            if entry["child"] not in valid_child_ids:
+                continue  # élève qui n'est plus inscrit dans cette classe — ignoré
+            grade, _ = Grade.objects.update_or_create(
+                evaluation=evaluation, child_id=entry["child"],
+                defaults={"score": entry.get("score"), "is_excused": entry.get("is_excused", False)},
+            )
+            saved.append(grade)
+            touched_child_ids.add(entry["child"])
+
+        touched_children = {c.id: c for c in Child.objects.filter(id__in=touched_child_ids)}
+        updated_averages = {
+            str(child_id): services.compute_subject_average(touched_children[child_id], subject, term)
+            for child_id in touched_child_ids
+        }
+
+        return Response({
+            "saved": GradeSerializer(saved, many=True).data,
+            "updated_averages": updated_averages,
+        })
 
 
 class ClassReportPreviewView(APIView):

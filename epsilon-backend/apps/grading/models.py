@@ -17,6 +17,7 @@ yeux si une note est corrigée après coup.
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from apps.academics.models import Child, SchoolClass, Subject
@@ -64,6 +65,12 @@ class Evaluation(models.Model):
     title = models.CharField(max_length=200)
     eval_type = models.CharField(max_length=10, choices=EvaluationType.choices, default=EvaluationType.HOMEWORK)
     coefficient = models.PositiveSmallIntegerField(default=1)
+    # Barème de CETTE évaluation (ex: /10, /20, /40) — 20 par défaut pour
+    # rester compatible avec toutes les évaluations créées avant l'ajout
+    # de ce champ, qui ont réellement été notées sur 20 (voir
+    # apps/grading/services.py::compute_subject_average, qui normalise
+    # chaque note sur cette échelle avant de pondérer par le coefficient).
+    max_score = models.PositiveSmallIntegerField(default=20, validators=[MinValueValidator(1)], verbose_name="Barème")
     date = models.DateField()
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -78,7 +85,11 @@ class Evaluation(models.Model):
 
 
 class Grade(models.Model):
-    """Note d'un élève à une évaluation, sur 20."""
+    """Note d'un élève à une évaluation — sur le barème DE CETTE
+    évaluation (Evaluation.max_score), pas nécessairement 20 : deux
+    évaluations d'une même matière peuvent avoir des échelles
+    différentes, normalisées sur 20 uniquement au moment du calcul de la
+    moyenne (voir compute_subject_average)."""
 
     evaluation = models.ForeignKey(Evaluation, on_delete=models.CASCADE, related_name="grades")
     child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="grades")

@@ -18,8 +18,13 @@ TWO_PLACES = Decimal("0.01")
 def compute_subject_average(child, subject: Subject, term) -> Decimal | None:
     """Moyenne pondérée des notes de CETTE matière pour CE trimestre —
     pondérée par le coefficient de chaque évaluation (une composition
-    pèse plus qu'une interrogation). Ignore les notes dispensées et les
-    évaluations sans note saisie pour cet élève. None si rien à calculer
+    pèse plus qu'une interrogation). Chaque note est d'abord ramenée sur
+    20 selon le barème propre de son évaluation (max_score) AVANT
+    pondération : sans cette normalisation, une note sur 10 pèserait deux
+    fois moins qu'une note sur 20 de même coefficient, ce qui fausserait
+    la moyenne dès qu'une matière mélange des échelles différentes.
+    Ignore les notes dispensées et les évaluations sans note saisie pour
+    cet élève (jamais comptées comme zéro). None si rien à calculer
     (pas encore de note saisie)."""
     grades = (
         Grade.objects.filter(
@@ -31,12 +36,29 @@ def compute_subject_average(child, subject: Subject, term) -> Decimal | None:
     total_weighted = Decimal("0")
     total_coefficient = Decimal("0")
     for grade in grades:
+        max_score = grade.evaluation.max_score
+        if not max_score:
+            continue  # barème invalide — garde-fou, ne devrait pas arriver (MinValueValidator(1))
+        normalized_on_20 = (grade.score / Decimal(max_score)) * Decimal("20")
         coeff = Decimal(grade.evaluation.coefficient)
-        total_weighted += grade.score * coeff
+        total_weighted += normalized_on_20 * coeff
         total_coefficient += coeff
     if total_coefficient == 0:
         return None
     return (total_weighted / total_coefficient).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+
+
+def active_enrollments(school_class):
+    """Effectif actif d'une classe à l'instant de l'appel — jamais une
+    photo figée en début de trimestre : un élève inscrit en cours de
+    route apparaît automatiquement dans toute vue qui réutilise cette
+    fonction (grille de notes, saisie en lot par évaluation...) sans
+    action manuelle de l'enseignant."""
+    return (
+        Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE)
+        .select_related("child__user")
+        .order_by("child__first_name")
+    )
 
 
 def compute_general_average(child, school_class, term) -> Decimal | None:

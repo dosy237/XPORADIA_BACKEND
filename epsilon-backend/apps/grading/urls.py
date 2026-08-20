@@ -17,6 +17,12 @@ urlpatterns = [
         views.EvaluationGradesView.as_view(),
         name="evaluation-grades",
     ),
+    path("subjects/<int:subject_id>/terms/", views.SubjectTermsView.as_view(), name="subject-terms"),
+    path(
+        "subjects/<int:subject_id>/terms/<int:term_id>/grade-grid/",
+        views.SubjectGradeGridView.as_view(),
+        name="subject-grade-grid",
+    ),
     path(
         "classes/<int:class_id>/terms/<int:term_id>/report-preview/",
         views.ClassReportPreviewView.as_view(),

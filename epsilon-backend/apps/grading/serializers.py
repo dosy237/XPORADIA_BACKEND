@@ -45,7 +45,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
         model = Evaluation
         fields = [
             "id", "subject", "subject_name", "term", "title", "eval_type",
-            "coefficient", "date", "created_at",
+            "coefficient", "max_score", "date", "created_at",
         ]
         read_only_fields = ["id", "subject", "subject_name", "created_at"]
 
@@ -63,19 +63,25 @@ class GradeSerializer(serializers.ModelSerializer):
 class BulkGradeEntrySerializer(serializers.Serializer):
     """Une ligne de saisie en lot — le score est optionnel (élève pas
     encore noté) mais child et is_excused sont toujours requis, pour
-    permettre de traiter toute la classe en un seul envoi plutôt qu'un
-    appel réseau par élève."""
+    permettre de traiter toute la classe (ou toute la grille
+    multi-évaluations) en un seul envoi plutôt qu'un appel réseau par
+    élève. evaluation est optionnel : implicite depuis l'URL pour
+    l'ancien endpoint mono-colonne (EvaluationGradesView), explicite pour
+    le tableur multi-évaluations (SubjectGradeGridView), où chaque entrée
+    peut viser une colonne différente. La borne haute de la note dépend
+    du barème PROPRE à chaque évaluation (max_score) — volontairement pas
+    vérifiée ici en dur (ne serait valable que pour une échelle fixe),
+    mais côté vue, qui connaît l'évaluation réelle de chaque entrée."""
 
+    evaluation = serializers.IntegerField(required=False)
     child = serializers.IntegerField()
-    score = serializers.DecimalField(max_digits=4, decimal_places=2, required=False, allow_null=True)
+    score = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     is_excused = serializers.BooleanField(default=False)
 
-    def validate(self, attrs):
-        if not attrs.get("is_excused") and attrs.get("score") is None:
-            return attrs  # note non encore saisie, autorisé (brouillon)
-        if attrs.get("score") is not None and not (0 <= attrs["score"] <= 20):
-            raise serializers.ValidationError("La note doit être comprise entre 0 et 20.")
-        return attrs
+    def validate_score(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("La note ne peut pas être négative.")
+        return value
 
 
 class SubjectReportEntrySerializer(serializers.ModelSerializer):
