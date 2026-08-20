@@ -19,6 +19,7 @@ from .serializers import (
     SubmissionSerializer,
     VirtualClassSerializer,
 )
+from .services import notify_enrolled_parents as _notify_enrolled_parents
 
 
 def _get_subject(subject_id):
@@ -36,21 +37,6 @@ def _can_manage(subject, user):
 
 def _can_view(subject, user):
     return subject.teacher_id == user.id or subject.school_class.homeroom_teacher_id == user.id
-
-
-def _notify_enrolled_parents(school_class, notif_type, title, body):
-    notified_parent_ids = set()
-    enrollments = Enrollment.objects.filter(
-        school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).select_related("child__parent__user")
-    for enrollment in enrollments:
-        if not enrollment.child.parent_id:
-            continue  # élève auto-inscrit sans parent rattaché
-        parent_user = enrollment.child.parent.user
-        if parent_user.id in notified_parent_ids:
-            continue
-        notified_parent_ids.add(parent_user.id)
-        notify_user(parent_user, notif_type, title=title, body=body)
 
 
 def _get_own_child(child_id, user):
@@ -278,6 +264,56 @@ class ExerciseSubmissionStatsView(APIView):
         )
 
 
+class ExerciseStudentStatusView(APIView):
+    """Effectif complet de la classe pour un devoir, avec le statut
+    individuel de chacun (pas soumis / soumis / corrigé) — contrairement à
+    ExerciseSubmissionsView qui ne renvoie que les copies déjà rendues, ici
+    chaque élève inscrit apparaît, y compris ceux n'ayant pas encore
+    soumis. Le tap sur un élève ayant soumis bascule vers la DM existante
+    avec lui (channel_id renvoyé quand elle existe déjà)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, exercise_id):
+        from apps.messaging.models import Channel, ChannelType
+
+        try:
+            exercise = Exercise.objects.select_related("virtual_class__subject__school_class").get(
+                id=exercise_id
+            )
+        except Exercise.DoesNotExist:
+            raise Http404
+        subject = exercise.virtual_class.subject
+        if not _can_view(subject, request.user):
+            raise PermissionDenied("Réservé à l'enseignant dédié ou au titulaire de cette classe.")
+
+        enrollments = Enrollment.objects.filter(
+            school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
+        ).select_related("child__user").order_by("child__first_name")
+        submissions_by_child = {s.child_id: s for s in Submission.objects.filter(exercise=exercise)}
+
+        results = []
+        for enrollment in enrollments:
+            child = enrollment.child
+            submission = submissions_by_child.get(child.id)
+            channel_id = None
+            if child.user_id and subject.teacher_id:
+                channel = Channel.objects.filter(
+                    channel_type=ChannelType.DIRECT, memberships__user_id=subject.teacher_id
+                ).filter(memberships__user_id=child.user_id).first()
+                channel_id = channel.id if channel else None
+            results.append({
+                "child_id": child.id,
+                "first_name": child.first_name,
+                "last_name": child.last_name,
+                "status": submission.status if submission else "not_submitted",
+                "submission_id": submission.id if submission else None,
+                "grade": str(submission.grade) if submission and submission.grade is not None else None,
+                "channel_id": channel_id,
+            })
+        return Response(results)
+
+
 class HomeroomExercisesOverviewView(APIView):
     """Vue consolidée pour le professeur principal : tous les devoirs de
     toutes les matières de sa classe, avec leurs stats de rendu — pour ne
@@ -431,6 +467,33 @@ class SubmissionDetailView(generics.RetrieveUpdateAPIView):
             NotificationType.CORRECTION_READY,
             title="Correction disponible",
             body=f"La copie de {submission.child.first_name} pour « {submission.exercise.title} » a été corrigée.",
+        )
+        self._post_grading_message(submission, user)
+
+    def _post_grading_message(self, submission, teacher):
+        """Reflète la correction comme un message dans la DM élève/
+        enseignant, au même titre qu'une soumission — seulement possible si
+        l'élève a un compte activé (pas de DM sans compte destinataire)."""
+        child = submission.child
+        if not child.user_id:
+            return
+
+        from apps.messaging.models import Message
+        from apps.messaging.realtime import broadcast_to_channel
+        from apps.messaging.serializers import MessageSerializer
+        from apps.messaging.services import get_or_create_direct_channel
+
+        channel = get_or_create_direct_channel(teacher, child.user)
+        grade_text = f"{submission.grade}/20" if submission.grade is not None else "Non noté"
+        body = f"Correction : {grade_text}"
+        if submission.feedback:
+            body += f"\n{submission.feedback}"
+        message = Message.objects.create(
+            channel=channel, author=teacher, body=body, exercise_id=submission.exercise_id
+        )
+        broadcast_to_channel(
+            channel.id, "message_created",
+            {"message": MessageSerializer(message, context={"request": self.request}).data},
         )
 
 

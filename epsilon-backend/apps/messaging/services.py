@@ -126,3 +126,57 @@ def ensure_internship_channel(convention):
 
 def archive_internship_channel(convention):
     Channel.objects.filter(internship_convention=convention).update(is_archived=True)
+
+
+def save_uploaded_attachments(files, request, upload_to="message_attachments"):
+    """Enregistre des fichiers réellement transférés (photos, PDF...) et
+    renvoie la liste {name, url, type} attendue par les champs `attachments`
+    (Message, Exercise, Submission) — jamais des URL fournies telles
+    quelles par le client, toujours des fichiers effectivement reçus et
+    stockés côté serveur, comme partout ailleurs dans le projet (avatar,
+    couverture/PDF de bibliothèque)."""
+    from django.core.files.storage import default_storage
+
+    attachments = []
+    for f in files:
+        path = default_storage.save(f"{upload_to}/{f.name}", f)
+        url = default_storage.url(path)
+        attachments.append({
+            "name": f.name,
+            "url": request.build_absolute_uri(url) if request else url,
+            "type": f.content_type or "",
+        })
+    return attachments
+
+
+def notify_channel_members(channel, message, request, preview_override=None):
+    """Notifie les autres membres d'un canal qu'un nouveau message vient
+    d'être posté — factorisé pour être appelé aussi bien depuis l'envoi de
+    message normal que depuis la publication d'un devoir ou d'une
+    soumission (voir apps.messaging.views)."""
+    from apps.notifications.models import NotificationType
+    from apps.notifications.services import notify_user
+
+    from .serializers import ChannelSerializer
+
+    recipients = ChannelMembership.objects.filter(channel=channel).exclude(
+        user=message.author
+    ).select_related("user")
+    preview = preview_override or (message.body[:80] if message.body else "Pièce jointe envoyée")
+    author_name = message.author.get_full_name()
+    # Pour un canal collectif, on précise lequel dans le titre ; pour un
+    # message privé, le nom de l'auteur suffit (le destinataire sait déjà
+    # que c'est une conversation 1:1).
+    if channel.channel_type != ChannelType.DIRECT:
+        channel_name = ChannelSerializer(channel, context={"request": request}).data["display_name"]
+        title = f"{author_name} — {channel_name}"
+    else:
+        title = author_name
+    for membership in recipients:
+        notify_user(
+            membership.user,
+            NotificationType.NEW_MESSAGE,
+            title=title,
+            body=preview,
+            data={"channel_id": channel.id},
+        )

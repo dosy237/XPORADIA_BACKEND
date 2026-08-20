@@ -17,6 +17,54 @@ class ExerciseSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "is_overdue", "published_at", "created_at", "updated_at"]
 
 
+class ExerciseCardSerializer(serializers.ModelSerializer):
+    """Représentation légère d'un devoir pour son affichage en carte
+    distincte dans un fil de messagerie (voir Message.exercise_id) — les
+    consignes complètes restent sur l'écran dédié à la matière, jamais
+    dupliquées ici."""
+
+    subject_name = serializers.CharField(source="virtual_class.subject.name", read_only=True)
+    is_overdue = serializers.BooleanField(read_only=True)
+    my_submission_status = serializers.SerializerMethodField()
+    my_dm_channel_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Exercise
+        fields = [
+            "id", "kind", "title", "subject_name", "deadline", "status",
+            "is_overdue", "attachments", "my_submission_status", "my_dm_channel_id",
+        ]
+        read_only_fields = fields
+
+    def _child(self):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        return getattr(request.user, "child_profile", None)
+
+    def get_my_submission_status(self, obj):
+        child = self._child()
+        if not child:
+            return None
+        submission = obj.submissions.filter(child=child).first()
+        return submission.status if submission else None
+
+    def get_my_dm_channel_id(self, obj):
+        """DM déjà existante avec l'enseignant dédié de la matière — le tap
+        sur la carte y bascule directement (jamais de réponse dans le
+        canal de matière lui-même)."""
+        child = self._child()
+        teacher = obj.virtual_class.subject.teacher
+        if not child or not teacher or not child.user_id:
+            return None
+        from apps.messaging.models import Channel, ChannelType
+
+        channel = Channel.objects.filter(
+            channel_type=ChannelType.DIRECT, memberships__user_id=child.user_id
+        ).filter(memberships__user_id=teacher.id).first()
+        return channel.id if channel else None
+
+
 class SubmissionChildSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child
@@ -65,12 +113,13 @@ class SubmissionGradeSerializer(serializers.ModelSerializer):
 class ChildExerciseSerializer(serializers.ModelSerializer):
     my_submission = serializers.SerializerMethodField()
     is_overdue = serializers.BooleanField(read_only=True)
+    my_dm_channel_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Exercise
         fields = [
             "id", "kind", "title", "instructions", "attachments", "deadline",
-            "status", "is_overdue", "published_at", "my_submission",
+            "status", "is_overdue", "published_at", "my_submission", "my_dm_channel_id",
         ]
         read_only_fields = fields
 
@@ -78,6 +127,21 @@ class ChildExerciseSerializer(serializers.ModelSerializer):
         child = self.context["child"]
         submission = obj.submissions.filter(child=child).first()
         return SubmissionSerializer(submission).data if submission else None
+
+    def get_my_dm_channel_id(self, obj):
+        """DM déjà existante avec l'enseignant dédié — pour basculer
+        directement dessus depuis « Mes devoirs », jamais de réponse dans
+        le canal de matière."""
+        child = self.context["child"]
+        teacher = obj.virtual_class.subject.teacher
+        if not child.user_id or not teacher:
+            return None
+        from apps.messaging.models import Channel, ChannelType
+
+        channel = Channel.objects.filter(
+            channel_type=ChannelType.DIRECT, memberships__user_id=child.user_id
+        ).filter(memberships__user_id=teacher.id).first()
+        return channel.id if channel else None
 
 
 class ChildSubjectSerializer(serializers.Serializer):

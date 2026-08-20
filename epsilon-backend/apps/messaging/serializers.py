@@ -18,14 +18,30 @@ class ChannelMemberSerializer(serializers.ModelSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     author = ChannelMemberSerializer(read_only=True)
+    exercise = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = [
-            "id", "channel", "author", "body", "attachments", "exercise_id",
+            "id", "channel", "author", "body", "attachments", "exercise_id", "exercise",
             "is_pinned", "is_edited", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "channel", "author", "exercise_id", "is_edited", "created_at", "updated_at"]
+        read_only_fields = [
+            "id", "channel", "author", "exercise_id", "exercise", "is_edited", "created_at", "updated_at",
+        ]
+
+    def get_exercise(self, obj):
+        if not obj.exercise_id:
+            return None
+        from apps.virtual_classes.models import Exercise
+        from apps.virtual_classes.serializers import ExerciseCardSerializer
+
+        exercise = Exercise.objects.filter(id=obj.exercise_id).select_related(
+            "virtual_class__subject"
+        ).first()
+        if not exercise:
+            return None
+        return ExerciseCardSerializer(exercise, context=self.context).data
 
 
 class EditMessageSerializer(serializers.ModelSerializer):
@@ -40,12 +56,19 @@ class EditMessageSerializer(serializers.ModelSerializer):
 
 
 class CreateMessageSerializer(serializers.ModelSerializer):
+    """`attachments` n'est pas un champ ici : les fichiers réellement
+    transférés arrivent via `request.FILES` (multipart) et sont enregistrés
+    par la vue (voir `save_uploaded_attachments`), jamais des URL fournies
+    telles quelles par le client."""
+
     class Meta:
         model = Message
-        fields = ["body", "attachments"]
+        fields = ["body"]
 
     def validate(self, attrs):
-        if not attrs.get("body", "").strip() and not attrs.get("attachments"):
+        request = self.context.get("request")
+        has_files = bool(request and request.FILES.getlist("attachments"))
+        if not attrs.get("body", "").strip() and not has_files:
             raise serializers.ValidationError("Un message ne peut pas être vide.")
         return attrs
 
@@ -59,12 +82,13 @@ class ChannelSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
+    can_publish_exercise = serializers.SerializerMethodField()
 
     class Meta:
         model = Channel
         fields = [
             "id", "channel_type", "subject_id", "display_name", "subtitle", "avatar",
-            "last_message", "unread_count", "is_archived", "created_at",
+            "last_message", "unread_count", "is_archived", "created_at", "can_publish_exercise",
         ]
         read_only_fields = fields
 
@@ -101,6 +125,19 @@ class ChannelSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         other = obj.memberships.exclude(user=request.user).select_related("user").first() if request else None
         return other.user.get_primary_role_display() if other else ""
+
+    def get_can_publish_exercise(self, obj):
+        """Réservé à l'enseignant dédié de la matière — seul membre
+        enseignant autorisé à publier un devoir dans ce canal précis (voir
+        PublishExerciseView). Sert uniquement à afficher ou masquer
+        l'action « Ajouter un devoir » côté frontend ; la vérification
+        réelle reste faite côté serveur à la publication."""
+        if obj.channel_type != ChannelType.SUBJECT:
+            return False
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.subject.teacher_id == request.user.id
 
     def get_last_message(self, obj):
         last = obj.messages.order_by("-created_at").first()

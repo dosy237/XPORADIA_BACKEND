@@ -25,6 +25,11 @@ urlpatterns = [
         views.ExerciseSubmissionStatsView.as_view(),
         name="exercise-submission-stats",
     ),
+    path(
+        "exercises/<uuid:exercise_id>/student-status/",
+        views.ExerciseStudentStatusView.as_view(),
+        name="exercise-student-status",
+    ),
     path("submissions/<int:pk>/", views.SubmissionDetailView.as_view(), name="submission-detail"),
     path("my-submissions/", views.MySubmissionsView.as_view(), name="my-submissions"),
     path("my-subjects/", views.MySubjectsView.as_view(), name="my-subjects"),

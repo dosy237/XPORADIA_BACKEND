@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from .models import Channel, ChannelMembership, ChannelType, Message
 from .realtime import broadcast_to_channel
 from .serializers import ChannelSerializer, CreateMessageSerializer, EditMessageSerializer, MessageSerializer
+from .services import notify_channel_members, save_uploaded_attachments
 
 
 class IsVerifiedToMessage(permissions.BasePermission):
@@ -80,6 +81,14 @@ def _require_read_access(channel, user):
 
 class ChannelMessagesView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsVerifiedToMessage]
+    # Bug confirmé : la pagination par défaut du projet (20/page, triée du
+    # plus ancien au plus récent) renvoyait toujours la PREMIÈRE page à un
+    # canal déjà bien rempli. Le frontend n'appelle jamais la page suivante
+    # (aucun défilement infini construit) : au-delà de 20 messages, les plus
+    # récents devenaient invisibles au destinataire tant qu'il n'ouvrait pas
+    # explicitement une page 2 inexistante côté UI. Désactivée ici comme
+    # pour les autres listes non bornées du projet (ex. bibliothèque).
+    pagination_class = None
 
     def get_channel(self):
         return get_object_or_404(Channel, pk=self.kwargs["channel_id"])
@@ -101,42 +110,13 @@ class ChannelMessagesView(generics.ListCreateAPIView):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("Ce canal est archivé (lecture seule).")
-        message = serializer.save(channel=channel, author=self.request.user)
-        self._notify_other_members(channel, message)
+        attachments = save_uploaded_attachments(self.request.FILES.getlist("attachments"), self.request)
+        message = serializer.save(channel=channel, author=self.request.user, attachments=attachments)
+        notify_channel_members(channel, message, self.request)
         broadcast_to_channel(
             channel.id, "message_created",
             {"message": MessageSerializer(message, context={"request": self.request}).data},
         )
-
-    def _notify_other_members(self, channel, message):
-        from apps.notifications.models import NotificationType
-        from apps.notifications.services import notify_user
-
-        from .models import ChannelType
-
-        recipients = ChannelMembership.objects.filter(channel=channel).exclude(
-            user=message.author
-        ).select_related("user")
-        preview = message.body[:80] if message.body else "Pièce jointe envoyée"
-        author_name = message.author.get_full_name()
-        # Pour un canal collectif, on précise lequel dans le titre ; pour un
-        # message privé, le nom de l'auteur suffit (le destinataire sait
-        # déjà que c'est une conversation 1:1).
-        if channel.channel_type != ChannelType.DIRECT:
-            from .serializers import ChannelSerializer
-
-            channel_name = ChannelSerializer(channel, context={"request": self.request}).data["display_name"]
-            title = f"{author_name} — {channel_name}"
-        else:
-            title = author_name
-        for membership in recipients:
-            notify_user(
-                membership.user,
-                NotificationType.NEW_MESSAGE,
-                title=title,
-                body=preview,
-                data={"channel_id": channel.id},
-            )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -268,3 +248,181 @@ class ContactChildTeacherView(APIView):
 
         channel = get_or_create_direct_channel(request.user, teacher)
         return Response(ChannelSerializer(channel, context={"request": request}).data)
+
+
+class ContactClassmateView(APIView):
+    """Ouvre (ou retrouve) une conversation directe entre deux élèves de la
+    même classe active — le point d'entrée depuis la liste de camarades de
+    « Ma classe » ; le mécanisme de canal direct lui-même est celui,
+    déjà existant, partagé avec toute la messagerie (aucun nouveau
+    mécanisme de canal)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from apps.academics.models import Child, Enrollment, EnrollmentStatus
+        from rest_framework.exceptions import PermissionDenied
+
+        from .services import get_or_create_direct_channel
+
+        requester_child = getattr(request.user, "child_profile", None)
+        if not requester_child:
+            raise PermissionDenied("Réservé aux comptes élève.")
+
+        classmate_id = request.data.get("classmate_id")
+        classmate = get_object_or_404(Child, pk=classmate_id)
+        if classmate.id == requester_child.id:
+            raise PermissionDenied("Vous ne pouvez pas vous contacter vous-même.")
+        if not classmate.user_id:
+            raise PermissionDenied("Cet élève n'a pas encore activé son compte.")
+
+        requester_class = Enrollment.objects.filter(
+            child=requester_child, status=EnrollmentStatus.ACTIVE
+        ).values_list("school_class_id", flat=True).first()
+        classmate_class = Enrollment.objects.filter(
+            child=classmate, status=EnrollmentStatus.ACTIVE
+        ).values_list("school_class_id", flat=True).first()
+        if not requester_class or requester_class != classmate_class:
+            raise PermissionDenied("Cet élève n'est pas dans votre classe.")
+
+        channel = get_or_create_direct_channel(request.user, classmate.user)
+        return Response(ChannelSerializer(channel, context={"request": request}).data)
+
+
+class PublishExerciseView(APIView):
+    """Publication d'un devoir/examen directement depuis le canal de
+    matière — l'action « Ajouter un devoir » du menu « + », réservée à
+    l'enseignant dédié de cette matière (seul membre enseignant du canal).
+    Un devoir vit toujours dans le canal de matière, jamais dans le canal
+    de classe (voir apps.messaging.models, docstring de Channel)."""
+
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedToMessage]
+
+    def post(self, request, channel_id):
+        from django.utils.dateparse import parse_datetime
+        from rest_framework.exceptions import PermissionDenied, ValidationError
+
+        from apps.virtual_classes.models import Exercise, ExerciseKind, ExerciseStatus, VirtualClass
+        from apps.virtual_classes.services import notify_enrolled_parents
+        from apps.notifications.models import NotificationType
+
+        channel = get_object_or_404(Channel, pk=channel_id)
+        if channel.channel_type != ChannelType.SUBJECT:
+            raise PermissionDenied("Un devoir ne peut être publié que dans un canal de matière.")
+        subject = channel.subject
+        if subject.teacher_id != request.user.id:
+            raise PermissionDenied("Réservé à l'enseignant dédié de cette matière.")
+
+        title = (request.data.get("title") or "").strip()
+        instructions = (request.data.get("instructions") or "").strip()
+        kind = request.data.get("kind", ExerciseKind.HOMEWORK)
+        attachments = save_uploaded_attachments(request.FILES.getlist("attachments"), request)
+        deadline_raw = request.data.get("deadline")
+
+        if not title or not instructions:
+            raise ValidationError("Titre et consignes sont obligatoires.")
+        if kind not in ExerciseKind.values:
+            raise ValidationError("Type de devoir invalide.")
+        deadline = parse_datetime(deadline_raw) if deadline_raw else None
+        if not deadline:
+            raise ValidationError("La date limite est obligatoire.")
+
+        virtual_class, _ = VirtualClass.objects.get_or_create(subject=subject)
+        exercise = Exercise.objects.create(
+            virtual_class=virtual_class, kind=kind, title=title, instructions=instructions,
+            attachments=attachments, deadline=deadline,
+            status=ExerciseStatus.PUBLISHED, published_at=timezone.now(),
+        )
+
+        message = Message.objects.create(channel=channel, author=request.user, exercise_id=exercise.id)
+        notify_channel_members(
+            channel, message, request, preview_override=f"Nouveau devoir : {title}"
+        )
+        notify_enrolled_parents(
+            subject.school_class, NotificationType.EXERCISE_PUBLISHED,
+            title="Nouveau devoir publié",
+            body=f"« {title} » a été publié pour la matière {subject.name}.",
+        )
+        broadcast_to_channel(
+            channel.id, "message_created",
+            {"message": MessageSerializer(message, context={"request": request}).data},
+        )
+        return Response(
+            MessageSerializer(message, context={"request": request}).data, status=status.HTTP_201_CREATED
+        )
+
+
+class SubmitExerciseMessageView(APIView):
+    """Soumission d'un devoir depuis le fil privé élève/enseignant — crée
+    ou met à jour la Submission de l'élève (jamais un doublon, voir
+    unique_together sur Submission) et publie le message correspondant
+    dans cette même DM, avec exercise_id renseigné pour rester traçable
+    dans un historique qui mélange discussion normale et soumissions de
+    plusieurs devoirs différents."""
+
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedToMessage]
+
+    def post(self, request, channel_id):
+        from rest_framework.exceptions import PermissionDenied, ValidationError
+
+        from apps.academics.models import Enrollment, EnrollmentStatus
+        from apps.notifications.models import NotificationType
+        from apps.notifications.services import notify_user
+        from apps.virtual_classes.models import Exercise, ExerciseStatus, Submission, SubmissionStatus
+
+        channel = get_object_or_404(Channel, pk=channel_id)
+        if channel.channel_type != ChannelType.DIRECT:
+            raise PermissionDenied("La soumission d'un devoir se fait dans le fil privé avec l'enseignant.")
+        _require_membership(channel, request.user)
+
+        child = getattr(request.user, "child_profile", None)
+        if not child:
+            raise PermissionDenied("Réservé aux comptes élève.")
+
+        exercise_id = request.data.get("exercise_id")
+        exercise = get_object_or_404(
+            Exercise.objects.select_related("virtual_class__subject__school_class"), pk=exercise_id
+        )
+        subject = exercise.virtual_class.subject
+
+        other_member = channel.memberships.exclude(user=request.user).select_related("user").first()
+        if not other_member or other_member.user_id != subject.teacher_id:
+            raise PermissionDenied("Ce devoir n'appartient pas à l'enseignant de cette conversation.")
+        if exercise.status != ExerciseStatus.PUBLISHED:
+            raise PermissionDenied("Ce devoir n'accepte plus de nouvelle soumission.")
+        is_enrolled = Enrollment.objects.filter(
+            child=child, school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
+        ).exists()
+        if not is_enrolled:
+            raise PermissionDenied("Vous n'êtes pas inscrit(e) dans la classe de ce devoir.")
+
+        content = (request.data.get("content") or "").strip()
+        attachments = save_uploaded_attachments(request.FILES.getlist("attachments"), request)
+        if not content and not attachments:
+            raise ValidationError("Ajoutez un texte ou une pièce jointe.")
+
+        Submission.objects.update_or_create(
+            exercise=exercise, child=child,
+            defaults={
+                "content": content, "attachments": attachments,
+                "status": SubmissionStatus.SUBMITTED, "submitted_by": request.user,
+            },
+        )
+
+        message = Message.objects.create(
+            channel=channel, author=request.user, body=content, attachments=attachments,
+            exercise_id=exercise.id,
+        )
+        if subject.teacher:
+            notify_user(
+                subject.teacher, NotificationType.EXERCISE_SUBMITTED,
+                title="Nouvelle copie soumise",
+                body=f"{child.first_name} a soumis une copie pour « {exercise.title} ».",
+            )
+        broadcast_to_channel(
+            channel.id, "message_created",
+            {"message": MessageSerializer(message, context={"request": request}).data},
+        )
+        return Response(
+            MessageSerializer(message, context={"request": request}).data, status=status.HTTP_201_CREATED
+        )

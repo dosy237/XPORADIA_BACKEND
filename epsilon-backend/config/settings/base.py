@@ -138,6 +138,13 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.notifications.tasks.send_daily_engagement_nudges",
         "schedule": crontab(hour=8, minute=0),
     },
+    # La commande existait déjà mais n'était jamais déclenchée par rien
+    # (voir apps/virtual_classes/tasks.py) : sans cette entrée, aucun
+    # rappel d'échéance de devoir n'était jamais envoyé.
+    "remind-exercise-deadlines": {
+        "task": "apps.virtual_classes.tasks.remind_exercise_deadlines",
+        "schedule": crontab(minute="*/30"),
+    },
 }
 
 # Auth

@@ -1033,7 +1033,7 @@ class MyClassView(APIView):
         )
         if not enrollment:
             return Response({
-                "school_class_name": None, "homeroom_teacher": None, "classmates": [],
+                "school_class_name": None, "homeroom_teacher": None, "classmates": [], "subjects": [],
                 "establishment_name": None, "class_level": child.class_level, "status": None,
                 "birth_date": child.birth_date,
             })
@@ -1046,6 +1046,16 @@ class MyClassView(APIView):
             .order_by("child__first_name")
         )
         teacher = school_class.homeroom_teacher
+
+        from apps.messaging.models import Channel, ChannelType
+
+        subjects = Subject.objects.filter(school_class=school_class).select_related("teacher").order_by("name")
+        subject_channel_by_id = dict(
+            Channel.objects.filter(channel_type=ChannelType.SUBJECT, subject__in=subjects).values_list(
+                "subject_id", "id"
+            )
+        )
+
         return Response(
             {
                 "school_class_name": str(school_class),
@@ -1057,8 +1067,19 @@ class MyClassView(APIView):
                     if teacher else None
                 ),
                 "classmates": [
-                    {"id": e.child.id, "first_name": e.child.first_name, "last_name": e.child.last_name}
+                    {
+                        "id": e.child.id, "first_name": e.child.first_name, "last_name": e.child.last_name,
+                        "can_message": bool(e.child.user_id),
+                    }
                     for e in classmates
+                ],
+                "subjects": [
+                    {
+                        "id": subject.id, "name": subject.name,
+                        "teacher_name": subject.teacher.get_full_name() if subject.teacher else None,
+                        "channel_id": subject_channel_by_id.get(subject.id),
+                    }
+                    for subject in subjects
                 ],
                 "establishment_name": school_class.track.department.establishment.school_name,
                 "class_level": child.class_level,
