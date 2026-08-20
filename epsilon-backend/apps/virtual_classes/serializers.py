@@ -155,7 +155,13 @@ class ChildSubjectSerializer(serializers.Serializer):
         virtual_class = getattr(obj, "virtual_class", None)
         if not virtual_class:
             return []
-        exercises = virtual_class.exercises.filter(status=ExerciseStatus.PUBLISHED)
+        # PUBLIÉ et CLÔTURÉ tous deux visibles ici — un devoir clôturé
+        # (marqué "corrigé" par l'enseignant) doit continuer à apparaître
+        # chez l'élève avec sa note, jamais disparaître. Seul un brouillon
+        # (jamais publié) reste invisible côté élève.
+        exercises = virtual_class.exercises.filter(
+            status__in=[ExerciseStatus.PUBLISHED, ExerciseStatus.CLOSED]
+        )
         return ChildExerciseSerializer(exercises, many=True, context={"child": child}).data
 
 
