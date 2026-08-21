@@ -22,6 +22,9 @@ from .models import (
     Department,
     Enrollment,
     EnrollmentStatus,
+    EstablishmentEvent,
+    EventAudience,
+    EventType,
     PersonalScheduleBlock,
     PersonalScheduleException,
     SchoolClass,
@@ -35,6 +38,7 @@ from .serializers import (
     ChildBasicSerializer,
     DepartmentSerializer,
     EnrollmentSerializer,
+    EstablishmentEventSerializer,
     PersonalScheduleBlockSerializer,
     SchoolClassSerializer,
     SubjectSerializer,
@@ -42,7 +46,7 @@ from .serializers import (
     TimetableSlotSerializer,
     TrackSerializer,
 )
-from .services import personal_blocks_for_date, term_for_date, timetable_slots_for_date
+from .services import events_for_date, personal_blocks_for_date, term_for_date, timetable_slots_for_date
 
 
 def _require_director(user):
@@ -1059,14 +1063,18 @@ class MyAgendaView(APIView):
         ).select_related("school_class__track__department__establishment").first()
 
         official_slots = []
+        school_events = []
         term = None
         if enrollment:
             school_class = enrollment.school_class
             official_slots = TimetableSlotSerializer(
                 timetable_slots_for_date(school_class, target_date), many=True
             ).data
+            establishment = school_class.track.department.establishment
+            school_events = EstablishmentEventSerializer(
+                events_for_date(establishment, school_class, target_date, EventAudience.STUDENTS), many=True
+            ).data
             if target_date.weekday() <= 5:
-                establishment = school_class.track.department.establishment
                 term = term_for_date(establishment, school_class.school_year, target_date)
 
         return Response({
@@ -1079,6 +1087,7 @@ class MyAgendaView(APIView):
             ),
             "official_slots": official_slots,
             "personal_blocks": personal_blocks_for_date(child, target_date),
+            "school_events": school_events,
         })
 
 
@@ -1197,6 +1206,104 @@ class PersonalScheduleBlockOccurrenceView(APIView):
             block.valid_until = target_date - timedelta(days=1)
             block.save(update_fields=["valid_until"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _notify_holiday_declared(event):
+    """Notifie immédiatement les élèves concernés par un jour férié
+    nouvellement déclaré, et leurs parents s'ils sont rattachés — même
+    principe que partout ailleurs (élève directement s'il a un compte
+    actif, parent EN PLUS s'il est rattaché, jamais l'un à la place de
+    l'autre). Portée établissement entière si event.school_class est nul,
+    sinon limitée à cette classe."""
+    enrollments = Enrollment.objects.filter(status=EnrollmentStatus.ACTIVE).select_related(
+        "child__user", "child__parent__user"
+    )
+    if event.school_class_id:
+        enrollments = enrollments.filter(school_class_id=event.school_class_id)
+    else:
+        enrollments = enrollments.filter(school_class__track__department__establishment=event.establishment)
+
+    body = f"{event.title} — {event.date.strftime('%d/%m/%Y')}."
+    for enrollment in enrollments:
+        child = enrollment.child
+        recipients = []
+        if child.user_id:
+            recipients.append(child.user)
+        if child.parent_id and child.parent.user_id:
+            recipients.append(child.parent.user)
+        for recipient in recipients:
+            notify_user(
+                recipient,
+                NotificationType.HOLIDAY_DECLARED,
+                title="Jour férié",
+                body=body,
+                data={"event_id": str(event.id), "date": event.date.isoformat()},
+            )
+
+
+class ClassEventListCreateView(generics.ListCreateAPIView):
+    """Événements d'établissement (remise de bulletins, réunion, jour
+    férié, autre) rattachés à cette classe, plus ceux déclarés pour tout
+    l'établissement — vue de gestion côté enseignant/directeur, atteinte
+    depuis l'écran de classe existant. Un jour férié réutilise
+    _require_timetable_write_access (mêmes ayants droit que l'emploi du
+    temps) ; les autres types réutilisent _require_homeroom_teacher
+    (titulaire ou directeur), aucune logique de permission nouvelle."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EstablishmentEventSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        school_class = _get_school_class(self.kwargs["class_id"])
+        _require_timetable_write_access(school_class, self.request.user)
+        establishment = school_class.track.department.establishment
+        return EstablishmentEvent.objects.filter(establishment=establishment).filter(
+            Q(school_class__isnull=True) | Q(school_class=school_class)
+        )
+
+    def perform_create(self, serializer):
+        school_class = _get_school_class(self.kwargs["class_id"])
+        event_type = serializer.validated_data["event_type"]
+        if event_type == EventType.HOLIDAY:
+            _require_timetable_write_access(school_class, self.request.user)
+        else:
+            _require_homeroom_teacher(school_class, self.request.user)
+
+        establishment = school_class.track.department.establishment
+        for_whole_establishment = serializer.validated_data.pop("for_whole_establishment", False)
+        instance = serializer.save(
+            establishment=establishment,
+            school_class=None if for_whole_establishment else school_class,
+            created_by=self.request.user,
+        )
+        if instance.event_type == EventType.HOLIDAY:
+            _notify_holiday_declared(instance)
+
+
+class ChildEventsView(generics.ListAPIView):
+    """Événements d'établissement pertinents pour le parent connecté, sur
+    une date donnée — lecture seule, réutilise events_for_date avec le
+    public cible \"parents\" (jamais un événement ciblant uniquement
+    l'équipe enseignante)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = EstablishmentEventSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        child = _require_child_belongs_to_parent(self.kwargs["child_id"], self.request.user)
+        raw_date = self.request.query_params.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+        enrollment = Enrollment.objects.filter(
+            child=child, status=EnrollmentStatus.ACTIVE
+        ).select_related("school_class__track__department__establishment").first()
+        if not enrollment:
+            return EstablishmentEvent.objects.none()
+        school_class = enrollment.school_class
+        establishment = school_class.track.department.establishment
+        events = events_for_date(establishment, school_class, target_date, EventAudience.PARENTS)
+        return EstablishmentEvent.objects.filter(id__in=[e.id for e in events])
 
 
 class MyClassView(APIView):

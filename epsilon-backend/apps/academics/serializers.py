@@ -5,6 +5,8 @@ from apps.users.models import Child, User, UserRole
 from .models import (
     Department,
     Enrollment,
+    EstablishmentEvent,
+    EventAudience,
     PersonalScheduleBlock,
     SchoolClass,
     Subject,
@@ -193,4 +195,35 @@ class PersonalScheduleBlockSerializer(serializers.ModelSerializer):
         valid_until = attrs.get("valid_until", getattr(self.instance, "valid_until", None))
         if valid_from and valid_until and valid_until < valid_from:
             raise serializers.ValidationError("La date de fin de validité doit être après la date de début.")
+        return attrs
+
+
+class EstablishmentEventSerializer(serializers.ModelSerializer):
+    event_type_label = serializers.CharField(source="get_event_type_display", read_only=True)
+    # Champ écriture seule, jamais stocké tel quel : indique si l'événement
+    # doit être rattaché à toute l'école (school_class=null) plutôt qu'à la
+    # classe d'origine de la requête — voir ClassEventListCreateView.
+    for_whole_establishment = serializers.BooleanField(write_only=True, required=False, default=False)
+
+    class Meta:
+        model = EstablishmentEvent
+        fields = [
+            "id", "school_class", "event_type", "event_type_label", "title", "description",
+            "date", "start_time", "end_time", "audience", "for_whole_establishment", "created_at",
+        ]
+        read_only_fields = ["id", "school_class", "event_type_label", "created_at"]
+
+    def validate_audience(self, value):
+        if not value:
+            raise serializers.ValidationError("Choisissez au moins un public cible.")
+        valid = {choice for choice, _ in EventAudience.choices}
+        if not set(value).issubset(valid):
+            raise serializers.ValidationError("Public cible invalide.")
+        return value
+
+    def validate(self, attrs):
+        start = attrs.get("start_time")
+        end = attrs.get("end_time")
+        if start and end and start >= end:
+            raise serializers.ValidationError("L'heure de fin doit être après l'heure de début.")
         return attrs

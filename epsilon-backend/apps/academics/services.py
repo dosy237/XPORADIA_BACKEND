@@ -33,13 +33,31 @@ def term_for_date(establishment, school_year, target_date):
     ).order_by("start_date").first()
 
 
+def is_holiday(establishment, school_class, target_date):
+    """Un jour férié ponctuel a-t-il été déclaré pour cette date, sur cette
+    classe (ou tout l'établissement) ? Distinct des vacances déduites des
+    trimestres (term_for_date) : un jour férié ne fait JAMAIS sortir la
+    date de la plage de son trimestre pour le reste du système — seule
+    l'affichage des cours officiels de ce jour précis est neutralisé (voir
+    timetable_slots_for_date, seul endroit qui combine les deux)."""
+    from django.db.models import Q as _Q
+
+    from .models import EstablishmentEvent, EventType
+
+    return EstablishmentEvent.objects.filter(
+        establishment=establishment, event_type=EventType.HOLIDAY, date=target_date,
+    ).filter(_Q(school_class__isnull=True) | _Q(school_class=school_class)).exists()
+
+
 def timetable_slots_for_date(school_class, target_date):
     """Créneaux officiels de `school_class` réellement actifs à
     `target_date` : le bon jour de la semaine, ET (aucun trimestre assigné
     au créneau => valable toute l'année scolaire, mais seulement si la date
     tombe dans un trimestre existant ; OU le créneau est assigné
     précisément au trimestre courant). Renvoie un queryset vide si la date
-    est un dimanche ou tombe en vacances."""
+    est un dimanche, tombe en vacances, ou est déclarée jour férié pour
+    cette classe (voir is_holiday — la date reste un jour d'école pour le
+    reste du système, seul cet affichage est vidé)."""
     from .models import TimetableSlot
 
     weekday = target_date.weekday()
@@ -51,9 +69,26 @@ def timetable_slots_for_date(school_class, target_date):
     if term is None:
         return TimetableSlot.objects.none()
 
+    if is_holiday(establishment, school_class, target_date):
+        return TimetableSlot.objects.none()
+
     return TimetableSlot.objects.filter(
         school_class=school_class, weekday=weekday
     ).filter(Q(term__isnull=True) | Q(term=term)).select_related("subject")
+
+
+def events_for_date(establishment, school_class, target_date, audience_role):
+    """Événements d'établissement pertinents pour `target_date`, sur cette
+    classe (ou déclarés pour tout l'établissement), et dont le public
+    cible inclut `audience_role` ("students", "parents" ou "teachers") —
+    seule fonction qui filtre les événements par audience, réutilisée par
+    l'agenda élève et l'agenda parent, jamais dupliquée."""
+    from .models import EstablishmentEvent
+
+    events = EstablishmentEvent.objects.filter(
+        establishment=establishment, date=target_date,
+    ).filter(Q(school_class__isnull=True) | Q(school_class=school_class)).order_by("start_time")
+    return [e for e in events if audience_role in (e.audience or [])]
 
 
 def personal_blocks_for_date(child, target_date):

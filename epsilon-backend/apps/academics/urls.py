@@ -43,6 +43,7 @@ urlpatterns = [
     ),
     path("children/<int:child_id>/class/", views.ChildClassView.as_view(), name="child-class"),
     path("children/<int:child_id>/timetable/", views.ChildTimetableView.as_view(), name="child-timetable"),
+    path("children/<int:child_id>/events/", views.ChildEventsView.as_view(), name="child-events"),
     path(
         "children/<int:child_id>/remove-from-establishment/",
         views.RemoveStudentFromEstablishmentView.as_view(),
@@ -62,6 +63,7 @@ urlpatterns = [
         views.PersonalScheduleBlockOccurrenceView.as_view(),
         name="personal-block-occurrence",
     ),
+    path("classes/<int:class_id>/events/", views.ClassEventListCreateView.as_view(), name="class-event-list"),
     path("my-class/", views.MyClassView.as_view(), name="my-class"),
     path("my-delegations/", views.MyDelegationsView.as_view(), name="my-delegations"),
     path("task-delegations/", views.TaskDelegationsView.as_view(), name="task-delegations"),

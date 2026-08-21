@@ -325,6 +325,52 @@ class PersonalBlockReminderLog(models.Model):
         unique_together = ("block", "date")
 
 
+class EventType(models.TextChoices):
+    REPORT_CARD_DISTRIBUTION = "report_card_distribution", "Remise de bulletins"
+    MEETING = "meeting", "Réunion"
+    HOLIDAY = "holiday", "Jour férié"
+    OTHER = "other", "Autre"
+
+
+class EventAudience(models.TextChoices):
+    STUDENTS = "students", "Élèves"
+    PARENTS = "parents", "Parents"
+    TEACHERS = "teachers", "Équipe enseignante"
+
+
+class EstablishmentEvent(models.Model):
+    """Événement ponctuel posé par un enseignant ou l'établissement — ni un
+    cours officiel récurrent (TimetableSlot) ni un bloc personnel d'élève
+    (PersonalScheduleBlock) : remise de bulletins, réunion, jour férié...
+    `school_class` nul = concerne tout l'établissement. `audience` est une
+    liste explicite de EventAudience — jamais déduite automatiquement du
+    type, toujours fixée par le créateur (voir apps.academics.views,
+    ClassEventListCreateView)."""
+
+    establishment = models.ForeignKey(DirectorProfile, on_delete=models.CASCADE, related_name="events")
+    school_class = models.ForeignKey(
+        SchoolClass, on_delete=models.CASCADE, null=True, blank=True, related_name="events",
+        verbose_name="Classe concernée (vide = tout l'établissement)",
+    )
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    date = models.DateField()
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    audience = models.JSONField(default=list, verbose_name="Public cible")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Événement d'établissement"
+        verbose_name_plural = "Événements d'établissement"
+        ordering = ["date", "start_time"]
+
+    def __str__(self):
+        return f"{self.title} ({self.date})"
+
+
 class TeacherInvitation(models.Model):
     """Invitation envoyée par email à un enseignant sans compte Xporadia
     encore actif, pour devenir l'enseignant dédié d'une Matière. Le lien
