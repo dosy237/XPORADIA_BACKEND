@@ -33,18 +33,27 @@ from apps.academics.models import (
     EventAudience,
     EventType,
     PersonalScheduleBlock,
+    PersonalScheduleException,
     SchoolClass,
     Subject,
     TimetableSlot,
     Track,
 )
+from apps.academics.views import _notify_holiday_declared
+from apps.feed.models import Follow, Post
 from apps.grading.models import Evaluation, EvaluationType, Grade, ReportCard, SubjectReportEntry, Term
 from apps.grading.services import compute_class_rankings, compute_general_average, compute_subject_average
 from apps.library.models import LibraryResource, ModerationStatus, ResourceCategory, ResourceType, SchoolLevel
 from apps.messaging.models import Channel, ChannelType, Message
-from apps.messaging.services import create_subject_channel, get_or_create_class_channel, get_or_create_direct_channel
+from apps.messaging.services import (
+    create_subject_channel,
+    ensure_teacher_dm_channels,
+    get_or_create_class_channel,
+    get_or_create_direct_channel,
+)
+from apps.notifications.models import Notification, NotificationType
 from apps.student_life.models import BucketListItem, LifeGoal
-from apps.users.models import Child, DirectorProfile, ParentProfile, User, UserRole
+from apps.users.models import Child, ChildClaimRequest, ChildClaimRequestStatus, DirectorProfile, ParentProfile, User, UserRole
 from apps.virtual_classes.models import Exercise, ExerciseKind, ExerciseStatus, Submission, SubmissionStatus, VirtualClass
 
 DEMO_PASSWORD = "Xporadia2026!"
@@ -83,15 +92,42 @@ def make_demo_pdf_bytes(title: str) -> bytes:
     return content.encode("latin-1", errors="replace")
 
 
-def make_demo_cover_bytes() -> bytes:
-    """Petite couverture JPEG réelle (générée avec Pillow, déjà une
-    dépendance de Django pour la validation d'ImageField)."""
+def make_demo_cover_bytes(size=(300, 400), color=(200, 130, 60)) -> bytes:
+    """Petite image JPEG réelle (générée avec Pillow, déjà une dépendance
+    de Django pour la validation d'ImageField) — couverture de ressource
+    par défaut, mais réutilisée telle quelle pour les avatars de démo
+    (carrée, couleur distincte par personne)."""
     from PIL import Image
 
-    img = Image.new("RGB", (300, 400), color=(200, 130, 60))
+    img = Image.new("RGB", size, color=color)
     buffer = io.BytesIO()
     img.save(buffer, format="JPEG", quality=70)
     return buffer.getvalue()
+
+
+def ensure_avatar(user, color):
+    """Backfill idempotent d'une vraie photo de profil (pas juste des
+    initiales) — sans ceci, aucun compte de démonstration n'a jamais de
+    vrai avatar en base, rendant impossible toute vérification réelle du
+    rendu \"vraie photo vs. initiales\" sur les écrans qui l'affichent."""
+    if user.avatar:
+        return False
+    content = make_demo_cover_bytes(size=(240, 240), color=color)
+    user.avatar.save(f"avatar_{user.id}.jpg", ContentFile(content), save=True)
+    return True
+
+
+def save_demo_attachment(name: str, content: bytes, content_type: str, upload_to="message_attachments") -> dict:
+    """Enregistre un vrai fichier sur le stockage par défaut et renvoie le
+    dict {name, url, type} attendu par les champs `attachments` (Message,
+    Submission) — même format que save_uploaded_attachments, mais sans
+    requête HTTP disponible ici (commande de seed) : l'URL absolue est
+    construite directement, cohérente avec les autres médias de démo
+    (couvertures/PDF bibliothèque)."""
+    from django.core.files.storage import default_storage
+
+    path = default_storage.save(f"{upload_to}/{name}", ContentFile(content))
+    return {"name": name, "url": f"http://127.0.0.1:8000{default_storage.url(path)}", "type": content_type}
 
 
 class Command(BaseCommand):
@@ -108,8 +144,17 @@ class Command(BaseCommand):
             director_user, c = get_or_create_user(
                 "demo.directeur.showcase@xporadia.ci", primary_role=UserRole.DIRECTOR,
                 first_name="Solange", last_name="Bakayoko",
+                # is_documents_validated=False par défaut (validé par un
+                # administrateur Xporadia après inscription réelle) —
+                # l'établissement n'apparaîtrait sinon jamais dans
+                # l'annuaire public (EstablishmentDirectoryViewSet), donc
+                # jamais trouvable depuis "Rejoindre mon établissement".
+                is_documents_validated=True,
             )
             note(c)
+            if not director_user.is_documents_validated:
+                director_user.is_documents_validated = True
+                director_user.save(update_fields=["is_documents_validated"])
             director, c = DirectorProfile.objects.get_or_create(
                 user=director_user,
                 defaults={"school_name": "Lycée Démo Complet", "address": "Cocody, Abidjan", "is_partner": True},
@@ -147,6 +192,8 @@ class Command(BaseCommand):
             for name, coeff, email, first, last in subject_specs:
                 teacher, c1 = get_or_create_user(email, primary_role=UserRole.TEACHER, first_name=first, last_name=last)
                 note(c1)
+                if name == "Mathématiques":
+                    note(ensure_avatar(teacher, (58, 92, 148)))
                 subject, c2 = Subject.objects.get_or_create(
                     school_class=school_class, name=name, defaults={"coefficient": coeff, "teacher": teacher},
                 )
@@ -172,6 +219,7 @@ class Command(BaseCommand):
                 first_name="Kevin", last_name="Ouattara",
             )
             note(c)
+            note(ensure_avatar(student_user, (214, 122, 44)))
             child, c = Child.objects.get_or_create(
                 user=student_user,
                 defaults={
@@ -196,6 +244,7 @@ class Command(BaseCommand):
                 first_name="Aïcha", last_name="Bamba",
             )
             note(c)
+            note(ensure_avatar(classmate_user, (90, 150, 110)))
             classmate, c = Child.objects.get_or_create(
                 user=classmate_user,
                 defaults={"first_name": "Aïcha", "last_name": "Bamba", "class_level": "Terminale D"},
@@ -204,6 +253,72 @@ class Command(BaseCommand):
             Enrollment.objects.get_or_create(
                 child=classmate, school_class=school_class, defaults={"status": EnrollmentStatus.ACTIVE}
             )
+
+            # Un second camarade, avec AUCUNE conversation existante — pour
+            # tester le démarrage réel d'une toute nouvelle DM depuis Ma
+            # classe, distinct du cas où la conversation existe déjà.
+            classmate2_user, c = get_or_create_user(
+                "demo.camarade2.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
+                first_name="Moussa", last_name="Kouadio",
+            )
+            note(c)
+            classmate2, c = Child.objects.get_or_create(
+                user=classmate2_user,
+                defaults={"first_name": "Moussa", "last_name": "Kouadio", "class_level": "Terminale D"},
+            )
+            note(c)
+            Enrollment.objects.get_or_create(
+                child=classmate2, school_class=school_class, defaults={"status": EnrollmentStatus.ACTIVE}
+            )
+
+            # === Élève auto-inscrit, pas encore réclamé par un parent ===
+            # Child.parent reste nul tant que l'élève n'a pas approuvé une
+            # ChildClaimRequest (voir RegisterStudentSerializer côté
+            # inscription, ReviewChildClaimRequestView côté approbation) —
+            # état distinct du cas Kevin/Ramata où le lien est déjà établi.
+            selfreg_user, c = get_or_create_user(
+                "demo.eleve.autoinscrit.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
+                first_name="Salimata", last_name="Coulibaly",
+            )
+            note(c)
+            selfreg_child, c = Child.objects.get_or_create(
+                user=selfreg_user,
+                defaults={
+                    "parent": None, "first_name": "Salimata", "last_name": "Coulibaly",
+                    "class_level": "Terminale D",
+                },
+            )
+            note(c)
+            Enrollment.objects.get_or_create(
+                child=selfreg_child, school_class=school_class, defaults={"status": EnrollmentStatus.ACTIVE}
+            )
+
+            waiting_parent_user, c = get_or_create_user(
+                "demo.parent.enattente.showcase@xporadia.ci", primary_role=UserRole.PARENT,
+                first_name="Yacouba", last_name="Coulibaly",
+            )
+            note(c)
+            waiting_parent, c = ParentProfile.objects.get_or_create(
+                user=waiting_parent_user, defaults={"subscription_active": True}
+            )
+            note(c)
+            _, c = ChildClaimRequest.objects.get_or_create(
+                parent=waiting_parent, child=selfreg_child, defaults={"status": ChildClaimRequestStatus.PENDING}
+            )
+            note(c)
+
+            # === DM automatiques élève <-> chaque enseignant dédié ===
+            # Dans la vraie vie, déclenchée à l'affectation d'un enseignant à
+            # une matière ou à l'activation d'un compte élève (voir
+            # ensure_teacher_dm_channels) — jamais liée à l'ouverture d'un
+            # canal de matière. Sans cet appel ici, les affectations
+            # enseignant/matière faites directement en ORM par ce script ne
+            # déclenchent jamais ce mécanisme, et aucune DM n'existe alors
+            # entre l'élève et un enseignant dédié dont la matière n'a pas
+            # encore de canal ouvert — ce qui bloquerait à tort la bascule
+            # devoir -> DM et la correction côté enseignant pour ces matières.
+            for subject in subjects.values():
+                ensure_teacher_dm_channels(subject)
 
             # === Canaux : classe + une matière ouverte par son enseignant ===
             # Jamais automatique dans la vraie vie (voir create_subject_channel) —
@@ -305,6 +420,37 @@ class Command(BaseCommand):
                             subject_average=subject_avg, coefficient=subject.coefficient,
                             teacher_comment="Bon niveau, continuez ainsi." if subject_avg and subject_avg >= 12 else "Peut mieux faire avec plus de régularité.",
                         )
+                else:
+                    # Bulletin déjà présent mais republié depuis (par ex. via
+                    # "Générer et publier les bulletins" côté enseignant, qui
+                    # recalcule et vide les appréciations si aucune
+                    # SubjectAppreciation n'existe en base) : backfill des
+                    # champs texte manquants sans toucher aux moyennes/rang
+                    # déjà à jour.
+                    if not report_card.homeroom_comment:
+                        report_card.homeroom_comment = "Trimestre sérieux, des efforts réguliers à poursuivre."
+                        report_card.save(update_fields=["homeroom_comment"])
+                        note(True)
+                    existing_entries = {e.subject_name: e for e in report_card.subject_entries.all()}
+                    for subject in subjects.values():
+                        entry = existing_entries.get(subject.name)
+                        comment = (
+                            "Bon niveau, continuez ainsi."
+                            if entry and entry.subject_average and entry.subject_average >= 12
+                            else "Peut mieux faire avec plus de régularité."
+                        )
+                        if entry is None:
+                            subject_avg = compute_subject_average(child, subject, term)
+                            SubjectReportEntry.objects.create(
+                                report_card=report_card, subject_name=subject.name,
+                                subject_average=subject_avg, coefficient=subject.coefficient,
+                                teacher_comment="Bon niveau, continuez ainsi." if subject_avg and subject_avg >= 12 else "Peut mieux faire avec plus de régularité.",
+                            )
+                            note(True)
+                        elif not entry.teacher_comment:
+                            entry.teacher_comment = comment
+                            entry.save(update_fields=["teacher_comment"])
+                            note(True)
 
             # === Devoirs dans les trois états ===
             def get_exercise(subject_name, title, kind=ExerciseKind.HOMEWORK, days_ago=3):
@@ -331,14 +477,31 @@ class Command(BaseCommand):
 
             ex_pc, c = get_exercise("Physique-Chimie", "TP : lois de Newton")
             note(c)
-            sub_pc, c2 = Submission.objects.get_or_create(
-                exercise=ex_pc, child=child,
-                defaults={
-                    "submitted_by": student_user, "content": "Voici mon compte-rendu de TP.",
-                    "status": SubmissionStatus.SUBMITTED,
-                },
-            )
-            note(c2)  # soumis : soumission sans note
+            sub_pc = Submission.objects.filter(exercise=ex_pc, child=child).first()
+            if sub_pc is None:
+                sub_pc = Submission.objects.create(
+                    exercise=ex_pc, child=child,
+                    submitted_by=student_user, content="Voici mon compte-rendu de TP.",
+                    status=SubmissionStatus.SUBMITTED,
+                )
+                note(True)
+            else:
+                note(False)  # soumis : soumission sans note
+            if not sub_pc.attachments:
+                # Plusieurs pièces jointes réelles (une image, un PDF) — une
+                # soumission à une seule pièce jointe ne teste pas le rendu
+                # en liste ni le mélange de types. Vérifié séparément de la
+                # création : une soumission existant déjà d'une exécution
+                # antérieure du seed (avant l'ajout de ce champ) doit aussi
+                # être complétée, pas seulement une toute nouvelle.
+                sub_pc.attachments = [
+                    save_demo_attachment("schema_experience.jpg", make_demo_cover_bytes(), "image/jpeg", "submission_attachments"),
+                    save_demo_attachment("compte_rendu_tp.pdf", make_demo_pdf_bytes("TP lois de Newton"), "application/pdf", "submission_attachments"),
+                ]
+                sub_pc.save(update_fields=["attachments"])
+                note(True)
+            else:
+                note(False)
 
             ex_francais, c = get_exercise("Français", "Dissertation sur Une si longue lettre", kind=ExerciseKind.EXAM, days_ago=10)
             note(c)
@@ -376,6 +539,9 @@ class Command(BaseCommand):
                 Message.objects.create(
                     channel=dm_teacher, author=subjects["Mathématiques"].teacher,
                     body="Bonjour Kevin, regarde la formule du terme général : reprends ton cours page 12, ça devrait débloquer.",
+                    attachments=[
+                        save_demo_attachment("formule_terme_general.jpg", make_demo_cover_bytes(), "image/jpeg", "message_attachments"),
+                    ],
                 )
                 Message.objects.create(
                     channel=dm_teacher, author=student_user,
@@ -384,6 +550,19 @@ class Command(BaseCommand):
                 note(True)
             else:
                 note(False)
+                teacher_answer = dm_teacher.messages.filter(
+                    author=subjects["Mathématiques"].teacher, attachments=[]
+                ).first()
+                if teacher_answer:
+                    # Complète une conversation déjà créée avant l'ajout de
+                    # la pièce jointe à ce message précis.
+                    teacher_answer.attachments = [
+                        save_demo_attachment("formule_terme_general.jpg", make_demo_cover_bytes(), "image/jpeg", "message_attachments"),
+                    ]
+                    teacher_answer.save(update_fields=["attachments"])
+                    note(True)
+                else:
+                    note(False)
 
             dm_classmate = get_or_create_direct_channel(student_user, classmate_user)
             if dm_classmate.messages.count() == 0:
@@ -462,12 +641,22 @@ class Command(BaseCommand):
                 note(c)
 
             today = timezone.localdate()
-            _, c = PersonalScheduleBlock.objects.get_or_create(
+            personal_block, c = PersonalScheduleBlock.objects.get_or_create(
                 child=child, weekday=today.weekday(), start_time=time(18, 0),
                 defaults={
                     "end_time": time(19, 0), "title": "Révision maths du soir",
                     "subject": subjects["Mathématiques"], "valid_from": today - timedelta(days=30),
                 },
+            )
+            note(c)
+
+            # Exception ponctuelle sur UNE occurrence du bloc personnel (la
+            # prochaine à cette date) — la règle récurrente continue
+            # normalement les autres semaines, seule cette date change.
+            next_occurrence = today + timedelta(days=7)
+            _, c = PersonalScheduleException.objects.get_or_create(
+                block=personal_block, date=next_occurrence,
+                defaults={"title": "Révision maths décalée (contrôle le lendemain)", "start_time": time(19, 30), "end_time": time(20, 30)},
             )
             note(c)
 
@@ -482,16 +671,48 @@ class Command(BaseCommand):
             )
             note(c)
 
+            # Jour férié déclaré sur une date normalement scolaire (lundi,
+            # dans la plage du deuxième trimestre) — doit neutraliser le
+            # cours de Mathématiques ce jour précis dans l'agenda, sans
+            # requalifier la date en vacance pour le reste du système.
+            holiday_event, c = EstablishmentEvent.objects.get_or_create(
+                establishment=director, school_class=school_class, event_type=EventType.HOLIDAY,
+                title="Fête nationale", date=date(2026, 2, 2),
+                defaults={"audience": [EventAudience.STUDENTS, EventAudience.PARENTS], "created_by": homeroom_user},
+            )
+            note(c)
+            # La notification "jour férié" n'est un effet de bord que de
+            # ClassEventListCreateView.post() (jamais du modèle) — sans cet
+            # appel explicite ici, un jour férié créé directement en ORM par
+            # ce script ne notifierait jamais personne, alors que c'est l'un
+            # des types de notification que ce jeu de données doit
+            # démontrer. Backfill couvert aussi pour un événement déjà
+            # présent d'une exécution précédente à ce correctif.
+            if not Notification.objects.filter(
+                user=student_user, notif_type=NotificationType.HOLIDAY_DECLARED,
+                data__event_id=str(holiday_event.id),
+            ).exists():
+                _notify_holiday_declared(holiday_event)
+                note(True)
+
             # === Vie & objectifs ===
-            _, c = LifeGoal.objects.get_or_create(
+            # related_subjects doit compter au moins 3 matières ayant une
+            # moyenne réelle au dernier bulletin publié : le radar de
+            # compétences du tableau de bord élève exige >= 3 axes pour
+            # s'afficher (radarAxes.length >= 3 côté frontend).
+            life_goal, created_lg = LifeGoal.objects.get_or_create(
                 child=child,
                 defaults={
                     "description": "Devenir ingénieur en énergies renouvelables pour contribuer à l'accès à "
                                    "l'électricité en zone rurale.",
-                    "related_subjects": ["Mathématiques", "Physique-Chimie"],
+                    "related_subjects": ["Mathématiques", "Physique-Chimie", "Français"],
                 },
             )
-            note(c)
+            note(created_lg)
+            if not created_lg and len(life_goal.related_subjects or []) < 3:
+                life_goal.related_subjects = ["Mathématiques", "Physique-Chimie", "Français"]
+                life_goal.save(update_fields=["related_subjects"])
+                note(True)
 
             bucket_specs = [
                 ("Obtenir le BAC avec mention", False),
@@ -503,6 +724,19 @@ class Command(BaseCommand):
                     child=child, title=title,
                     defaults={"is_done": is_done, "done_at": timezone.now() - timedelta(days=60) if is_done else None},
                 )
+                note(c)
+
+            # === Fil d'actualité : publications d'un enseignant suivi ===
+            # Alimente le bloc "activité sociale récente" du tableau de bord,
+            # qui n'affiche que les publications des auteurs suivis.
+            _, c = Follow.objects.get_or_create(follower=student_user, followed=subjects["Mathématiques"].teacher)
+            note(c)
+            post_specs = [
+                "Petit rappel pour la classe : la composition de mathématiques du T2 approche, révisez bien les suites numériques.",
+                "Ravi de voir autant de progrès ce trimestre, continuez ainsi !",
+            ]
+            for body in post_specs:
+                _, c = Post.objects.get_or_create(author=subjects["Mathématiques"].teacher, body=body)
                 note(c)
 
         self.stdout.write(self.style.SUCCESS(

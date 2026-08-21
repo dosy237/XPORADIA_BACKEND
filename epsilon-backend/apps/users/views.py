@@ -999,6 +999,22 @@ class ReviewChildClaimRequestView(APIView):
             child.parent = claim.parent
             child.save(update_fields=["parent"])
 
+        if claim.parent.user_id:
+            from apps.notifications.models import NotificationType
+            from apps.notifications.services import notify_user
+
+            notify_user(
+                claim.parent.user,
+                NotificationType.CLAIM_REQUEST_REVIEWED,
+                title="Demande de rattachement",
+                body=(
+                    f"{child.first_name} {child.last_name} a accepté votre demande de rattachement."
+                    if approve
+                    else f"{child.first_name} {child.last_name} a refusé votre demande de rattachement."
+                ),
+                data={"claim_id": claim.id, "approved": approve},
+            )
+
         return Response({"id": claim.id, "status": claim.status})
 
 

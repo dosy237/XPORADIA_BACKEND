@@ -32,6 +32,7 @@ class NotificationType(models.TextChoices):
     TIMETABLE_REMINDER  = "timetable_reminder",  "Rappel des cours du lendemain"
     REVISION_REMINDER   = "revision_reminder",   "Rappel de révision personnelle"
     HOLIDAY_DECLARED    = "holiday_declared",    "Jour férié déclaré"
+    CLAIM_REQUEST_REVIEWED = "claim_request_reviewed", "Réponse à une demande de rattachement"
     NEW_CERT_MODULE    = "new_cert_module",    "Nouveau module de certification"
     FOLLOWED_USER_POST = "followed_user_post", "Publication d'un profil suivi"
     ENGAGEMENT_TIP     = "engagement_tip",     "Conseil de visibilité"

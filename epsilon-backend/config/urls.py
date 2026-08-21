@@ -39,13 +39,15 @@ if settings.DEBUG:
     # prod.py), qui n'ajoute pas X-Frame-Options par défaut : la visionneuse
     # web (iframe) et le WebView natif les affichent donc directement. En
     # DEBUG, Django sert les médias lui-même et hérite du X-Frame-Options
-    # global (DENY) — on l'exempte uniquement pour les PDFs de bibliothèque
-    # afin que le comportement local corresponde à celui de production.
-    urlpatterns += [
-        re_path(
-            r"^media/library_pdfs/(?P<path>.*)$",
-            xframe_options_exempt(serve_static),
-            {"document_root": settings.MEDIA_ROOT / "library_pdfs"},
-        ),
-    ]
+    # global (DENY) — on l'exempte pour chaque dossier de PDFs affiché dans
+    # cette même visionneuse (bibliothèque, bulletins) afin que le
+    # comportement local corresponde à celui de production.
+    for pdf_subdir in ("library_pdfs", "report_cards"):
+        urlpatterns += [
+            re_path(
+                rf"^media/{pdf_subdir}/(?P<path>.*)$",
+                xframe_options_exempt(serve_static),
+                {"document_root": settings.MEDIA_ROOT / pdf_subdir},
+            ),
+        ]
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
