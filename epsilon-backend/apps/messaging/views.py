@@ -34,7 +34,7 @@ class ChannelListView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        from django.db.models import Q
+        from django.db.models import Max, Q
 
         from apps.users.models import UserRole
 
@@ -45,7 +45,19 @@ class ChannelListView(generics.ListAPIView):
                 channel_type=ChannelType.CLASS,
                 school_class__track__department__establishment__user=user,
             )
-        return Channel.objects.filter(filters).distinct().order_by("-messages__created_at", "-created_at")
+        # order_by("-messages__created_at") seul traverse la relation
+        # multi-valuée Channel -> Message : le JOIN qui en résulte renvoie
+        # une ligne PAR MESSAGE, et .distinct() ne les fusionne pas puisque
+        # cette colonne d'ordre fait partie de la comparaison SQL — un
+        # canal avec plusieurs messages apparaissait donc en double (ou
+        # plus) dans la liste. L'agrégation Max() ramène bien à une seule
+        # ligne par canal avant le tri.
+        return (
+            Channel.objects.filter(filters)
+            .distinct()
+            .annotate(last_message_at=Max("messages__created_at"))
+            .order_by("-last_message_at", "-created_at")
+        )
 
 
 def _require_membership(channel, user):

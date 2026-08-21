@@ -59,6 +59,18 @@ def _require_establishment_access(establishment, user):
         raise PermissionDenied("Vous n'avez pas accès à la bibliothèque de cet établissement.")
 
 
+def _update_file_size_kb(resource):
+    """`file_size_kb` n'était jamais calculé à l'upload réel (seul le seed
+    de démo le renseignait à la main) — il restait à 0 pour toute ressource
+    publiée depuis l'application. Dérivé ici de la taille réelle du PDF
+    hébergé une fois enregistré sur disque ; 0 pour un simple lien externe,
+    qui n'a pas de taille de fichier propre."""
+    new_size_kb = max(1, resource.pdf_file.size // 1024) if resource.pdf_file else 0
+    if resource.file_size_kb != new_size_kb:
+        resource.file_size_kb = new_size_kb
+        resource.save(update_fields=["file_size_kb"])
+
+
 class LibraryResourceListCreateView(generics.ListCreateAPIView):
     """Ressources de la bibliothèque numérique d'un établissement —
     consultables et alimentées par tout le personnel enseignant qui y est
@@ -124,10 +136,11 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
         # une contribution d'enseignant passe par une modération (CDC
         # US-10-04 : soumission → revue admin → publication ou rejet).
         moderation_status = ModerationStatus.APPROVED if is_director else ModerationStatus.PENDING
-        serializer.save(
+        instance = serializer.save(
             establishment=establishment, author=user, is_contributed=not is_director,
             moderation_status=moderation_status,
         )
+        _update_file_size_kb(instance)
 
 
 class LibraryResourceDetailView(generics.RetrieveUpdateAPIView):
@@ -154,7 +167,8 @@ class LibraryResourceDetailView(generics.RetrieveUpdateAPIView):
         is_director = user.has_role(UserRole.DIRECTOR) and resource.establishment.user_id == user.id
         if resource.author_id != user.id and not is_director:
             raise PermissionDenied("Réservé à l'auteur ou au directeur de l'établissement.")
-        serializer.save()
+        instance = serializer.save()
+        _update_file_size_kb(instance)
 
 
 class TrackResourceDownloadView(APIView):
