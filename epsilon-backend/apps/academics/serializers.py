@@ -2,7 +2,16 @@ from rest_framework import serializers
 
 from apps.users.models import Child, User, UserRole
 
-from .models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, TimetableSlot, Track
+from .models import (
+    Department,
+    Enrollment,
+    PersonalScheduleBlock,
+    SchoolClass,
+    Subject,
+    TeacherInvitation,
+    TimetableSlot,
+    Track,
+)
 
 
 class DelegateBasicSerializer(serializers.ModelSerializer):
@@ -147,7 +156,7 @@ class TimetableSlotSerializer(serializers.ModelSerializer):
         model = TimetableSlot
         fields = [
             "id", "school_class", "subject", "subject_name", "weekday", "weekday_label",
-            "start_time", "end_time", "room",
+            "start_time", "end_time", "room", "term",
         ]
         read_only_fields = ["id", "school_class", "subject_name", "weekday_label"]
 
@@ -156,4 +165,32 @@ class TimetableSlotSerializer(serializers.ModelSerializer):
         end = attrs.get("end_time", getattr(self.instance, "end_time", None))
         if start and end and start >= end:
             raise serializers.ValidationError("L'heure de fin doit être après l'heure de début.")
+        term = attrs.get("term", getattr(self.instance, "term", None))
+        school_class = getattr(self.instance, "school_class", None) or self.context.get("school_class")
+        if term and school_class and term.establishment_id != school_class.track.department.establishment_id:
+            raise serializers.ValidationError({"term": "Ce trimestre n'appartient pas à l'établissement de cette classe."})
+        return attrs
+
+
+class PersonalScheduleBlockSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    weekday_label = serializers.CharField(source="get_weekday_display", read_only=True)
+
+    class Meta:
+        model = PersonalScheduleBlock
+        fields = [
+            "id", "weekday", "weekday_label", "start_time", "end_time", "title",
+            "subject", "subject_name", "valid_from", "valid_until",
+        ]
+        read_only_fields = ["id", "weekday_label", "subject_name"]
+
+    def validate(self, attrs):
+        start = attrs.get("start_time", getattr(self.instance, "start_time", None))
+        end = attrs.get("end_time", getattr(self.instance, "end_time", None))
+        if start and end and start >= end:
+            raise serializers.ValidationError("L'heure de fin doit être après l'heure de début.")
+        valid_from = attrs.get("valid_from", getattr(self.instance, "valid_from", None))
+        valid_until = attrs.get("valid_until", getattr(self.instance, "valid_until", None))
+        if valid_from and valid_until and valid_until < valid_from:
+            raise serializers.ValidationError("La date de fin de validité doit être après la date de début.")
         return attrs

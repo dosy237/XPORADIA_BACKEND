@@ -29,6 +29,8 @@ class NotificationType(models.TextChoices):
     ENROLLMENT_UPDATE  = "enrollment_update",  "Mise à jour de scolarité"
     CERT_LEVEL_CHANGED = "cert_level_changed", "Changement de niveau de certification"
     REPORT_CARD_PUBLISHED = "report_card_published", "Bulletin publié"
+    TIMETABLE_REMINDER  = "timetable_reminder",  "Rappel des cours du lendemain"
+    REVISION_REMINDER   = "revision_reminder",   "Rappel de révision personnelle"
     NEW_CERT_MODULE    = "new_cert_module",    "Nouveau module de certification"
     FOLLOWED_USER_POST = "followed_user_post", "Publication d'un profil suivi"
     ENGAGEMENT_TIP     = "engagement_tip",     "Conseil de visibilité"

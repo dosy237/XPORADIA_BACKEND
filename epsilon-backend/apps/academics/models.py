@@ -190,11 +190,23 @@ class TimetableSlot(models.Model):
     """Créneau d'emploi du temps — toute la classe partage le même
     planning (cohérent avec le fait qu'une Subject n'a qu'un seul
     enseignant dédié pour toute la classe). Alimente le rappel de révision
-    envoyé la veille de chaque cours (voir apps.virtual_classes management
-    command remind_timetable_revisions)."""
+    envoyé la veille de chaque cours (voir apps.academics management
+    command remind_timetable_revisions).
+
+    `term` est nul par défaut : le créneau vaut alors pour toute l'année
+    scolaire — ce qui ne veut jamais dire "tous les jours du calendrier",
+    seulement les jours qui tombent dans un Term existant (voir
+    apps.academics.services.term_for_date, qui déduit les vacances des
+    trous entre trimestres plutôt que de les stocker séparément). Si
+    `term` est renseigné, le créneau n'est actif que pendant ce trimestre
+    précis (ex: option ne durant qu'un trimestre)."""
 
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="timetable_slots")
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="timetable_slots")
+    term = models.ForeignKey(
+        "grading.Term", on_delete=models.SET_NULL, null=True, blank=True, related_name="timetable_slots",
+        verbose_name="Trimestre (vide = toute l'année)",
+    )
     weekday = models.IntegerField(choices=Weekday.choices)
     start_time = models.TimeField()
     end_time = models.TimeField()
@@ -207,6 +219,110 @@ class TimetableSlot(models.Model):
 
     def __str__(self):
         return f"{self.subject.name} — {self.get_weekday_display()} {self.start_time.strftime('%H:%M')}"
+
+
+class WeekdayFull(models.IntegerChoices):
+    """Comme Weekday, mais avec le dimanche — les cours officiels n'ont
+    jamais lieu le dimanche (voir Weekday), mais un élève peut tout à fait
+    vouloir y planifier un créneau personnel."""
+
+    MONDAY = 0, "Lundi"
+    TUESDAY = 1, "Mardi"
+    WEDNESDAY = 2, "Mercredi"
+    THURSDAY = 3, "Jeudi"
+    FRIDAY = 4, "Vendredi"
+    SATURDAY = 5, "Samedi"
+    SUNDAY = 6, "Dimanche"
+
+
+class PersonalScheduleBlock(models.Model):
+    """Créneau personnel qu'un élève ajoute lui-même dans les parties
+    vides de sa journée (hors cours officiels) — révision ou autre.
+    Récurrent par défaut, avec un mécanisme d'exception au jour le jour
+    exactement comme un événement récurrent d'agenda grand public (Google
+    Calendar) :
+      - modifier UNE occurrence précise crée une PersonalScheduleException
+        liée à cette date, sans toucher à la règle qui continue normalement
+        pour les autres dates ;
+      - modifier "cette date et les suivantes" clôt cette règle
+        (valid_until = veille de la date) et en ouvre une nouvelle à partir
+        de cette date avec les nouvelles valeurs (voir
+        apps.academics.views.PersonalScheduleBlockOccurrenceView)."""
+
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="personal_schedule_blocks")
+    weekday = models.IntegerField(choices=WeekdayFull.choices)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    title = models.CharField(max_length=200)
+    subject = models.ForeignKey(
+        Subject, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name="Matière (optionnel)",
+    )
+    valid_from = models.DateField(verbose_name="Valide à partir du")
+    valid_until = models.DateField(null=True, blank=True, verbose_name="Valide jusqu'au (vide = indéfini)")
+
+    class Meta:
+        verbose_name = "Créneau personnel"
+        verbose_name_plural = "Créneaux personnels"
+        ordering = ["weekday", "start_time"]
+
+    def __str__(self):
+        return f"{self.title} — {self.get_weekday_display()} {self.start_time.strftime('%H:%M')}"
+
+
+class PersonalScheduleException(models.Model):
+    """Exception ponctuelle à un PersonalScheduleBlock pour une date
+    précise — nouvel horaire/titre ce jour-là, ou annulation pure et
+    simple — sans jamais modifier la règle récurrente elle-même."""
+
+    block = models.ForeignKey(PersonalScheduleBlock, on_delete=models.CASCADE, related_name="exceptions")
+    date = models.DateField()
+    is_cancelled = models.BooleanField(default=False, verbose_name="Occurrence annulée")
+    title = models.CharField(max_length=200, blank=True)
+    subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Exception de créneau personnel"
+        verbose_name_plural = "Exceptions de créneau personnel"
+        unique_together = ("block", "date")
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"Exception {self.date} — bloc {self.block_id}"
+
+
+class TimetableReminderLog(models.Model):
+    """Trace qu'un rappel des cours du lendemain a déjà été envoyé pour
+    cette classe à cette date précise. TimetableSlot étant récurrent (pas
+    une instance par date), l'idempotence ne peut pas reposer sur un champ
+    horodaté directement sur le créneau comme pour Exercise
+    (due_soon_notified_at) — on journalise donc par (classe, date)."""
+
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="+")
+    date = models.DateField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Journal de rappel d'emploi du temps"
+        verbose_name_plural = "Journaux de rappel d'emploi du temps"
+        unique_together = ("school_class", "date")
+
+
+class PersonalBlockReminderLog(models.Model):
+    """Même rôle que TimetableReminderLog, pour le rappel progressif de
+    révision personnelle — PersonalScheduleBlock étant lui aussi récurrent,
+    on journalise par (créneau, date)."""
+
+    block = models.ForeignKey(PersonalScheduleBlock, on_delete=models.CASCADE, related_name="reminder_logs")
+    date = models.DateField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Journal de rappel de révision personnelle"
+        verbose_name_plural = "Journaux de rappel de révision personnelle"
+        unique_together = ("block", "date")
 
 
 class TeacherInvitation(models.Model):

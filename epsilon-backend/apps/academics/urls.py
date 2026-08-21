@@ -51,6 +51,17 @@ urlpatterns = [
     path("classes/<int:class_id>/timetable/", views.TimetableView.as_view(), name="class-timetable"),
     path("timetable-slots/<int:pk>/", views.TimetableSlotDetailView.as_view(), name="timetable-slot-detail"),
     path("my-timetable/", views.MyTimetableView.as_view(), name="my-timetable"),
+    path("my-agenda/", views.MyAgendaView.as_view(), name="my-agenda"),
+    path(
+        "personal-blocks/",
+        views.PersonalScheduleBlockListCreateView.as_view(),
+        name="personal-block-list",
+    ),
+    path(
+        "personal-blocks/<int:pk>/occurrence/",
+        views.PersonalScheduleBlockOccurrenceView.as_view(),
+        name="personal-block-occurrence",
+    ),
     path("my-class/", views.MyClassView.as_view(), name="my-class"),
     path("my-delegations/", views.MyDelegationsView.as_view(), name="my-delegations"),
     path("task-delegations/", views.TaskDelegationsView.as_view(), name="task-delegations"),

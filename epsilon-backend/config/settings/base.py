@@ -145,6 +145,16 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.virtual_classes.tasks.remind_exercise_deadlines",
         "schedule": crontab(minute="*/30"),
     },
+    # Rappel des cours du lendemain, la veille au soir.
+    "remind-timetable-revisions": {
+        "task": "apps.academics.tasks.remind_timetable_revisions",
+        "schedule": crontab(hour=19, minute=0),
+    },
+    # Rappel progressif des créneaux personnels de révision du soir même.
+    "remind-personal-revisions": {
+        "task": "apps.academics.tasks.remind_personal_revisions",
+        "schedule": crontab(minute="*/15"),
+    },
 }
 
 # Auth

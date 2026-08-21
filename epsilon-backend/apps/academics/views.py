@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -21,6 +22,8 @@ from .models import (
     Department,
     Enrollment,
     EnrollmentStatus,
+    PersonalScheduleBlock,
+    PersonalScheduleException,
     SchoolClass,
     Subject,
     TaskDelegation,
@@ -32,12 +35,14 @@ from .serializers import (
     ChildBasicSerializer,
     DepartmentSerializer,
     EnrollmentSerializer,
+    PersonalScheduleBlockSerializer,
     SchoolClassSerializer,
     SubjectSerializer,
     TeacherInvitationPreviewSerializer,
     TimetableSlotSerializer,
     TrackSerializer,
 )
+from .services import personal_blocks_for_date, term_for_date, timetable_slots_for_date
 
 
 def _require_director(user):
@@ -963,6 +968,11 @@ class TimetableView(generics.ListCreateAPIView):
         _require_class_member_access(school_class, self.request.user)
         return TimetableSlot.objects.filter(school_class=school_class).select_related("subject")
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["school_class"] = _get_school_class(self.kwargs["class_id"])
+        return context
+
     def perform_create(self, serializer):
         school_class = _get_school_class(self.kwargs["class_id"])
         _require_timetable_write_access(school_class, self.request.user)
@@ -1013,6 +1023,180 @@ class MyTimetableView(generics.ListAPIView):
         if not enrollment:
             return TimetableSlot.objects.none()
         return TimetableSlot.objects.filter(school_class=enrollment.school_class).select_related("subject")
+
+
+def _require_child_profile(user):
+    child = getattr(user, "child_profile", None)
+    if not child:
+        raise PermissionDenied("Réservé aux comptes élève.")
+    return child
+
+
+def _parse_date_param(raw, field="date"):
+    if not raw:
+        raise ValidationError({field: "Ce paramètre est requis (format YYYY-MM-DD)."})
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        raise ValidationError({field: "Format invalide, attendu YYYY-MM-DD."})
+
+
+class MyAgendaView(APIView):
+    """Agenda d'une journée pour l'élève connecté : cours officiels de sa
+    classe (lecture seule, vides si la date tombe en vacances — voir
+    apps.academics.services.timetable_slots_for_date) + ses créneaux
+    personnels (toujours affichés, jour d'école ou non)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        child = _require_child_profile(request.user)
+        raw_date = request.query_params.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+
+        enrollment = Enrollment.objects.filter(
+            child=child, status=EnrollmentStatus.ACTIVE
+        ).select_related("school_class__track__department__establishment").first()
+
+        official_slots = []
+        term = None
+        if enrollment:
+            school_class = enrollment.school_class
+            official_slots = TimetableSlotSerializer(
+                timetable_slots_for_date(school_class, target_date), many=True
+            ).data
+            if target_date.weekday() <= 5:
+                establishment = school_class.track.department.establishment
+                term = term_for_date(establishment, school_class.school_year, target_date)
+
+        return Response({
+            "date": target_date.isoformat(),
+            "weekday": target_date.weekday(),
+            "is_school_day": term is not None,
+            "term": (
+                {"id": term.id, "number": term.number, "name": term.name}
+                if term else None
+            ),
+            "official_slots": official_slots,
+            "personal_blocks": personal_blocks_for_date(child, target_date),
+        })
+
+
+class PersonalScheduleBlockListCreateView(generics.ListCreateAPIView):
+    """Créneaux personnels récurrents de l'élève connecté. La création
+    ouvre une nouvelle règle récurrente ; la modification/suppression d'une
+    occurrence précise passe par PersonalScheduleBlockOccurrenceView, qui
+    impose de choisir explicitement le mode (cette date seule, ou cette
+    date et les suivantes)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PersonalScheduleBlockSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        child = _require_child_profile(self.request.user)
+        return PersonalScheduleBlock.objects.filter(child=child).select_related("subject")
+
+    def perform_create(self, serializer):
+        child = _require_child_profile(self.request.user)
+        serializer.save(child=child)
+
+
+class PersonalScheduleBlockOccurrenceView(APIView):
+    """Modifie ou supprime UNE occurrence d'un créneau personnel récurrent.
+    Le frontend doit toujours transmettre `scope` ("this" ou "following") —
+    jamais de valeur par défaut assumée côté serveur :
+      - "this" : crée/écrase l'exception ponctuelle de cette date, sans
+        toucher la règle récurrente.
+      - "following" : clôt la règle actuelle à la veille de cette date et
+        ouvre une nouvelle règle à partir de cette date avec les nouvelles
+        valeurs (ou, si cette date est justement le tout premier jour de
+        validité de la règle, modifie la règle en place — inutile d'en
+        ouvrir une seconde puisqu'aucune occurrence antérieure n'existe)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_block(self, pk, user):
+        child = _require_child_profile(user)
+        return get_object_or_404(PersonalScheduleBlock, pk=pk, child=child)
+
+    def _validated_target_date(self, block, request_data_or_params):
+        scope = request_data_or_params.get("scope")
+        if scope not in ("this", "following"):
+            raise ValidationError({"scope": "Requis, 'this' ou 'following'."})
+        target_date = _parse_date_param(request_data_or_params.get("date"))
+        if target_date < block.valid_from or (block.valid_until and target_date > block.valid_until):
+            raise ValidationError({"date": "Cette date ne fait pas partie de ce créneau."})
+        return scope, target_date
+
+    def patch(self, request, pk):
+        block = self._get_block(pk, request.user)
+        scope, target_date = self._validated_target_date(block, request.data)
+
+        title = request.data.get("title", "")
+        subject_id = request.data.get("subject")
+        start_time = request.data.get("start_time") or None
+        end_time = request.data.get("end_time") or None
+
+        if scope == "this":
+            exception, _created = PersonalScheduleException.objects.update_or_create(
+                block=block, date=target_date,
+                defaults={
+                    "is_cancelled": False,
+                    "title": title,
+                    "subject_id": subject_id or None,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                },
+            )
+            return Response({
+                "id": exception.id, "date": exception.date.isoformat(), "title": exception.title,
+                "subject": exception.subject_id, "start_time": exception.start_time, "end_time": exception.end_time,
+            }, status=status.HTTP_200_OK)
+
+        if target_date == block.valid_from:
+            if title:
+                block.title = title
+            if subject_id is not None:
+                block.subject_id = subject_id or None
+            if start_time:
+                block.start_time = start_time
+            if end_time:
+                block.end_time = end_time
+            block.save()
+            return Response(PersonalScheduleBlockSerializer(block).data, status=status.HTTP_200_OK)
+
+        block.valid_until = target_date - timedelta(days=1)
+        block.save(update_fields=["valid_until"])
+        new_block = PersonalScheduleBlock.objects.create(
+            child=block.child,
+            weekday=block.weekday,
+            start_time=start_time or block.start_time,
+            end_time=end_time or block.end_time,
+            title=title or block.title,
+            subject_id=subject_id if subject_id is not None else block.subject_id,
+            valid_from=target_date,
+            valid_until=None,
+        )
+        return Response(PersonalScheduleBlockSerializer(new_block).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, pk):
+        block = self._get_block(pk, request.user)
+        scope, target_date = self._validated_target_date(block, request.query_params)
+
+        if scope == "this":
+            PersonalScheduleException.objects.update_or_create(
+                block=block, date=target_date,
+                defaults={"is_cancelled": True, "title": "", "subject_id": None, "start_time": None, "end_time": None},
+            )
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        if target_date <= block.valid_from:
+            block.delete()
+        else:
+            block.valid_until = target_date - timedelta(days=1)
+            block.save(update_fields=["valid_until"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MyClassView(APIView):
