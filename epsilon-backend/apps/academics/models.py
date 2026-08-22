@@ -142,12 +142,10 @@ class SchoolClass(models.Model):
 
 class SubjectCategory(models.TextChoices):
     """Regroupement d'une matière pour les sous-totaux ("Bilan LETTRES",
-    "Bilan SCIENCES", "Bilan AUTRES") du bulletin officiel — fixé par
-    l'établissement au même titre que le coefficient, jamais par
-    l'enseignant dédié. Comme Subject.coefficient, ce champ n'a pour
-    l'instant pas d'écran de saisie dédié côté directeur (réglable via
-    l'admin Django) ; "Autres" par défaut n'affecte aucune matière déjà
-    créée avant l'ajout de ce champ."""
+    "Bilan SCIENCES", "Bilan AUTRES") du bulletin officiel — classé par
+    l'enseignant titulaire de la classe (comme le reste de la gestion des
+    matières), jamais par l'enseignant dédié à la matière ni le directeur.
+    "Autres" par défaut pour toute matière non encore classée."""
 
     LETTERS = "letters", "Lettres"
     SCIENCES = "sciences", "Sciences"

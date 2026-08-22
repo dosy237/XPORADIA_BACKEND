@@ -95,12 +95,14 @@ class SubjectSerializer(serializers.ModelSerializer):
     teacher_email = serializers.EmailField(write_only=True, required=False, allow_null=True)
     pending_invitation_email = serializers.SerializerMethodField()
     pending_invitation_token = serializers.SerializerMethodField()
+    category_label = serializers.CharField(source="get_category_display", read_only=True)
 
     class Meta:
         model = Subject
         fields = [
-            "id", "school_class", "name", "coefficient", "teacher", "teacher_email",
-            "pending_invitation_email", "pending_invitation_token", "created_at",
+            "id", "school_class", "name", "coefficient", "category", "category_label",
+            "teacher", "teacher_email", "pending_invitation_email", "pending_invitation_token",
+            "created_at",
         ]
         read_only_fields = ["id", "school_class", "coefficient", "created_at"]
 
