@@ -18,6 +18,7 @@ from .models import (
     JoinRequestStatus,
     EstablishmentJoinRequest,
     ReportCard,
+    ReportCardSanction,
     SubjectAppreciation,
     SubjectReportEntry,
     Term,
@@ -459,6 +460,12 @@ class GenerateReportCardsView(APIView):
         _require_class_manage_access(school_class, request.user)
 
         homeroom_comments = request.data.get("homeroom_comments", {})  # {child_id: "commentaire"}
+        # Décisions du conseil de classe saisies par le titulaire — toutes
+        # optionnelles, jamais bloquantes : un trimestre sans absence ni
+        # sanction à signaler reste un {} vide côté frontend.
+        absences = request.data.get("absences", {})  # {child_id: {"justified": x, "unjustified": y}}
+        distinctions = request.data.get("distinctions", {})  # {child_id: "honor_roll" | ...}
+        sanctions = request.data.get("sanctions", {})  # {child_id: "work_warning" | ...}
         result = services.compute_class_rankings(school_class, term)
         subjects = list(Subject.objects.filter(school_class=school_class))
         # Brouillons d'appréciation de matière saisis depuis le tableur —
@@ -471,24 +478,43 @@ class GenerateReportCardsView(APIView):
         created_or_updated = []
         for entry in result["ranked"]:
             child = entry["child"]
+            child_key = str(child.id)
+            absence_entry = absences.get(child_key) or {}
+            # Une distinction explicitement choisie par le titulaire prime ;
+            # sinon, suggestion automatique à partir de la moyenne — jamais
+            # "Refusé(e)", qui reste une décision humaine (voir
+            # services.suggest_distinction).
+            distinction = distinctions.get(child_key) or services.suggest_distinction(entry["general_average"])
             report_card, _ = ReportCard.objects.update_or_create(
                 child=child, term=term,
                 defaults={
                     "school_class": school_class,
                     "general_average": entry["general_average"],
                     "class_average": result["class_average"],
+                    "highest_average": result["highest_average"],
+                    "lowest_average": result["lowest_average"],
                     "rank": entry["rank"],
                     "class_size": entry["class_size"],
-                    "homeroom_comment": homeroom_comments.get(str(child.id), ""),
+                    "homeroom_comment": homeroom_comments.get(child_key, ""),
+                    "justified_absence_hours": absence_entry.get("justified") or 0,
+                    "unjustified_absence_hours": absence_entry.get("unjustified") or 0,
+                    "distinction": distinction,
+                    "sanction": sanctions.get(child_key) or ReportCardSanction.NONE,
                 },
             )
             report_card.subject_entries.all().delete()
             for subject in subjects:
                 subject_avg = services.compute_subject_average(child, subject, term)
+                teacher_name = (
+                    f"{subject.teacher.first_name} {subject.teacher.last_name}".strip()
+                    if subject.teacher_id
+                    else ""
+                )
                 SubjectReportEntry.objects.create(
                     report_card=report_card, subject_name=subject.name,
                     subject_average=subject_avg, coefficient=subject.coefficient,
                     teacher_comment=appreciations_by_key.get((subject.id, child.id), ""),
+                    teacher_name=teacher_name, category=subject.category,
                 )
 
             from .pdf import generate_and_attach_report_card

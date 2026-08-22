@@ -55,6 +55,7 @@ from apps.academics.models import (
     PersonalScheduleException,
     SchoolClass,
     Subject,
+    SubjectCategory,
     TaskDelegation,
     TimetableSlot,
     Track,
@@ -88,7 +89,12 @@ from apps.employment.models import (
 from apps.employment.models import PaymentStatus as RecruitmentPaymentStatus
 from apps.feed.models import Follow, Post
 from apps.grading.models import Evaluation, EvaluationType, Grade, ReportCard, SubjectReportEntry, Term
-from apps.grading.services import compute_class_rankings, compute_general_average, compute_subject_average
+from apps.grading.services import (
+    compute_class_rankings,
+    compute_general_average,
+    compute_subject_average,
+    suggest_distinction,
+)
 from apps.library.models import LibraryResource, ModerationStatus, ResourceCategory, ResourceType, SchoolLevel
 from apps.messaging.models import Channel, ChannelType, Message
 from apps.messaging.services import (
@@ -105,6 +111,7 @@ from apps.users.models import (
     Child,
     ChildClaimRequest,
     ChildClaimRequestStatus,
+    ChildSex,
     DirectorProfile,
     ParentProfile,
     TeacherProfile,
@@ -215,8 +222,17 @@ class Command(BaseCommand):
             note(c)
             director, c = DirectorProfile.objects.get_or_create(
                 user=director_user,
-                defaults={"school_name": "Lycée Démo Complet", "address": "Cocody, Abidjan", "is_partner": True},
+                defaults={
+                    "school_name": "Lycée Démo Complet", "address": "Cocody, Abidjan", "is_partner": True,
+                    "phone": "22443517", "contact_email": "contact@lyceedemocomplet.ci",
+                    "establishment_code": "000395", "is_public": True,
+                },
             )
+            if not c and not director.phone:
+                director.phone = "22443517"
+                director.contact_email = "contact@lyceedemocomplet.ci"
+                director.establishment_code = "000395"
+                director.save(update_fields=["phone", "contact_email", "establishment_code"])
             note(c)
 
             dept, c = Department.objects.get_or_create(establishment=director, name="Second cycle")
@@ -240,14 +256,17 @@ class Command(BaseCommand):
             note(c)
 
             # === Matières + enseignants dédiés ===
+            # Groupe utilisé pour les sous-totaux "Bilan" du bulletin officiel
+            # (voir SubjectCategory) — Lettres/Sciences/Autres, la même
+            # répartition qu'un vrai bulletin de série D.
             subject_specs = [
-                ("Mathématiques", 4, "demo.prof.maths.showcase@xporadia.ci", "Adama", "Koné"),
-                ("Physique-Chimie", 3, "demo.prof.pc.showcase@xporadia.ci", "Nadège", "Yao"),
-                ("Français", 3, "demo.prof.francais.showcase@xporadia.ci", "Ibrahim", "Traoré"),
-                ("Anglais", 2, "demo.prof.anglais.showcase@xporadia.ci", "Christelle", "Aka"),
+                ("Mathématiques", 4, "demo.prof.maths.showcase@xporadia.ci", "Adama", "Koné", SubjectCategory.SCIENCES),
+                ("Physique-Chimie", 3, "demo.prof.pc.showcase@xporadia.ci", "Nadège", "Yao", SubjectCategory.SCIENCES),
+                ("Français", 3, "demo.prof.francais.showcase@xporadia.ci", "Ibrahim", "Traoré", SubjectCategory.LETTERS),
+                ("Anglais", 2, "demo.prof.anglais.showcase@xporadia.ci", "Christelle", "Aka", SubjectCategory.LETTERS),
             ]
             subjects = {}
-            for name, coeff, email, first, last in subject_specs:
+            for name, coeff, email, first, last, category in subject_specs:
                 teacher, c1 = get_or_create_user(email, primary_role=UserRole.TEACHER, first_name=first, last_name=last)
                 note(c1)
                 if name == "Mathématiques":
@@ -260,12 +279,14 @@ class Command(BaseCommand):
                     user=teacher, defaults={"subjects": [name], "experience_years": 5, "hourly_rate": Decimal("6000")},
                 )
                 subject, c2 = Subject.objects.get_or_create(
-                    school_class=school_class, name=name, defaults={"coefficient": coeff, "teacher": teacher},
+                    school_class=school_class, name=name,
+                    defaults={"coefficient": coeff, "teacher": teacher, "category": category},
                 )
-                if not c2 and subject.teacher_id != teacher.id:
+                if not c2 and (subject.teacher_id != teacher.id or subject.category != category):
                     subject.teacher = teacher
                     subject.coefficient = coeff
-                    subject.save(update_fields=["teacher", "coefficient"])
+                    subject.category = category
+                    subject.save(update_fields=["teacher", "coefficient", "category"])
                 note(c2)
                 VirtualClass.objects.get_or_create(subject=subject)
                 subjects[name] = subject
@@ -289,8 +310,11 @@ class Command(BaseCommand):
             note(ensure_avatar(homeroom_user, (150, 90, 130)))
             philo_subject, c = Subject.objects.get_or_create(
                 school_class=school_class, name="Philosophie",
-                defaults={"coefficient": 2, "teacher": homeroom_user},
+                defaults={"coefficient": 2, "teacher": homeroom_user, "category": SubjectCategory.LETTERS},
             )
+            if not c and philo_subject.category != SubjectCategory.LETTERS:
+                philo_subject.category = SubjectCategory.LETTERS
+                philo_subject.save(update_fields=["category"])
             note(c)
             VirtualClass.objects.get_or_create(subject=philo_subject)
             subjects["Philosophie"] = philo_subject
@@ -315,17 +339,31 @@ class Command(BaseCommand):
                 defaults={
                     "parent": parent, "first_name": "Kevin", "last_name": "Ouattara",
                     "class_level": "Terminale D", "target_subjects": ["Mathématiques", "Physique-Chimie"],
-                    "birth_date": date(2008, 3, 14),
+                    "birth_date": date(2008, 3, 14), "birth_place": "Yopougon",
+                    "matricule": "08 036 659 C", "sex": ChildSex.MALE, "nationality": "Ivoirienne",
                 },
             )
+            child_updates = []
             if not c and child.parent_id != parent.id:
                 child.parent = parent
-                child.save(update_fields=["parent"])
+                child_updates.append("parent")
+            if not c and not child.matricule:
+                child.matricule = "08 036 659 C"
+                child.sex = ChildSex.MALE
+                child.birth_place = "Yopougon"
+                child_updates += ["matricule", "sex", "birth_place"]
+            if child_updates:
+                child.save(update_fields=child_updates)
             note(c)
 
             enrollment, c = Enrollment.objects.get_or_create(
-                child=child, school_class=school_class, defaults={"status": EnrollmentStatus.ACTIVE}
+                child=child, school_class=school_class,
+                defaults={"status": EnrollmentStatus.ACTIVE, "is_boarder": False, "is_ministry_assigned": True},
             )
+            if not c and enrollment.is_boarder is None:
+                enrollment.is_boarder = False
+                enrollment.is_ministry_assigned = True
+                enrollment.save(update_fields=["is_boarder", "is_ministry_assigned"])
             note(c)
 
             # Une seconde enfant de Ramata, ajoutée manuellement depuis
@@ -546,19 +584,29 @@ class Command(BaseCommand):
                         "school_class": school_class,
                         "general_average": general_avg,
                         "class_average": rankings["class_average"] or general_avg,
+                        "highest_average": rankings["highest_average"] or general_avg,
+                        "lowest_average": rankings["lowest_average"] or general_avg,
                         "rank": my_rank_entry["rank"] if my_rank_entry else 1,
                         "class_size": rankings["ranked"] and len(rankings["ranked"]) or 1,
                         "homeroom_comment": "Trimestre sérieux, des efforts réguliers à poursuivre.",
+                        "justified_absence_hours": Decimal("0"),
+                        "unjustified_absence_hours": Decimal("0"),
+                        "distinction": suggest_distinction(general_avg),
                     },
                 )
                 note(c)
                 if c:
                     for subject in subjects.values():
                         subject_avg = compute_subject_average(child, subject, term)
+                        teacher_name = (
+                            f"{subject.teacher.first_name} {subject.teacher.last_name}".strip()
+                            if subject.teacher_id else ""
+                        )
                         SubjectReportEntry.objects.create(
                             report_card=report_card, subject_name=subject.name,
                             subject_average=subject_avg, coefficient=subject.coefficient,
                             teacher_comment="Bon niveau, continuez ainsi." if subject_avg and subject_avg >= 12 else "Peut mieux faire avec plus de régularité.",
+                            teacher_name=teacher_name, category=subject.category,
                         )
                 else:
                     # Bulletin déjà présent mais republié depuis (par ex. via
@@ -566,10 +614,27 @@ class Command(BaseCommand):
                     # recalcule et vide les appréciations si aucune
                     # SubjectAppreciation n'existe en base) : backfill des
                     # champs texte manquants sans toucher aux moyennes/rang
-                    # déjà à jour.
+                    # déjà à jour. Backfill aussi les champs ajoutés après la
+                    # première génération de ce bulletin (highest_average,
+                    # distinction...) — un bulletin seedé avant leur ajout au
+                    # modèle ne les aurait sinon jamais.
+                    report_card_updates = []
                     if not report_card.homeroom_comment:
                         report_card.homeroom_comment = "Trimestre sérieux, des efforts réguliers à poursuivre."
-                        report_card.save(update_fields=["homeroom_comment"])
+                        report_card_updates.append("homeroom_comment")
+                    if report_card.highest_average is None:
+                        report_card.highest_average = rankings["highest_average"] or general_avg
+                        report_card_updates.append("highest_average")
+                    if report_card.lowest_average is None:
+                        report_card.lowest_average = rankings["lowest_average"] or general_avg
+                        report_card_updates.append("lowest_average")
+                    if report_card.distinction == "none":
+                        suggested = suggest_distinction(general_avg)
+                        if suggested != "none":
+                            report_card.distinction = suggested
+                            report_card_updates.append("distinction")
+                    if report_card_updates:
+                        report_card.save(update_fields=report_card_updates)
                         note(True)
                     existing_entries = {e.subject_name: e for e in report_card.subject_entries.all()}
                     for subject in subjects.values():
@@ -579,18 +644,42 @@ class Command(BaseCommand):
                             if entry and entry.subject_average and entry.subject_average >= 12
                             else "Peut mieux faire avec plus de régularité."
                         )
+                        teacher_name = (
+                            f"{subject.teacher.first_name} {subject.teacher.last_name}".strip()
+                            if subject.teacher_id else ""
+                        )
                         if entry is None:
                             subject_avg = compute_subject_average(child, subject, term)
                             SubjectReportEntry.objects.create(
                                 report_card=report_card, subject_name=subject.name,
                                 subject_average=subject_avg, coefficient=subject.coefficient,
                                 teacher_comment="Bon niveau, continuez ainsi." if subject_avg and subject_avg >= 12 else "Peut mieux faire avec plus de régularité.",
+                                teacher_name=teacher_name, category=subject.category,
                             )
                             note(True)
-                        elif not entry.teacher_comment:
-                            entry.teacher_comment = comment
-                            entry.save(update_fields=["teacher_comment"])
-                            note(True)
+                        else:
+                            entry_updates = []
+                            if not entry.teacher_comment:
+                                entry.teacher_comment = comment
+                                entry_updates.append("teacher_comment")
+                            if not entry.teacher_name and teacher_name:
+                                entry.teacher_name = teacher_name
+                                entry_updates.append("teacher_name")
+                            if entry.category != subject.category:
+                                entry.category = subject.category
+                                entry_updates.append("category")
+                            if entry_updates:
+                                entry.save(update_fields=entry_updates)
+                                note(True)
+
+                # PDF toujours régénéré (jamais seulement à la création) :
+                # un bulletin seedé avant une évolution du gabarit (voir
+                # apps.grading.pdf) doit refléter le nouveau format dès le
+                # prochain lancement de cette commande, pas rester figé sur
+                # l'ancien rendu.
+                from apps.grading.pdf import generate_and_attach_report_card
+
+                generate_and_attach_report_card(report_card)
 
             # === Devoirs dans les trois états ===
             def get_exercise(subject_name, title, kind=ExerciseKind.HOMEWORK, days_ago=3):

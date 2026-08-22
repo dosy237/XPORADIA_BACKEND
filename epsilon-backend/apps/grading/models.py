@@ -20,7 +20,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 
-from apps.academics.models import Child, SchoolClass, Subject
+from apps.academics.models import Child, SchoolClass, Subject, SubjectCategory
 from apps.users.models import DirectorProfile
 
 
@@ -132,6 +132,32 @@ class SubjectAppreciation(models.Model):
         return f"{self.child.first_name} — {self.subject.name} ({self.term})"
 
 
+class ReportCardDistinction(models.TextChoices):
+    """Mention du conseil de classe — une SUGGESTION calculée à partir de
+    la moyenne générale (voir services.suggest_distinction) que le
+    titulaire peut corriger avant publication (jamais une décision
+    automatique définitive : "Refusé(e)" en particulier n'est jamais
+    suggéré automatiquement, seul un humain peut la choisir)."""
+
+    NONE = "none", "Aucune"
+    HONOR_ROLL = "honor_roll", "Tableau d'honneur"
+    HONOR_ROLL_ENCOURAGEMENT = "honor_roll_encouragement", "Tableau d'honneur + Encouragements"
+    HONOR_ROLL_CONGRATULATIONS = "honor_roll_congratulations", "Tableau d'honneur + Félicitations"
+    REFUSED = "refused", "Refusé(e)"
+
+
+class ReportCardSanction(models.TextChoices):
+    """Sanction disciplinaire du trimestre — jamais déduite des notes,
+    toujours une saisie manuelle du titulaire (voir
+    GenerateReportCardsView)."""
+
+    NONE = "none", "Aucune"
+    WORK_WARNING = "work_warning", "Avertissement pour travail insuffisant"
+    WORK_REPRIMAND = "work_reprimand", "Blâme pour travail insuffisant"
+    CONDUCT_WARNING = "conduct_warning", "Avertissement pour mauvaise conduite"
+    CONDUCT_REPRIMAND = "conduct_reprimand", "Blâme pour mauvaise conduite"
+
+
 class ReportCard(models.Model):
     """Bulletin d'un élève pour un trimestre — figé à la publication
     (les moyennes ne sont jamais recalculées après coup pour un bulletin
@@ -142,9 +168,29 @@ class ReportCard(models.Model):
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="report_cards")
     general_average = models.DecimalField(max_digits=4, decimal_places=2)
     class_average = models.DecimalField(max_digits=4, decimal_places=2)
+    # Plus forte/plus faible moyenne DE LA CLASSE ce trimestre — figées ici
+    # au même titre que class_average : dérivées du même classement calculé
+    # une fois pour toute la classe à la génération (voir
+    # services.compute_class_rankings), jamais recalculées après coup.
+    highest_average = models.DecimalField(
+        max_digits=4, decimal_places=2, null=True, blank=True, verbose_name="Plus forte moyenne de la classe"
+    )
+    lowest_average = models.DecimalField(
+        max_digits=4, decimal_places=2, null=True, blank=True, verbose_name="Plus faible moyenne de la classe"
+    )
     rank = models.PositiveSmallIntegerField()
     class_size = models.PositiveSmallIntegerField()
     homeroom_comment = models.TextField(blank=True, verbose_name="Appréciation du professeur principal")
+    justified_absence_hours = models.DecimalField(
+        max_digits=5, decimal_places=1, default=0, verbose_name="Absences justifiées (heures)"
+    )
+    unjustified_absence_hours = models.DecimalField(
+        max_digits=5, decimal_places=1, default=0, verbose_name="Absences non justifiées (heures)"
+    )
+    distinction = models.CharField(
+        max_length=30, choices=ReportCardDistinction.choices, default=ReportCardDistinction.NONE
+    )
+    sanction = models.CharField(max_length=20, choices=ReportCardSanction.choices, default=ReportCardSanction.NONE)
     document = models.FileField(upload_to="report_cards/", null=True, blank=True)
     published_at = models.DateTimeField(auto_now_add=True)
 
@@ -160,13 +206,26 @@ class ReportCard(models.Model):
 
 class SubjectReportEntry(models.Model):
     """Détail par matière d'un bulletin — moyenne et coefficient figés à
-    la publication, appréciation de l'enseignant de cette matière."""
+    la publication, appréciation de l'enseignant de cette matière.
+
+    `teacher_name` et `category` sont des instantanés de Subject.teacher
+    et Subject.category au moment de la génération — jamais une référence
+    live : un enseignant réaffecté ou une matière reclassée après coup ne
+    doit jamais changer un bulletin déjà publié. Le rang par matière et le
+    sous-total par groupe ("Bilan LETTRES"...) ne sont PAS stockés ici :
+    ils dépendent du reste de la classe et sont recalculés à l'affichage
+    du PDF à partir des SubjectReportEntry déjà figés de tous les élèves
+    du même trimestre (voir apps.grading.pdf.render_report_card_pdf) —
+    jamais une nouvelle moyenne, uniquement un classement sur des chiffres
+    déjà gelés."""
 
     report_card = models.ForeignKey(ReportCard, on_delete=models.CASCADE, related_name="subject_entries")
     subject_name = models.CharField(max_length=150)
     subject_average = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     coefficient = models.PositiveSmallIntegerField()
     teacher_comment = models.CharField(max_length=300, blank=True)
+    teacher_name = models.CharField(max_length=200, blank=True, verbose_name="Enseignant")
+    category = models.CharField(max_length=10, choices=SubjectCategory.choices, default=SubjectCategory.OTHER)
 
     class Meta:
         verbose_name = "Détail de matière du bulletin"

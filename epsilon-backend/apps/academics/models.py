@@ -140,6 +140,20 @@ class SchoolClass(models.Model):
         return f"{self.name} — {self.school_year} ({self.track.name})"
 
 
+class SubjectCategory(models.TextChoices):
+    """Regroupement d'une matière pour les sous-totaux ("Bilan LETTRES",
+    "Bilan SCIENCES", "Bilan AUTRES") du bulletin officiel — fixé par
+    l'établissement au même titre que le coefficient, jamais par
+    l'enseignant dédié. Comme Subject.coefficient, ce champ n'a pour
+    l'instant pas d'écran de saisie dédié côté directeur (réglable via
+    l'admin Django) ; "Autres" par défaut n'affecte aucune matière déjà
+    créée avant l'ajout de ce champ."""
+
+    LETTERS = "letters", "Lettres"
+    SCIENCES = "sciences", "Sciences"
+    OTHER = "other", "Autres"
+
+
 class Subject(models.Model):
     """Matière enseignée au sein d'une classe — ex: "Mathématiques",
     "Physique-Chimie". Créée par l'enseignant titulaire de la classe, qui
@@ -149,6 +163,10 @@ class Subject(models.Model):
 
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="subjects")
     name = models.CharField(max_length=150, verbose_name="Nom de la matière")
+    category = models.CharField(
+        max_length=10, choices=SubjectCategory.choices, default=SubjectCategory.OTHER,
+        verbose_name="Groupe (bulletin)",
+    )
     # Poids de cette matière dans la moyenne générale de CETTE classe —
     # fixé par le directeur, jamais par l'enseignant lui-même (qui ne doit
     # pas pouvoir gonfler l'importance de sa propre matière). Une même
@@ -429,6 +447,14 @@ class Enrollment(models.Model):
     child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="enrollments")
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="enrollments")
     status = models.CharField(max_length=15, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE)
+    # Régime et affectation ministérielle — mentions administratives du
+    # bulletin officiel, souvent laissées vides même sur un vrai bulletin
+    # papier (d'où `null=True` sur le régime : "non précisé" est une valeur
+    # légitime, distincte d'"externe"). Pas d'écran de saisie dédié pour
+    # l'instant (réglable via l'admin Django), au même titre que
+    # Subject.category.
+    is_boarder = models.BooleanField(null=True, blank=True, verbose_name="Interne (régime)")
+    is_ministry_assigned = models.BooleanField(default=True, verbose_name="Affecté(e) par le ministère")
     enrolled_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 

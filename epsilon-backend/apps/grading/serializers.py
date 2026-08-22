@@ -87,7 +87,7 @@ class BulkGradeEntrySerializer(serializers.Serializer):
 class SubjectReportEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = SubjectReportEntry
-        fields = ["subject_name", "subject_average", "coefficient", "teacher_comment"]
+        fields = ["subject_name", "subject_average", "coefficient", "teacher_comment", "teacher_name", "category"]
         read_only_fields = fields
 
 
@@ -96,12 +96,16 @@ class ReportCardSerializer(serializers.ModelSerializer):
     child_first_name = serializers.CharField(source="child.first_name", read_only=True)
     child_last_name = serializers.CharField(source="child.last_name", read_only=True)
     term_label = serializers.CharField(source="term.__str__", read_only=True)
+    distinction_label = serializers.CharField(source="get_distinction_display", read_only=True)
+    sanction_label = serializers.CharField(source="get_sanction_display", read_only=True)
 
     class Meta:
         model = ReportCard
         fields = [
             "id", "child", "child_first_name", "child_last_name", "term", "term_label",
-            "general_average", "class_average", "rank", "class_size",
-            "homeroom_comment", "document", "subject_entries", "published_at",
+            "general_average", "class_average", "highest_average", "lowest_average", "rank", "class_size",
+            "homeroom_comment", "justified_absence_hours", "unjustified_absence_hours",
+            "distinction", "distinction_label", "sanction", "sanction_label",
+            "document", "subject_entries", "published_at",
         ]
         read_only_fields = fields

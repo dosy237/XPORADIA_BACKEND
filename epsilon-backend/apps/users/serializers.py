@@ -238,6 +238,7 @@ class DirectorProfileSerializer(serializers.ModelSerializer):
         model = DirectorProfile
         fields = [
             "school_name", "address", "levels_taught", "student_count", "is_partner",
+            "phone", "contact_email", "establishment_code", "is_public",
         ]
         read_only_fields = ["is_partner"]
 
@@ -539,7 +540,10 @@ class CreateTeacherCommentSerializer(serializers.ModelSerializer):
 class ChildDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child
-        fields = ["id", "first_name", "class_level", "target_subjects"]
+        fields = [
+            "id", "first_name", "class_level", "target_subjects",
+            "matricule", "sex", "nationality", "birth_date", "birth_place",
+        ]
 
 
 class ChildClaimRequestSerializer(serializers.ModelSerializer):

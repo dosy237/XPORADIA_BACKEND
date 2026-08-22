@@ -226,6 +226,14 @@ class DirectorProfile(models.Model):
     )
     student_count = models.PositiveIntegerField(null=True, blank=True, verbose_name="Effectif")
     is_partner = models.BooleanField(default=False, verbose_name="École Partenaire Epsilon")
+    # Coordonnées et statut de l'établissement — affichés en en-tête du
+    # bulletin officiel (voir apps.grading.pdf), distincts de l'email/mot
+    # de passe du COMPTE du directeur : une école a son propre standard,
+    # son propre email de secrétariat, indépendamment de qui la dirige.
+    phone = models.CharField(max_length=30, blank=True, verbose_name="Téléphone de l'établissement")
+    contact_email = models.EmailField(blank=True, verbose_name="Email de contact de l'établissement")
+    establishment_code = models.CharField(max_length=20, blank=True, verbose_name="Code établissement")
+    is_public = models.BooleanField(default=True, verbose_name="Établissement public")
 
     class Meta:
         verbose_name = "Profil directeur"
@@ -291,6 +299,11 @@ class ParentProfile(models.Model):
         return f"Profil parent — {self.user.get_full_name()}"
 
 
+class ChildSex(models.TextChoices):
+    MALE = "M", "Masculin"
+    FEMALE = "F", "Féminin"
+
+
 class Child(models.Model):
     """ENFANT — rattaché à un ParentProfile (1 parent possède 0..N enfants).
 
@@ -318,6 +331,13 @@ class Child(models.Model):
     class_level = models.CharField(max_length=50, verbose_name="Classe")
     target_subjects = models.JSONField(default=list, blank=True, verbose_name="Matières cibles")
     birth_date = models.DateField(null=True, blank=True, verbose_name="Date de naissance")
+    birth_place = models.CharField(max_length=100, blank=True, verbose_name="Lieu de naissance")
+    # État civil affiché sur le bulletin officiel (voir apps.grading.pdf) —
+    # renseigné par le parent (ou l'élève auto-inscrit) au même endroit que
+    # le reste de la fiche enfant, jamais ressaisi par l'établissement.
+    matricule = models.CharField(max_length=30, blank=True, verbose_name="Matricule")
+    sex = models.CharField(max_length=1, choices=ChildSex.choices, blank=True, verbose_name="Sexe")
+    nationality = models.CharField(max_length=50, blank=True, default="Ivoirienne", verbose_name="Nationalité")
 
     class Meta:
         verbose_name = "Enfant"

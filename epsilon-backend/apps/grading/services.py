@@ -111,7 +111,37 @@ def compute_class_rankings(school_class, term) -> list[dict]:
         if entry_count
         else None
     )
-    return {"ranked": ranked, "without_average": without_average, "class_average": class_average}
+    # `ranked` est déjà trié décroissant — le premier/dernier élément porte
+    # directement la plus forte/plus faible moyenne, sans nouveau calcul.
+    highest_average = ranked[0]["general_average"] if ranked else None
+    lowest_average = ranked[-1]["general_average"] if ranked else None
+    return {
+        "ranked": ranked,
+        "without_average": without_average,
+        "class_average": class_average,
+        "highest_average": highest_average,
+        "lowest_average": lowest_average,
+    }
+
+
+def suggest_distinction(general_average: Decimal | None) -> str:
+    """Suggestion automatique de mention à partir de la moyenne générale —
+    convention courante (Tableau d'honneur à partir de 12/20, +
+    Encouragements à partir de 14, + Félicitations à partir de 16). Reste
+    une SUGGESTION que le titulaire peut corriger avant publication (voir
+    GenerateReportCardsView) : jamais "Refusé(e)", qui reste une décision
+    humaine du conseil de classe, jamais déduite d'un seuil."""
+    from .models import ReportCardDistinction
+
+    if general_average is None:
+        return ReportCardDistinction.NONE
+    if general_average >= Decimal("16"):
+        return ReportCardDistinction.HONOR_ROLL_CONGRATULATIONS
+    if general_average >= Decimal("14"):
+        return ReportCardDistinction.HONOR_ROLL_ENCOURAGEMENT
+    if general_average >= Decimal("12"):
+        return ReportCardDistinction.HONOR_ROLL
+    return ReportCardDistinction.NONE
 
 
 def my_grades_for_child(child) -> list[dict]:
