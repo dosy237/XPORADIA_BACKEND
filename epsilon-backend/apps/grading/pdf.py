@@ -1,5 +1,6 @@
 """Xporadia — apps/grading/pdf.py — même principe que apps.certification.pdf
 et apps.internships.pdf : HTML → PDF via WeasyPrint."""
+import base64
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.files.base import ContentFile
@@ -12,6 +13,34 @@ from apps.users.models import ChildSex
 from .models import EvaluationType, ReportCardDistinction, ReportCardSanction, SubjectReportEntry, Term
 
 TWO_PLACES = Decimal("0.01")
+
+IMAGE_MIME_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "webp": "image/webp", "gif": "image/gif",
+}
+
+
+def _image_data_uri(image_field) -> str | None:
+    """Convertit un ImageField (logo d'établissement, photo d'élève) en
+    data URI base64 — WeasyPrint s'exécute côté serveur, sans requête HTTP
+    disponible pour construire une URL absolue : on lit directement les
+    octets via l'API de stockage Django, agnostique du backend (fichiers
+    locaux ou S3)."""
+    if not image_field:
+        return None
+    try:
+        image_field.open("rb")
+        data = image_field.read()
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+    finally:
+        try:
+            image_field.close()
+        except Exception:
+            pass
+    ext = image_field.name.rsplit(".", 1)[-1].lower()
+    mime = IMAGE_MIME_TYPES.get(ext, "image/jpeg")
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 # Ordre d'affichage des groupes ("Bilan LETTRES" avant "Bilan SCIENCES"
 # avant "Bilan AUTRES") — jamais l'ordre alphabétique des clés internes.
@@ -178,6 +207,9 @@ def render_report_card_pdf(report_card) -> bytes:
         "establishment_email": establishment.contact_email,
         "establishment_code": establishment.establishment_code,
         "establishment_status_label": "Public" if establishment.is_public else "Privé",
+        "establishment_logo_uri": _image_data_uri(establishment.logo),
+        "student_photo_uri": _image_data_uri(child.user.avatar) if child.user_id else None,
+        "student_initials": f"{child.first_name[:1]}{child.last_name[:1]}".upper(),
         "term_label": str(term),
         "school_year": term.school_year,
         "student_name": f"{child.last_name} {child.first_name}".strip().upper(),

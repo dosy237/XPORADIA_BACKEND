@@ -234,6 +234,9 @@ class DirectorProfile(models.Model):
     contact_email = models.EmailField(blank=True, verbose_name="Email de contact de l'établissement")
     establishment_code = models.CharField(max_length=20, blank=True, verbose_name="Code établissement")
     is_public = models.BooleanField(default=True, verbose_name="Établissement public")
+    logo = models.ImageField(
+        upload_to="establishment_logos/", null=True, blank=True, verbose_name="Logo de l'établissement"
+    )
 
     class Meta:
         verbose_name = "Profil directeur"

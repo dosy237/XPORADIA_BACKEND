@@ -68,6 +68,7 @@ urlpatterns = [
         name="teacher-comments",
     ),
     path("director-profile/", views.DirectorProfileView.as_view(), name="director-profile"),
+    path("director-profile/logo/", views.DirectorLogoView.as_view(), name="director-profile-logo"),
     path("company-profile/", views.CompanyProfileView.as_view(), name="company-profile"),
     path("parent-profile/", views.ParentProfileView.as_view(), name="parent-profile"),
     path("children/", views.ChildListCreateView.as_view(), name="children-list"),

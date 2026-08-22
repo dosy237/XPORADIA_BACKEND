@@ -7,20 +7,40 @@
   * { box-sizing: border-box; }
   body { font-family: "DejaVu Sans", sans-serif; font-size: 8.6pt; color: #141414; }
 
-  /* En-tête officiel — trois blocs séparés par des filets verticaux,
-     comme sur un bulletin papier réel : République / Ministère,
-     coordonnées de l'établissement, code et statut. */
-  table.masthead { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  table.masthead td {
-    border: 1.4px solid #141414; padding: 6px 10px; vertical-align: top; font-size: 7.6pt; line-height: 1.35;
+  /* En-tête officiel — cellules bien séparées (bordures colorées, pas un
+     <table> HTML) : République/Ministère + logo, coordonnées de
+     l'établissement, code/statut, et l'espace photo de l'élève. Une seule
+     couleur de bordure (navy de la marque) plutôt que du noir administratif
+     plat, pour que le document reste identifiable comme un document
+     Xporadia même dans ce format très officiel. */
+  :root { --header-border: #1E3A5F; }
+  .masthead { display: flex; margin-bottom: 8px; }
+  .masthead .cell {
+    border: 1.4px solid var(--header-border); border-right: none;
+    padding: 6px 10px; font-size: 7.6pt; line-height: 1.35;
   }
-  .masthead .col-republic { width: 42%; }
-  .masthead .col-contact { width: 33%; }
-  .masthead .col-code { width: 25%; }
+  .masthead .cell:last-child { border-right: 1.4px solid var(--header-border); }
+  .masthead .col-republic { flex: 0 0 37%; display: flex; gap: 8px; align-items: flex-start; }
+  /* Un <img> flottant en enfant direct d'un flex-container n'est pas
+     dimensionné dans la mise en page par WeasyPrint (il se peint par-dessus
+     le texte voisin sans réserver sa place) — l'envelopper dans un <div>
+     de taille fixe contourne ce bug de mise en page. */
+  .masthead .logo-wrap { width: 38px; height: 38px; flex-shrink: 0; margin-top: 1px; }
+  .masthead .logo-img { width: 100%; height: 100%; object-fit: contain; }
+  .masthead .col-contact { flex: 0 0 27%; }
+  .masthead .col-code { flex: 0 0 16%; }
+  .masthead .col-photo { flex: 1; display: flex; align-items: center; justify-content: center; }
   .masthead .line1 { font-weight: bold; text-transform: uppercase; }
   .masthead .establishment-name { font-weight: bold; font-size: 9pt; margin-top: 4px; text-transform: uppercase; }
   .masthead .kv { margin-top: 1px; }
   .masthead .kv b { font-weight: bold; }
+  .student-photo-wrap { width: 48px; height: 58px; flex-shrink: 0; }
+  .student-photo-img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--header-border); }
+  .student-photo-placeholder {
+    width: 48px; height: 58px; border: 1.2px dashed var(--header-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13pt; font-weight: bold; color: var(--header-border);
+  }
 
   h1.title {
     text-align: center; font-size: 14.5pt; font-weight: bold; margin: 10px 0 2px;
@@ -31,7 +51,7 @@
 
   /* Fiche élève */
   table.student-info { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  table.student-info td { border: 1.4px solid #141414; padding: 5px 10px; font-size: 8.2pt; }
+  table.student-info td { border: 1.4px solid var(--header-border); padding: 5px 10px; font-size: 8.2pt; }
   .student-name-row td { font-size: 11pt; font-weight: bold; }
   .student-name-row .matricule { text-align: right; font-size: 9pt; font-weight: bold; }
   .field-label { font-size: 7pt; text-transform: uppercase; color: #4B5563; display: block; }
@@ -97,24 +117,32 @@
 </style>
 </head>
 <body>
-  <table class="masthead">
-    <tr>
-      <td class="col-republic">
+  <div class="masthead">
+    <div class="cell col-republic">
+      {% if establishment_logo_uri %}<div class="logo-wrap"><img class="logo-img" src="{{ establishment_logo_uri }}" alt=""></div>{% endif %}
+      <div>
         <div class="line1">République de Côte d'Ivoire</div>
         <div>Ministère de l'Éducation Nationale et de l'Enseignement Technique</div>
         <div class="establishment-name">{{ establishment_name }}</div>
-      </td>
-      <td class="col-contact">
-        {% if establishment_address %}<div class="kv"><b>Adresse :</b> {{ establishment_address }}</div>{% endif %}
-        {% if establishment_phone %}<div class="kv"><b>Téléphone :</b> {{ establishment_phone }}</div>{% endif %}
-        {% if establishment_email %}<div class="kv"><b>E-mail :</b> {{ establishment_email }}</div>{% endif %}
-      </td>
-      <td class="col-code">
-        {% if establishment_code %}<div class="kv"><b>Code :</b> {{ establishment_code }}</div>{% endif %}
-        <div class="kv"><b>Statut :</b> {{ establishment_status_label }}</div>
-      </td>
-    </tr>
-  </table>
+      </div>
+    </div>
+    <div class="cell col-contact">
+      {% if establishment_address %}<div class="kv"><b>Adresse :</b> {{ establishment_address }}</div>{% endif %}
+      {% if establishment_phone %}<div class="kv"><b>Téléphone :</b> {{ establishment_phone }}</div>{% endif %}
+      {% if establishment_email %}<div class="kv"><b>E-mail :</b> {{ establishment_email }}</div>{% endif %}
+    </div>
+    <div class="cell col-code">
+      {% if establishment_code %}<div class="kv"><b>Code :</b> {{ establishment_code }}</div>{% endif %}
+      <div class="kv"><b>Statut :</b> {{ establishment_status_label }}</div>
+    </div>
+    <div class="cell col-photo">
+      {% if student_photo_uri %}
+        <div class="student-photo-wrap"><img class="student-photo-img" src="{{ student_photo_uri }}" alt=""></div>
+      {% else %}
+        <div class="student-photo-placeholder">{{ student_initials }}</div>
+      {% endif %}
+    </div>
+  </div>
 
   <h1 class="title">Bulletin de notes <span class="term">{{ term_label }}</span> — Année scolaire {{ school_year }}</h1>
 

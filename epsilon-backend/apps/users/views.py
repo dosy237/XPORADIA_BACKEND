@@ -769,6 +769,35 @@ class DirectorProfileView(generics.RetrieveUpdateAPIView):
         return DirectorProfile.objects.get(user=self.request.user)
 
 
+class DirectorLogoView(APIView):
+    """Logo de l'établissement — même principe que MyAvatarView : endpoint
+    dédié au fichier, affiché en en-tête du bulletin officiel (voir
+    apps.grading.pdf) une fois renseigné."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _get_profile(self):
+        if not self.request.user.has_role(UserRole.DIRECTOR):
+            raise PermissionDenied("Réservé aux directeurs d'établissement.")
+        return DirectorProfile.objects.get(user=self.request.user)
+
+    def post(self, request):
+        profile = self._get_profile()
+        logo = request.FILES.get("logo")
+        if not logo:
+            return Response({"logo": "Fichier requis."}, status=status.HTTP_400_BAD_REQUEST)
+        profile.logo = logo
+        profile.save(update_fields=["logo"])
+        return Response(DirectorProfileSerializer(profile, context={"request": request}).data)
+
+    def delete(self, request):
+        profile = self._get_profile()
+        profile.logo = None
+        profile.save(update_fields=["logo"])
+        return Response(DirectorProfileSerializer(profile, context={"request": request}).data)
+
+
 class CompanyProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = CompanyProfileSerializer

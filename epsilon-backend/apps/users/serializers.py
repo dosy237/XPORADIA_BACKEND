@@ -238,9 +238,9 @@ class DirectorProfileSerializer(serializers.ModelSerializer):
         model = DirectorProfile
         fields = [
             "school_name", "address", "levels_taught", "student_count", "is_partner",
-            "phone", "contact_email", "establishment_code", "is_public",
+            "phone", "contact_email", "establishment_code", "is_public", "logo",
         ]
-        read_only_fields = ["is_partner"]
+        read_only_fields = ["is_partner", "logo"]
 
 
 class CompanyProfileSerializer(serializers.ModelSerializer):
