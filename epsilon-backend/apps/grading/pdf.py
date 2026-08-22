@@ -31,7 +31,12 @@ def _image_data_uri(image_field) -> str | None:
     try:
         image_field.open("rb")
         data = image_field.read()
-    except (FileNotFoundError, ValueError, OSError):
+    except Exception:
+        # Un logo/une photo manquant(e) ou inaccessible (fichier supprimé,
+        # objet S3 introuvable ou refusé, etc.) ne doit JAMAIS empêcher la
+        # génération du bulletin — c'est un élément décoratif optionnel.
+        # Capture volontairement large : le backend de stockage (local,
+        # S3...) peut lever des types d'erreurs très divers selon la panne.
         return None
     finally:
         try:
