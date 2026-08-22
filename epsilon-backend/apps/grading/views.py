@@ -1,6 +1,8 @@
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -43,6 +45,43 @@ def _require_class_manage_access(school_class, user):
     if user.has_role(UserRole.DIRECTOR) and school_class.track.department.establishment.user_id == user.id:
         return
     raise PermissionDenied("Réservé au titulaire de cette classe ou au directeur de l'établissement.")
+
+
+def _require_class_view_access(school_class, user):
+    """Qui peut CONSULTER les informations d'une classe liées aux
+    bulletins (trimestres disponibles, bulletins déjà publiés) : le
+    titulaire, N'IMPORTE QUEL enseignant dédié d'une matière de cette
+    classe, ou le directeur. Plus large que _require_class_manage_access
+    (réservée à la génération/publication elle-même)."""
+    if school_class.homeroom_teacher_id == user.id:
+        return
+    if user.has_role(UserRole.DIRECTOR) and school_class.track.department.establishment.user_id == user.id:
+        return
+    if Subject.objects.filter(school_class=school_class, teacher_id=user.id).exists():
+        return
+    raise PermissionDenied("Réservé au titulaire, à un enseignant de cette classe, ou au directeur.")
+
+
+def _require_report_card_view_access(report_card, user):
+    """Qui peut consulter/télécharger le PDF d'un bulletin déjà publié :
+    l'élève lui-même, son parent, le titulaire de la classe, N'IMPORTE
+    QUEL enseignant dédié d'une matière de cette classe (pas seulement le
+    titulaire — un enseignant a besoin de voir le bulletin complet de ses
+    élèves), et le directeur de l'établissement. Volontairement plus
+    large que _require_class_manage_access (réservée à la génération)."""
+    child = report_card.child
+    if child.user_id == user.id:
+        return
+    if child.parent_id and child.parent.user_id == user.id:
+        return
+    school_class = report_card.school_class
+    if school_class.homeroom_teacher_id == user.id:
+        return
+    if Subject.objects.filter(school_class=school_class, teacher_id=user.id).exists():
+        return
+    if user.has_role(UserRole.DIRECTOR) and school_class.track.department.establishment.user_id == user.id:
+        return
+    raise PermissionDenied("Vous n'avez pas accès à ce bulletin.")
 
 
 def _require_director_establishment(user):
@@ -225,7 +264,7 @@ class ClassTermsView(generics.ListAPIView):
             SchoolClass.objects.select_related("track__department__establishment"),
             pk=self.kwargs["class_id"],
         )
-        _require_class_manage_access(school_class, self.request.user)
+        _require_class_view_access(school_class, self.request.user)
         establishment = school_class.track.department.establishment
         return Term.objects.filter(establishment=establishment)
 
@@ -596,6 +635,67 @@ class MyGradesPdfView(APIView):
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'inline; filename="mes_resultats_{child.id}.pdf"'
         return response
+
+
+@method_decorator(xframe_options_exempt, name="get")
+class ReportCardPdfView(APIView):
+    """Bulletin en PDF, régénéré à la demande à partir des données déjà
+    figées du ReportCard (moyennes, rangs, appréciations... jamais
+    recalculées) — jamais servi depuis le fichier stocké
+    (ReportCard.document), qui dépend du disque/S3 et peut devenir
+    introuvable après coup (redéploiement, stockage local éphémère,
+    objet supprimé...). Cette source — le ReportCard en base — est
+    toujours disponible, donc cet endpoint ne peut jamais renvoyer un
+    404 "fichier manquant" comme le faisait le lien direct vers le
+    fichier. Accessible à l'élève, son parent, le titulaire ou tout
+    enseignant dédié de la classe, et le directeur (voir
+    _require_report_card_view_access)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, report_card_id):
+        report_card = get_object_or_404(
+            ReportCard.objects.select_related(
+                "child", "child__parent", "child__user", "term",
+                "school_class__track__department__establishment",
+            ).prefetch_related("subject_entries"),
+            pk=report_card_id,
+        )
+        _require_report_card_view_access(report_card, request.user)
+        from .pdf import render_report_card_pdf
+
+        pdf_bytes = render_report_card_pdf(report_card)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        disposition = "attachment" if request.query_params.get("download") else "inline"
+        response["Content-Disposition"] = (
+            f'{disposition}; filename="bulletin_{report_card.child_id}_{report_card.term_id}.pdf"'
+        )
+        return response
+
+
+class ClassReportCardsView(generics.ListAPIView):
+    """Bulletins déjà publiés d'une classe pour un trimestre — consultés
+    par le titulaire, un enseignant dédié d'une matière de cette classe,
+    ou le directeur (voir _require_report_card_view_access). Distinct de
+    ClassReportPreviewView (aperçu de calcul AVANT publication) : ici on
+    ne lit que des bulletins déjà figés."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ReportCardSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        school_class = get_object_or_404(
+            SchoolClass.objects.select_related("track__department__establishment"), pk=self.kwargs["class_id"]
+        )
+        term = get_object_or_404(Term, pk=self.kwargs["term_id"])
+        _require_class_view_access(school_class, self.request.user)
+        return (
+            ReportCard.objects.filter(school_class=school_class, term=term)
+            .select_related("child")
+            .prefetch_related("subject_entries")
+            .order_by("rank")
+        )
 
 
 class ChildReportCardsView(generics.ListAPIView):

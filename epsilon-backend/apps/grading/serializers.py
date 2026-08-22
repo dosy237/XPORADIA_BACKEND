@@ -98,6 +98,16 @@ class ReportCardSerializer(serializers.ModelSerializer):
     term_label = serializers.CharField(source="term.__str__", read_only=True)
     distinction_label = serializers.CharField(source="get_distinction_display", read_only=True)
     sanction_label = serializers.CharField(source="get_sanction_display", read_only=True)
+    # Volontairement PAS le fichier stocké (ReportCard.document) : celui-ci
+    # dépend du disque/S3 et peut devenir introuvable après coup (voir
+    # ReportCardPdfView). On pointe systématiquement vers l'endpoint qui
+    # régénère le PDF à la volée depuis les données déjà figées.
+    document = serializers.SerializerMethodField()
+
+    def get_document(self, obj):
+        path = f"/api/v1/grading/report-cards/{obj.id}/pdf/"
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request else path
 
     class Meta:
         model = ReportCard

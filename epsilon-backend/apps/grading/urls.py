@@ -42,6 +42,12 @@ urlpatterns = [
     path("my-report-cards/", views.MyReportCardsView.as_view(), name="my-report-cards"),
     path("my-grades/", views.MyGradesView.as_view(), name="my-grades"),
     path("my-grades/pdf/", views.MyGradesPdfView.as_view(), name="my-grades-pdf"),
+    path("report-cards/<int:report_card_id>/pdf/", views.ReportCardPdfView.as_view(), name="report-card-pdf"),
+    path(
+        "classes/<int:class_id>/terms/<int:term_id>/report-cards/",
+        views.ClassReportCardsView.as_view(),
+        name="class-report-cards",
+    ),
     path(
         "children/<int:child_id>/report-cards/",
         views.ChildReportCardsView.as_view(),
