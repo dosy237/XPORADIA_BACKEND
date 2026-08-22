@@ -1,4 +1,4 @@
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
@@ -547,64 +547,29 @@ class MyGradesView(APIView):
         child = getattr(request.user, "child_profile", None)
         if not child:
             raise PermissionDenied("Réservé aux comptes élève.")
-        enrollment = (
-            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
-            .select_related("school_class")
-            .first()
-        )
-        if not enrollment:
-            return Response([])
+        return Response(services.my_grades_for_child(child))
 
-        subjects = Subject.objects.filter(school_class=enrollment.school_class).order_by("name")
-        grades = (
-            Grade.objects.filter(child=child, evaluation__subject__in=subjects, score__isnull=False)
-            .select_related("evaluation", "evaluation__term", "evaluation__subject")
-            .order_by("-evaluation__date")
-        )
 
-        grades_by_subject_term = {}
-        for grade in grades:
-            key = (grade.evaluation.subject_id, grade.evaluation.term_id)
-            grades_by_subject_term.setdefault(key, []).append(grade)
+class MyGradesPdfView(APIView):
+    """Export PDF, à la demande, des notes chiffrées de l'élève connecté —
+    mêmes données que MyGradesView (services.my_grades_for_child), mise en
+    forme imprimable. Jamais persisté sur disque contrairement au bulletin
+    (ReportCard.document) : les notes évoluent en continu au fil du
+    trimestre, un fichier généré une fois serait obsolète dès la note
+    suivante saisie — régénéré à chaque appel, coût négligeable."""
 
-        result = []
-        for subject in subjects:
-            terms_seen = {
-                term_id for (subject_id, term_id) in grades_by_subject_term if subject_id == subject.id
-            }
-            if not terms_seen:
-                continue
-            term_entries = []
-            for term in Term.objects.filter(id__in=terms_seen).order_by("-school_year", "-number"):
-                subject_grades = grades_by_subject_term[(subject.id, term.id)]
-                term_entries.append(
-                    {
-                        "term_id": term.id,
-                        "term_label": str(term),
-                        "subject_average": services.compute_subject_average(child, subject, term),
-                        "evaluations": [
-                            {
-                                "id": g.evaluation.id,
-                                "title": g.evaluation.title,
-                                "eval_type": g.evaluation.eval_type,
-                                "score": g.score,
-                                "max_score": g.evaluation.max_score,
-                                "coefficient": g.evaluation.coefficient,
-                                "date": g.evaluation.date,
-                            }
-                            for g in subject_grades
-                        ],
-                    }
-                )
-            result.append(
-                {
-                    "subject_id": subject.id,
-                    "subject_name": subject.name,
-                    "coefficient": subject.coefficient,
-                    "terms": term_entries,
-                }
-            )
-        return Response(result)
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        child = getattr(request.user, "child_profile", None)
+        if not child:
+            raise PermissionDenied("Réservé aux comptes élève.")
+        from .pdf import render_my_grades_pdf
+
+        pdf_bytes = render_my_grades_pdf(child, services.my_grades_for_child(child))
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="mes_resultats_{child.id}.pdf"'
+        return response
 
 
 class ChildReportCardsView(generics.ListAPIView):

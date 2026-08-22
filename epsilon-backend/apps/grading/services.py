@@ -10,7 +10,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from apps.academics.models import Enrollment, EnrollmentStatus, Subject
 
-from .models import Evaluation, Grade
+from .models import Evaluation, Grade, Term
 
 TWO_PLACES = Decimal("0.01")
 
@@ -112,3 +112,68 @@ def compute_class_rankings(school_class, term) -> list[dict]:
         else None
     )
     return {"ranked": ranked, "without_average": without_average, "class_average": class_average}
+
+
+def my_grades_for_child(child) -> list[dict]:
+    """Notes chiffrées de CET élève, groupées par matière puis par
+    trimestre (le plus récent d'abord), moyenne de matière déjà calculée
+    pour chaque trimestre — extrait de MyGradesView pour être réutilisé
+    tel quel par la vue PDF (même données, deux présentations)."""
+    enrollment = (
+        Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+        .select_related("school_class")
+        .first()
+    )
+    if not enrollment:
+        return []
+
+    subjects = Subject.objects.filter(school_class=enrollment.school_class).order_by("name")
+    grades = (
+        Grade.objects.filter(child=child, evaluation__subject__in=subjects, score__isnull=False)
+        .select_related("evaluation", "evaluation__term", "evaluation__subject")
+        .order_by("-evaluation__date")
+    )
+
+    grades_by_subject_term = {}
+    for grade in grades:
+        key = (grade.evaluation.subject_id, grade.evaluation.term_id)
+        grades_by_subject_term.setdefault(key, []).append(grade)
+
+    result = []
+    for subject in subjects:
+        terms_seen = {
+            term_id for (subject_id, term_id) in grades_by_subject_term if subject_id == subject.id
+        }
+        if not terms_seen:
+            continue
+        term_entries = []
+        for term in Term.objects.filter(id__in=terms_seen).order_by("-school_year", "-number"):
+            subject_grades = grades_by_subject_term[(subject.id, term.id)]
+            term_entries.append(
+                {
+                    "term_id": term.id,
+                    "term_label": str(term),
+                    "subject_average": compute_subject_average(child, subject, term),
+                    "evaluations": [
+                        {
+                            "id": g.evaluation.id,
+                            "title": g.evaluation.title,
+                            "eval_type": g.evaluation.eval_type,
+                            "score": g.score,
+                            "max_score": g.evaluation.max_score,
+                            "coefficient": g.evaluation.coefficient,
+                            "date": g.evaluation.date,
+                        }
+                        for g in subject_grades
+                    ],
+                }
+            )
+        result.append(
+            {
+                "subject_id": subject.id,
+                "subject_name": subject.name,
+                "coefficient": subject.coefficient,
+                "terms": term_entries,
+            }
+        )
+    return result
