@@ -580,16 +580,29 @@ class Command(BaseCommand):
                 dict(title="Fiche de révision : Lois de Newton", resource_type=ResourceType.REVISION,
                      category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Physique-Chimie",
                      file_url="", has_pdf=True, has_cover=False, file_size_kb=210),
-                dict(title="Une si longue lettre — Mariama Bâ (texte intégral)", resource_type=ResourceType.EXAM,
+                dict(title="Une si longue lettre : Mariama Bâ (texte intégral)", resource_type=ResourceType.EXAM,
                      category=ResourceCategory.LITERATURE, level=SchoolLevel.TERMINALE, subject="Français",
                      file_url="https://example.com/une-si-longue-lettre.pdf", has_pdf=False, has_cover=True, file_size_kb=0),
-                dict(title="Annale BAC 2024 — Anglais LV1", resource_type=ResourceType.EXAM,
+                dict(title="Annale BAC 2024 : Anglais LV1", resource_type=ResourceType.EXAM,
                      category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Anglais",
                      file_url="https://example.com/annale-anglais-2024.pdf", has_pdf=False, has_cover=False, file_size_kb=0),
                 dict(title="Corrigé : Composition Physique-Chimie T2", resource_type=ResourceType.SOLUTION,
                      category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Physique-Chimie",
                      file_url="", has_pdf=True, has_cover=True, file_size_kb=390),
             ]
+            # Renommage correctif : ces deux titres portaient un tiret
+            # cadratin (règle d'interface interdisant ce caractère) avant
+            # d'être corrigés ici — sans ce renommage, une base déjà seedée
+            # avec l'ancien titre ne serait jamais retrouvée par le
+            # get_or_create ci-dessous (clé = title) et créerait un doublon
+            # au lieu de corriger la ressource existante en place.
+            title_renames = {
+                "Une si longue lettre — Mariama Bâ (texte intégral)": "Une si longue lettre : Mariama Bâ (texte intégral)",
+                "Annale BAC 2024 — Anglais LV1": "Annale BAC 2024 : Anglais LV1",
+            }
+            for old_title, new_title in title_renames.items():
+                LibraryResource.objects.filter(establishment=director, title=old_title).update(title=new_title)
+
             for spec in library_specs:
                 resource, c = LibraryResource.objects.get_or_create(
                     establishment=director, title=spec["title"],

@@ -40,6 +40,7 @@ urlpatterns = [
         name="generate-report-cards",
     ),
     path("my-report-cards/", views.MyReportCardsView.as_view(), name="my-report-cards"),
+    path("my-grades/", views.MyGradesView.as_view(), name="my-grades"),
     path(
         "children/<int:child_id>/report-cards/",
         views.ChildReportCardsView.as_view(),

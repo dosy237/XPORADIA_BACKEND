@@ -168,7 +168,7 @@ class DistributeOfferToSchoolsView(APIView):
                     school,
                     NotificationType.STAGE_UPDATE,
                     title="Nouvelle offre de stage proposée par Xporadia",
-                    body=f"« {offer.title} » — à publier pour vos élèves si vous êtes intéressé.",
+                    body=f"« {offer.title} », à publier pour vos élèves si vous êtes intéressé.",
                     data={"offer_id": str(offer.id)},
                 )
         serializer = InternshipOfferSchoolLinkSerializer(links, many=True, context={"request": request})
@@ -332,7 +332,7 @@ class InternshipApplicationDetailView(generics.RetrieveUpdateAPIView):
                 application.school,
                 NotificationType.STAGE_UPDATE,
                 title="Candidature de stage refusée",
-                body=f"\"{application.offer.title}\" — {application.offer.company.get_full_name()}.",
+                body=f"\"{application.offer.title}\" : {application.offer.company.get_full_name()}.",
                 data={"application_id": str(application.id)},
             )
 

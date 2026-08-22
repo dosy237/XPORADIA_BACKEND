@@ -500,7 +500,7 @@ class GenerateReportCardsView(APIView):
                 notify_user(
                     child.user, NotificationType.REPORT_CARD_PUBLISHED,
                     title="Bulletin disponible",
-                    body=f"Votre bulletin du {term} est disponible — moyenne générale : {entry['general_average']}/20.",
+                    body=f"Votre bulletin du {term} est disponible, moyenne générale : {entry['general_average']}/20.",
                 )
             if child.parent and child.parent.user_id:
                 notify_user(
@@ -527,6 +527,84 @@ class MyReportCardsView(generics.ListAPIView):
         if not child:
             raise PermissionDenied("Réservé aux comptes élève.")
         return ReportCard.objects.filter(child=child).prefetch_related("subject_entries")
+
+
+class MyGradesView(APIView):
+    """Notes chiffrées de l'élève connecté, groupées par matière puis par
+    trimestre, avec la moyenne de matière déjà calculée pour chaque
+    trimestre — en LECTURE SEULE, jamais modifiable côté élève.
+
+    Volontairement indépendant de ReportCard/bulletin publié : un élève
+    doit pouvoir consulter ses notes dès qu'elles sont saisies, sans
+    attendre qu'un enseignant génère et publie le bulletin du trimestre
+    (qui reste un document figé distinct, consulté depuis "Bulletins").
+    C'est aussi cette même moyenne "en direct" qui alimente le radar de
+    compétences du tableau de bord — voir get_my_subject_averages."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        child = getattr(request.user, "child_profile", None)
+        if not child:
+            raise PermissionDenied("Réservé aux comptes élève.")
+        enrollment = (
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+            .select_related("school_class")
+            .first()
+        )
+        if not enrollment:
+            return Response([])
+
+        subjects = Subject.objects.filter(school_class=enrollment.school_class).order_by("name")
+        grades = (
+            Grade.objects.filter(child=child, evaluation__subject__in=subjects, score__isnull=False)
+            .select_related("evaluation", "evaluation__term", "evaluation__subject")
+            .order_by("-evaluation__date")
+        )
+
+        grades_by_subject_term = {}
+        for grade in grades:
+            key = (grade.evaluation.subject_id, grade.evaluation.term_id)
+            grades_by_subject_term.setdefault(key, []).append(grade)
+
+        result = []
+        for subject in subjects:
+            terms_seen = {
+                term_id for (subject_id, term_id) in grades_by_subject_term if subject_id == subject.id
+            }
+            if not terms_seen:
+                continue
+            term_entries = []
+            for term in Term.objects.filter(id__in=terms_seen).order_by("-school_year", "-number"):
+                subject_grades = grades_by_subject_term[(subject.id, term.id)]
+                term_entries.append(
+                    {
+                        "term_id": term.id,
+                        "term_label": str(term),
+                        "subject_average": services.compute_subject_average(child, subject, term),
+                        "evaluations": [
+                            {
+                                "id": g.evaluation.id,
+                                "title": g.evaluation.title,
+                                "eval_type": g.evaluation.eval_type,
+                                "score": g.score,
+                                "max_score": g.evaluation.max_score,
+                                "coefficient": g.evaluation.coefficient,
+                                "date": g.evaluation.date,
+                            }
+                            for g in subject_grades
+                        ],
+                    }
+                )
+            result.append(
+                {
+                    "subject_id": subject.id,
+                    "subject_name": subject.name,
+                    "coefficient": subject.coefficient,
+                    "terms": term_entries,
+                }
+            )
+        return Response(result)
 
 
 class ChildReportCardsView(generics.ListAPIView):

@@ -687,14 +687,14 @@ class Command(BaseCommand):
                 for subject in subjects:
                     creator = subject.teacher or school_class.homeroom_teacher
                     homework, _ = Evaluation.objects.get_or_create(
-                        subject=subject, term=term, title=f"Devoir — {subject.name}",
+                        subject=subject, term=term, title=f"Devoir : {subject.name}",
                         defaults=dict(
                             eval_type=EvaluationType.HOMEWORK, coefficient=1,
                             date=term.start_date + datetime.timedelta(days=20), created_by=creator,
                         ),
                     )
                     exam, _ = Evaluation.objects.get_or_create(
-                        subject=subject, term=term, title=f"Composition — {subject.name}",
+                        subject=subject, term=term, title=f"Composition : {subject.name}",
                         defaults=dict(
                             eval_type=EvaluationType.EXAM, coefficient=3,
                             date=term.end_date - datetime.timedelta(days=10), created_by=creator,
@@ -744,7 +744,7 @@ class Command(BaseCommand):
         children = users["children"]
 
         vc_maths, _ = VirtualClass.objects.get_or_create(
-            subject=subjects["maths_cm2"], defaults=dict(description="Espace de la classe de CM2 A — mathématiques.")
+            subject=subjects["maths_cm2"], defaults=dict(description="Espace de la classe de CM2 A : mathématiques.")
         )
         ex_fractions, _ = Exercise.objects.get_or_create(
             virtual_class=vc_maths, title="Devoir sur les fractions",
@@ -763,10 +763,10 @@ class Command(BaseCommand):
         )
 
         vc_anglais, _ = VirtualClass.objects.get_or_create(
-            subject=subjects["anglais"], defaults=dict(description="Espace de la classe de 5ème A — anglais.")
+            subject=subjects["anglais"], defaults=dict(description="Espace de la classe de 5ème A : anglais.")
         )
         ex_vocab, _ = Exercise.objects.get_or_create(
-            virtual_class=vc_anglais, title="Vocabulaire — la famille",
+            virtual_class=vc_anglais, title="Vocabulaire : la famille",
             defaults=dict(
                 instructions="Apprendre le vocabulaire de la famille et faire l'exercice joint.",
                 status=ExerciseStatus.PUBLISHED, published_at=timezone.now(),
@@ -781,7 +781,7 @@ class Command(BaseCommand):
         )
         # Un devoir encore en brouillon pour illustrer le flux enseignant.
         Exercise.objects.get_or_create(
-            virtual_class=vc_anglais, title="Contrôle — temps du passé",
+            virtual_class=vc_anglais, title="Contrôle : temps du passé",
             defaults=dict(instructions="Contrôle sur le prétérit, à publier la semaine prochaine.", status=ExerciseStatus.DRAFT),
         )
 
@@ -796,14 +796,14 @@ class Command(BaseCommand):
 
         resource_defs = [
             dict(
-                title="Cours — Les fractions au CM2",
+                title="Cours : Les fractions au CM2",
                 description="Support de cours complet sur les fractions.", resource_type=ResourceType.COURSE,
                 category=ResourceCategory.ACADEMIC, level=SchoolLevel.SIXIEME,
                 subject="Mathématiques", file_url="https://example.com/demo/fractions-cm2.pdf",
                 file_size_kb=850, tags=["fractions", "cm2"], author=teachers["mariam"],
             ),
             dict(
-                title="Fiche de révision — Vocabulaire de la famille",
+                title="Fiche de révision : Vocabulaire de la famille",
                 description="Fiche de vocabulaire anglais à réviser avant le contrôle.",
                 resource_type=ResourceType.REVISION, category=ResourceCategory.ACADEMIC,
                 level=SchoolLevel.CINQUIEME,
@@ -814,7 +814,7 @@ class Command(BaseCommand):
             # scolaire, pour que l'écran de bibliothèque présente déjà sa
             # structure en rayons plutôt qu'un unique rayon "Scolaire".
             dict(
-                title="Une si longue lettre — Mariama Bâ",
+                title="Une si longue lettre : Mariama Bâ",
                 description="Roman épistolaire ivoiro-sénégalais, classique de la littérature africaine francophone.",
                 resource_type=ResourceType.COURSE, category=ResourceCategory.LITERATURE,
                 level=SchoolLevel.PREMIERE, subject="Littérature",
@@ -830,7 +830,7 @@ class Command(BaseCommand):
                 file_size_kb=610, tags=["climat", "environnement"], author=teachers["aminata"],
             ),
             dict(
-                title="Portrait — Une entrepreneure ivoirienne de la tech",
+                title="Portrait : Une entrepreneure ivoirienne de la tech",
                 description="Parcours d'une fondatrice de startup abidjanaise, de l'idée au financement.",
                 resource_type=ResourceType.COURSE, category=ResourceCategory.BIOGRAPHY,
                 level=SchoolLevel.TERMINALE, subject="Économie",
@@ -855,9 +855,9 @@ class Command(BaseCommand):
         if children["aicha"].user_id:
             raters.append(children["aicha"].user)
         rating_defs = [
-            ("Cours — Les fractions au CM2", [5, 4, 5]),
-            ("Une si longue lettre — Mariama Bâ", [5, 5]),
-            ("Portrait — Une entrepreneure ivoirienne de la tech", [4]),
+            ("Cours : Les fractions au CM2", [5, 4, 5]),
+            ("Une si longue lettre : Mariama Bâ", [5, 5]),
+            ("Portrait : Une entrepreneure ivoirienne de la tech", [4]),
         ]
         for title, scores in rating_defs:
             resource = resources[title]
@@ -872,7 +872,7 @@ class Command(BaseCommand):
         teachers = users["teachers"]
 
         listing_active, _ = JobListing.objects.get_or_create(
-            school=directors["kouassi"], title="Enseignant(e) de Mathématiques — Collège",
+            school=directors["kouassi"], title="Enseignant(e) de Mathématiques : Collège",
             defaults=dict(
                 subject="Mathématiques", levels=["6ème", "5ème"], contract_type=ContractType.CDI,
                 salary_min=150000, salary_max=220000, cert_level_required=CertificationLevel.BRONZE,
@@ -900,7 +900,7 @@ class Command(BaseCommand):
                         send_push=False)
 
         JobListing.objects.get_or_create(
-            school=directors["adjoua"], title="Enseignant(e) d'Anglais — Lycée",
+            school=directors["adjoua"], title="Enseignant(e) d'Anglais : Lycée",
             defaults=dict(
                 subject="Anglais", levels=["Seconde", "Première"], contract_type=ContractType.CDD,
                 cert_level_required=CertificationLevel.BRONZE,
@@ -924,7 +924,7 @@ class Command(BaseCommand):
         children = users["children"]
 
         offer1, _ = InternshipOffer.objects.get_or_create(
-            company=companies["serge"], title="Stage découverte — Développement web",
+            company=companies["serge"], title="Stage découverte : Développement web",
             defaults=dict(
                 domain="Numérique", missions="Initiation au développement web, observation des équipes techniques.",
                 level=InternshipLevel.COLLEGE, duration_weeks=2,
@@ -954,7 +954,7 @@ class Command(BaseCommand):
         )
 
         offer2, _ = InternshipOffer.objects.get_or_create(
-            company=companies["nadege"], title="Stage découverte — Marketing digital",
+            company=companies["nadege"], title="Stage découverte : Marketing digital",
             defaults=dict(
                 domain="Marketing", missions="Support aux campagnes digitales et réseaux sociaux.",
                 level=InternshipLevel.SECONDE, duration_weeks=1,
@@ -1012,7 +1012,7 @@ class Command(BaseCommand):
             ),
             dict(
                 author=directors["kouassi"],
-                title="Recrutement — Collège Fraternité",
+                title="Recrutement : Collège Fraternité",
                 body=(
                     "Le Collège Fraternité recrute deux enseignants de Mathématiques certifiés Or "
                     "pour la rentrée. Les candidatures se font directement via l'annuaire Xporadia."
@@ -1042,7 +1042,7 @@ class Command(BaseCommand):
             dict(
                 author=parents["fatou"],
                 body=(
-                    "Merci à la communauté enseignante pour vos conseils sur l'accompagnement en SVT — "
+                    "Merci à la communauté enseignante pour vos conseils sur l'accompagnement en SVT, "
                     "les progrès de ma fille depuis la rentrée sont impressionnants."
                 ),
                 days_ago=1,
@@ -1150,7 +1150,7 @@ class Command(BaseCommand):
             svt_channel = create_subject_channel(subj_svt, subj_svt.teacher)
             Message.objects.create(
                 channel=svt_channel, author=subj_svt.teacher,
-                body="Bienvenue dans le canal de SVT — postez vos questions ici entre deux cours.",
+                body="Bienvenue dans le canal de SVT, postez vos questions ici entre deux cours.",
             )
 
         LifeGoal.objects.get_or_create(
@@ -1168,7 +1168,7 @@ class Command(BaseCommand):
             child=aicha, title="Lire un livre de développement personnel par mois", defaults=dict(is_done=True),
         )
         PersonalNote.objects.get_or_create(
-            child=aicha, subject=subj_anglais, title="Vocabulaire — la famille",
+            child=aicha, subject=subj_anglais, title="Vocabulaire : la famille",
             defaults=dict(content="Mother, father, sibling, cousin, nephew, niece..."),
         )
 
@@ -1424,7 +1424,7 @@ class Command(BaseCommand):
             subject_name = rng.choice(SUBJECTS_BANK)
             LibraryResource.objects.get_or_create(
                 establishment=establishment,
-                title=f"{rng.choice(LIB_TITLES)} — {subject_name} {rng.choice(SCHOOL_LEVELS).upper()} #{i}",
+                title=f"{rng.choice(LIB_TITLES)} : {subject_name} {rng.choice(SCHOOL_LEVELS).upper()} #{i}",
                 defaults=dict(
                     resource_type=rng.choice(list(ResourceType)),
                     level=rng.choice(list(SchoolLevel)),

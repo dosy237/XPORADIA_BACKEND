@@ -87,7 +87,7 @@ class Command(BaseCommand):
                     recipient,
                     NotificationType.EXERCISE_OVERDUE,
                     title="Devoir non rendu",
-                    body=f"La date limite pour « {exercise.title} » est passée — vous pouvez encore le rendre.",
+                    body=f"La date limite pour « {exercise.title} » est passée, vous pouvez encore le rendre.",
                     data={"exercise_id": str(exercise.id)},
                 )
             exercise.overdue_notified_at = now

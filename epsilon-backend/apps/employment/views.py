@@ -301,7 +301,7 @@ class JobApplicationDetailView(generics.RetrieveUpdateAPIView):
                 application.teacher,
                 NotificationType.APPLICATION_VIEWED,
                 title=message,
-                body=f"\"{application.listing.title}\" — {application.listing.school.get_full_name()}.",
+                body=f"\"{application.listing.title}\" : {application.listing.school.get_full_name()}.",
                 data={"application_id": str(application.id)},
             )
 
