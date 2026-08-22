@@ -1,14 +1,32 @@
 """
 Xporadia — seed_student_showcase
 
-Jeu de données de démonstration dédié à UN élève vitrine, couvrant tous
-les états possibles du profil élève actuel : classe avec plusieurs
-matières et enseignants, historique de plusieurs trimestres avec des
-notes sur des échelles différentes, devoirs dans les trois états (en
-cours, soumis, corrigé), messagerie (DM avec un enseignant, DM avec un
-camarade), bibliothèque variée, bulletins publiés, agenda (emploi du
-temps + créneaux personnels + un événement d'établissement), et le module
-Vie & objectifs.
+Jeu de données de démonstration vitrine — élève, enseignant titulaire et
+parent — bâti comme UN seul écosystème interconnecté (même établissement,
+même classe, mêmes personnes) plutôt que des comptes isolés, pour que
+chaque rôle voie de vraies données cohérentes en se connectant.
+
+Élève (Kevin Ouattara) : classe avec plusieurs matières et enseignants,
+historique de plusieurs trimestres avec des notes sur des échelles
+différentes, devoirs dans les trois états (en cours, soumis, corrigé),
+messagerie (DM avec un enseignant, DM avec un camarade), bibliothèque
+variée, bulletins publiés, agenda (emploi du temps + créneaux personnels
++ un événement d'établissement), et le module Vie & objectifs.
+
+Enseignant (Fatou Diabaté, titulaire ET professeure de Philosophie) :
+gestion de classe (bulletins, événements, promotion de fin d'année,
+délégation d'emploi du temps), correction de copies, certification
+(niveau déjà obtenu + module suivant disponible pour un examen en ligne
+réel), formation continue (session à venir avec inscription payée),
+emploi (candidature en attente + recrutement déjà confirmé chez un
+second établissement), portefeuille (paiements réels).
+
+Parent (Ramata Ouattara) : deux enfants dans des états différents (Kevin,
+pleinement suivi ; une seconde enfant ajoutée manuellement, sans compte
+propre) + un historique de demande de rattachement déjà résolue, plus un
+troisième enfant totalement libre (auto-inscrit, non réclamé par
+personne) pour tester en conditions réelles une TOUTE nouvelle demande de
+rattachement.
 
 Entièrement idempotent (get_or_create / update_or_create partout, jamais
 de création inconditionnelle) : relancer cette commande ne duplique
@@ -26,6 +44,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.academics.models import (
+    DelegatedTask,
     Department,
     Enrollment,
     EnrollmentStatus,
@@ -36,10 +55,37 @@ from apps.academics.models import (
     PersonalScheduleException,
     SchoolClass,
     Subject,
+    TaskDelegation,
     TimetableSlot,
     Track,
 )
 from apps.academics.views import _notify_holiday_declared
+from apps.certification.models import (
+    AttemptStatus,
+    Certification,
+    CertificationLevel,
+    DifficultyLevel,
+    ExamAttempt,
+    ExamQuestion,
+    ModuleCategory,
+    QuestionType,
+    SessionEnrollment,
+    TrainingModule,
+    TrainingSession,
+)
+from apps.certification.models import SessionStatus as CertSessionStatus
+from apps.employment.models import (
+    ContractType,
+    JobApplication,
+    JobListing,
+    JobStatus,
+    PayrollEntry,
+    Recruitment,
+    WalletTransaction,
+    WorkedHours,
+    WorkedHoursStatus,
+)
+from apps.employment.models import PaymentStatus as RecruitmentPaymentStatus
 from apps.feed.models import Follow, Post
 from apps.grading.models import Evaluation, EvaluationType, Grade, ReportCard, SubjectReportEntry, Term
 from apps.grading.services import compute_class_rankings, compute_general_average, compute_subject_average
@@ -52,28 +98,49 @@ from apps.messaging.services import (
     get_or_create_direct_channel,
 )
 from apps.notifications.models import Notification, NotificationType
+from apps.payments.models import MobileOperator, Payment, PaymentType
+from apps.payments.models import PaymentStatus as PayStatus
 from apps.student_life.models import BucketListItem, LifeGoal
-from apps.users.models import Child, ChildClaimRequest, ChildClaimRequestStatus, DirectorProfile, ParentProfile, User, UserRole
+from apps.users.models import (
+    Child,
+    ChildClaimRequest,
+    ChildClaimRequestStatus,
+    DirectorProfile,
+    ParentProfile,
+    TeacherProfile,
+    User,
+    UserRole,
+)
 from apps.virtual_classes.models import Exercise, ExerciseKind, ExerciseStatus, Submission, SubmissionStatus, VirtualClass
 
 DEMO_PASSWORD = "Xporadia2026!"
 
 
 def get_or_create_user(email, **fields):
-    # get_or_create() n'appelle jamais UserManager.create_user() — le
-    # is_verified=True qu'il applique par défaut est donc perdu ici,
-    # laissant l'utilisateur bloqué derrière l'écran de vérification par
-    # code OTP à la première connexion. Un compte de démonstration doit
-    # être immédiatement utilisable : forcé explicitement ci-dessous.
-    user, created = User.objects.get_or_create(
-        email=email, defaults={"password": "!", "is_verified": True, **fields}
-    )
+    # get_or_create() n'appelle jamais UserManager.create_user() — les
+    # is_verified=True / is_documents_validated=True qu'il applique par
+    # défaut (voir UserManager.create_user, extra_fields.setdefault) sont
+    # donc perdus ici. Sans ce forçage explicite, un enseignant ou
+    # directeur seedé en ORM resterait bloqué derrière l'écran de
+    # vérification OTP ET derrière la bannière "Accréditation en attente"
+    # (masque l'annuaire, les cours particuliers et le marché de l'emploi)
+    # — un compte de démonstration doit être immédiatement utilisable,
+    # à égalité avec un compte réellement inscrit et déjà validé.
+    defaults = {"password": "!", "is_verified": True, "is_documents_validated": True, **fields}
+    user, created = User.objects.get_or_create(email=email, defaults=defaults)
     if created:
         user.set_password(DEMO_PASSWORD)
         user.save(update_fields=["password"])
-    elif not user.is_verified:
-        user.is_verified = True
-        user.save(update_fields=["is_verified"])
+    else:
+        update_fields = []
+        if not user.is_verified:
+            user.is_verified = True
+            update_fields.append("is_verified")
+        if not user.is_documents_validated:
+            user.is_documents_validated = True
+            update_fields.append("is_documents_validated")
+        if update_fields:
+            user.save(update_fields=update_fields)
     return user, created
 
 
@@ -131,7 +198,7 @@ def save_demo_attachment(name: str, content: bytes, content_type: str, upload_to
 
 
 class Command(BaseCommand):
-    help = "Jeu de démonstration complet et idempotent pour un élève vitrine (profil élève au complet)."
+    help = "Jeu de démonstration complet et idempotent : élève, enseignant titulaire et parent vitrines."
 
     def handle(self, *args, **options):
         created_counts = {"created": 0, "existing": 0}
@@ -144,17 +211,8 @@ class Command(BaseCommand):
             director_user, c = get_or_create_user(
                 "demo.directeur.showcase@xporadia.ci", primary_role=UserRole.DIRECTOR,
                 first_name="Solange", last_name="Bakayoko",
-                # is_documents_validated=False par défaut (validé par un
-                # administrateur Xporadia après inscription réelle) —
-                # l'établissement n'apparaîtrait sinon jamais dans
-                # l'annuaire public (EstablishmentDirectoryViewSet), donc
-                # jamais trouvable depuis "Rejoindre mon établissement".
-                is_documents_validated=True,
             )
             note(c)
-            if not director_user.is_documents_validated:
-                director_user.is_documents_validated = True
-                director_user.save(update_fields=["is_documents_validated"])
             director, c = DirectorProfile.objects.get_or_create(
                 user=director_user,
                 defaults={"school_name": "Lycée Démo Complet", "address": "Cocody, Abidjan", "is_partner": True},
@@ -194,6 +252,13 @@ class Command(BaseCommand):
                 note(c1)
                 if name == "Mathématiques":
                     note(ensure_avatar(teacher, (58, 92, 148)))
+                # TeacherProfile n'est créé par aucun signal — seulement par
+                # RegisterTeacherSerializer à l'inscription réelle. Sans ce
+                # get_or_create explicite ici, un enseignant seedé en ORM
+                # n'en a jamais un, ce qui viderait sa propre fiche profil.
+                TeacherProfile.objects.get_or_create(
+                    user=teacher, defaults={"subjects": [name], "experience_years": 5, "hourly_rate": Decimal("6000")},
+                )
                 subject, c2 = Subject.objects.get_or_create(
                     school_class=school_class, name=name, defaults={"coefficient": coeff, "teacher": teacher},
                 )
@@ -204,6 +269,31 @@ class Command(BaseCommand):
                 note(c2)
                 VirtualClass.objects.get_or_create(subject=subject)
                 subjects[name] = subject
+
+            # === Enseignante titulaire = aussi professeure d'une matière ===
+            # Fatou (titulaire) n'enseignait jusqu'ici aucune matière : pour
+            # tester ses fonctionnalités (grille de notes, canal de matière,
+            # copies à corriger) sans lui voler une matière déjà attribuée à
+            # un des 4 enseignants dédiés ci-dessus, elle prend Philosophie.
+            homeroom_teacher_profile, c = TeacherProfile.objects.get_or_create(
+                user=homeroom_user,
+                defaults={
+                    "subjects": ["Philosophie"], "experience_years": 11,
+                    "hourly_rate": Decimal("7500"), "location": "Cocody, Abidjan",
+                    "bio": "Professeure de philosophie et titulaire de Terminale D2, disponible pour "
+                           "de l'accompagnement personnalisé et ouverte à de nouvelles opportunités.",
+                    "available_for_tutoring": True, "available_for_employment": True,
+                },
+            )
+            note(c)
+            note(ensure_avatar(homeroom_user, (150, 90, 130)))
+            philo_subject, c = Subject.objects.get_or_create(
+                school_class=school_class, name="Philosophie",
+                defaults={"coefficient": 2, "teacher": homeroom_user},
+            )
+            note(c)
+            VirtualClass.objects.get_or_create(subject=philo_subject)
+            subjects["Philosophie"] = philo_subject
 
             # === Élève + parent ===
             parent_user, c = get_or_create_user(
@@ -235,6 +325,51 @@ class Command(BaseCommand):
 
             enrollment, c = Enrollment.objects.get_or_create(
                 child=child, school_class=school_class, defaults={"status": EnrollmentStatus.ACTIVE}
+            )
+            note(c)
+
+            # Une seconde enfant de Ramata, ajoutée manuellement depuis
+            # parent/profile.tsx (pas de compte élève propre, pas encore
+            # scolarisée dans une classe suivie par la plateforme) — état
+            # distinct de Kevin, pour tester le tableau de bord parent à
+            # plusieurs enfants avec un profil sciemment plus vide.
+            second_child, c = Child.objects.get_or_create(
+                parent=parent, first_name="Aminata", last_name="Ouattara",
+                defaults={"class_level": "6ème", "birth_date": date(2014, 9, 2)},
+            )
+            note(c)
+
+            # Un troisième enfant, auto-inscrit et JAMAIS réclamé par
+            # personne (aucune ChildClaimRequest, même pas en attente) —
+            # pour tester en conditions réelles une TOUTE nouvelle demande
+            # de rattachement depuis parent/claim-child.tsx (recherche par
+            # email + soumission), distinct du cas déjà en attente plus bas.
+            unclaimed_user, c = get_or_create_user(
+                "demo.eleve.libre.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
+                first_name="Nafissatou", last_name="Diallo",
+            )
+            note(c)
+            Child.objects.get_or_create(
+                user=unclaimed_user,
+                defaults={"parent": None, "first_name": "Nafissatou", "last_name": "Diallo", "class_level": "Terminale D"},
+            )
+
+            # Un quatrième enfant, réclamé et déjà APPROUVÉ par le passé —
+            # pour que l'historique de Ramata (fetchMyChildClaimRequests)
+            # affiche aussi une demande résolue, pas seulement l'écran de
+            # recherche vide d'une toute première demande.
+            approved_child_user, c = get_or_create_user(
+                "demo.eleve.neveu.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
+                first_name="Yssouf", last_name="Ouattara",
+            )
+            note(c)
+            approved_child, c = Child.objects.get_or_create(
+                user=approved_child_user,
+                defaults={"parent": parent, "first_name": "Yssouf", "last_name": "Ouattara", "class_level": "Terminale D"},
+            )
+            note(c)
+            _, c = ChildClaimRequest.objects.get_or_create(
+                parent=parent, child=approved_child, defaults={"status": ChildClaimRequestStatus.APPROVED},
             )
             note(c)
 
@@ -377,6 +512,11 @@ class Command(BaseCommand):
                 (term3, "Mathématiques", "Composition T3", EvaluationType.EXAM, 15, 3, Decimal("10.50")),
                 (term3, "Physique-Chimie", "Composition T3", EvaluationType.EXAM, 20, 3, Decimal("14.00")),
                 (term3, "Français", "Composition T3", EvaluationType.EXAM, 20, 2, Decimal("12.50")),
+                # Philosophie n'existe que depuis T3 (Fatou en a pris la
+                # charge en même temps que ce script vitrine) : aucune note
+                # en T1/T2, jamais touché les bulletins déjà publiés.
+                (term3, "Philosophie", "Dissertation blanche", EvaluationType.HOMEWORK, 20, 1, Decimal("13.00")),
+                (term3, "Philosophie", "Composition T3", EvaluationType.EXAM, 20, 3, Decimal("11.50")),
             ]
             for term, subject_name, title, eval_type, max_score, coeff, score in eval_specs:
                 subject = subjects[subject_name]
@@ -528,6 +668,9 @@ class Command(BaseCommand):
                 },
             )
             note(c2)  # corrigé (2e matière, pour la variété)
+
+            ex_philo, c = get_exercise("Philosophie", "Dissertation : la liberté est-elle une illusion ?", kind=ExerciseKind.EXAM, days_ago=4)
+            note(c)  # en cours : publié, sans soumission — Fatou a une copie réelle à voir arriver
 
             # === Messagerie : DM avec un enseignant, DM avec un camarade ===
             dm_teacher = get_or_create_direct_channel(student_user, subjects["Mathématiques"].teacher)
@@ -752,7 +895,243 @@ class Command(BaseCommand):
                 _, c = Post.objects.get_or_create(author=subjects["Mathématiques"].teacher, body=body)
                 note(c)
 
+            # === Enseignante : gestion de classe avancée ===
+            # Classe soeur du même établissement/filière — sert de
+            # destination réelle lors d'une promotion de fin d'année,
+            # sans quoi l'écran n'aurait aucune classe cible à proposer.
+            sibling_class, c = SchoolClass.objects.get_or_create(
+                track=track, name="Terminale D1", school_year="2025-2026",
+            )
+            note(c)
+
+            # Délégation de la gestion des emplois du temps par la
+            # directrice à Fatou (déjà titulaire) — teste my-delegations et
+            # débloque timetable-editor pour elle sur tout l'établissement.
+            _, c = TaskDelegation.objects.get_or_create(
+                establishment=director, teacher=homeroom_user, task=DelegatedTask.TIMETABLE,
+            )
+            note(c)
+
+            # === Enseignante : certification (niveau acquis + niveau suivant à tenter) ===
+            bronze_module, c = TrainingModule.objects.get_or_create(
+                title="Fondamentaux pédagogiques (vitrine)",
+                defaults={
+                    "category": ModuleCategory.PEDAGOGY,
+                    "description": "Les bases de la pédagogie active : différenciation, structuration de séquence.",
+                    "objectives": ["Différencier pédagogie active et transmissive", "Structurer une séquence complète"],
+                    "duration_hours": 6, "price": 15000, "points": 10,
+                    "target_level": CertificationLevel.BRONZE,
+                },
+            )
+            note(c)
+            bronze_questions = [
+                ("Qu'est-ce que la pédagogie active ?", QuestionType.MCQ,
+                 ["Une méthode centrée sur l'enseignant", "Une méthode où l'élève construit son savoir", "Un simple exposé magistral"],
+                 "Une méthode où l'élève construit son savoir"),
+                ("Une séquence pédagogique doit toujours commencer par une évaluation sommative.", QuestionType.TF, [], "false"),
+            ]
+            for text, qtype, options, correct in bronze_questions:
+                _, c = ExamQuestion.objects.get_or_create(
+                    module=bronze_module, text=text,
+                    defaults={"question_type": qtype, "options": options, "correct_answer": correct,
+                              "difficulty": DifficultyLevel.EASY, "points": 1},
+                )
+                note(c)
+
+            bronze_attempt, c = ExamAttempt.objects.get_or_create(
+                teacher=homeroom_user, module=bronze_module, is_online=True,
+                defaults={
+                    "answers": {}, "score_auto": Decimal("85.00"), "score_total": Decimal("85.00"),
+                    "status": AttemptStatus.PASSED,
+                    "submitted_at": timezone.now() - timedelta(days=200),
+                    "graded_at": timezone.now() - timedelta(days=200),
+                },
+            )
+            note(c)
+            _, c = Certification.objects.get_or_create(
+                teacher=homeroom_user, module=bronze_module,
+                defaults={
+                    "attempt": bronze_attempt, "level": CertificationLevel.BRONZE,
+                    "points_awarded": bronze_module.points, "score_total": Decimal("85.00"),
+                    "qr_code": f"XPD-SHOWCASE-BRONZE-{homeroom_user.id}",
+                    "expires_at": date.today() + timedelta(days=730),
+                },
+            )
+            note(c)
+
+            # Module du niveau suivant : questions présentes, mais AUCUNE
+            # tentative — laissé volontairement ouvert pour tester
+            # l'examen en ligne réel (teacher/online-exam) en conditions
+            # vraies plutôt que de le pré-remplir.
+            silver_module, c = TrainingModule.objects.get_or_create(
+                title="Différenciation pédagogique avancée (vitrine)",
+                defaults={
+                    "category": ModuleCategory.DIDACTICS,
+                    "description": "Concevoir des parcours différenciés pour des classes hétérogènes.",
+                    "objectives": ["Adapter une séquence à des niveaux hétérogènes", "Concevoir une évaluation différenciée"],
+                    "duration_hours": 8, "price": 25000, "points": 15,
+                    "target_level": CertificationLevel.SILVER,
+                },
+            )
+            note(c)
+            silver_questions = [
+                ("La différenciation pédagogique consiste à...", QuestionType.MCQ,
+                 ["Donner le même exercice à tous", "Adapter les tâches aux besoins de chaque élève", "Ne noter que les meilleurs"],
+                 "Adapter les tâches aux besoins de chaque élève"),
+                ("Décrivez une situation de différenciation vécue dans votre classe.", QuestionType.OPEN, [], ""),
+            ]
+            for text, qtype, options, correct in silver_questions:
+                _, c = ExamQuestion.objects.get_or_create(
+                    module=silver_module, text=text,
+                    defaults={"question_type": qtype, "options": options, "correct_answer": correct,
+                              "difficulty": DifficultyLevel.MEDIUM, "points": 1},
+                )
+                note(c)
+
+            # === Enseignante : formation continue (session à venir, payée) ===
+            trainer_user, c = get_or_create_user(
+                "demo.formateur.showcase@xporadia.ci", primary_role=UserRole.TRAINER,
+                first_name="Konan", last_name="Assouan",
+            )
+            note(c)
+            training_session, c = TrainingSession.objects.get_or_create(
+                module=silver_module, trainer=trainer_user, city="Abidjan",
+                date=timezone.localdate() + timedelta(days=25),
+                defaults={
+                    "location": "Centre de formation Xporadia, Cocody",
+                    "start_time": time(9, 0), "end_time": time(16, 0),
+                    "capacity": 25, "status": CertSessionStatus.PLANNED,
+                },
+            )
+            note(c)
+            session_enrollment, c = SessionEnrollment.objects.get_or_create(
+                session=training_session, teacher=homeroom_user,
+            )
+            if c:
+                session_payment = Payment.objects.create(
+                    user=homeroom_user, amount=silver_module.price, operator=MobileOperator.ORANGE,
+                    phone_number="0700000001", payment_type=PaymentType.TRAINING, status=PayStatus.COMPLETED,
+                    tx_ref=f"XPD-SHOWCASE-TRAINING-{homeroom_user.id}",
+                    completed_at=timezone.now() - timedelta(days=5),
+                )
+                session_enrollment.payment_status = "paid"
+                session_enrollment.payment = session_payment
+                session_enrollment.save(update_fields=["payment_status", "payment"])
+                training_session.enrolled_count += 1
+                training_session.save(update_fields=["enrolled_count"])
+            note(c)
+
+            # === Enseignante : emploi (candidature en attente + recrutement confirmé) ===
+            # Second établissement, distinct de celui de la classe vitrine —
+            # une candidature ET un recrutement déjà confirmé ailleurs sont
+            # deux états réels et compatibles (vacations chez un autre
+            # employeur, en plus de son poste de titulaire).
+            second_director_user, c = get_or_create_user(
+                "demo.directeur2.showcase@xporadia.ci", primary_role=UserRole.DIRECTOR,
+                first_name="Yves", last_name="N'Guessan",
+            )
+            note(c)
+            second_director, c = DirectorProfile.objects.get_or_create(
+                user=second_director_user,
+                defaults={"school_name": "Collège Passerelle", "address": "Yopougon, Abidjan", "is_partner": True},
+            )
+            note(c)
+
+            job_listing, c = JobListing.objects.get_or_create(
+                school=second_director_user, title="Professeur(e) de Philosophie, vacation",
+                defaults={
+                    "subject": "Philosophie", "levels": ["Terminale"], "contract_type": ContractType.VACATION,
+                    "salary_min": 4000, "salary_max": 6000, "cert_level_required": CertificationLevel.BRONZE,
+                    "description": "Vacations de philosophie pour la Terminale, deux soirs par semaine.",
+                    "city": "Abidjan", "commune": "Yopougon", "status": JobStatus.ACTIVE,
+                    "published_at": timezone.now() - timedelta(days=12),
+                    "expires_at": timezone.localdate() + timedelta(days=45),
+                },
+            )
+            note(c)
+            _, c = JobApplication.objects.get_or_create(
+                teacher=homeroom_user, listing=job_listing,
+                defaults={"cover_letter": "Titulaire certifiée Bronze, disponible en soirée pour des vacations."},
+            )
+            note(c)
+
+            recruitment, c = Recruitment.objects.get_or_create(
+                school=second_director_user, teacher=homeroom_user,
+                defaults={
+                    "contract_type": ContractType.CDD, "hourly_rate_teacher": 5000, "hourly_rate_billed": 6000,
+                    "commission_rate": Decimal("10.00"), "payment_status": RecruitmentPaymentStatus.PAID,
+                },
+            )
+            note(c)
+
+            # === Enseignante : heures déclarées, clôture de paie, portefeuille crédité ===
+            # Un mois déjà clôturé (le mois dernier) — heures validées par le
+            # directeur, converties en ligne de paie, qui crédite le
+            # portefeuille : sans cette chaîne complète, "Portefeuille"
+            # afficherait un solde à zéro malgré un recrutement confirmé.
+            last_month_ref = timezone.localdate().replace(day=1) - timedelta(days=1)
+            worked_hours_specs = [
+                (last_month_ref.replace(day=4), Decimal("4.00")),
+                (last_month_ref.replace(day=11), Decimal("6.00")),
+                (last_month_ref.replace(day=18), Decimal("5.00")),
+            ]
+            total_hours = sum(h for _, h in worked_hours_specs)
+            worked_hours_rows = []
+            for wdate, hours in worked_hours_specs:
+                wh, c = WorkedHours.objects.get_or_create(
+                    recruitment=recruitment, date=wdate,
+                    defaults={
+                        "hours": hours, "note": "Vacations de philosophie", "status": WorkedHoursStatus.APPROVED,
+                        "reviewed_by": second_director_user, "reviewed_at": timezone.now() - timedelta(days=20),
+                    },
+                )
+                note(c)
+                worked_hours_rows.append(wh)
+
+            gross_amount = int(total_hours * recruitment.hourly_rate_teacher)
+            billed_amount = int(total_hours * recruitment.hourly_rate_billed)
+            payroll_entry, c = PayrollEntry.objects.get_or_create(
+                recruitment=recruitment, period_year=last_month_ref.year, period_month=last_month_ref.month,
+                defaults={
+                    "total_hours": total_hours,
+                    "hourly_rate_teacher": recruitment.hourly_rate_teacher,
+                    "hourly_rate_billed": recruitment.hourly_rate_billed,
+                    "gross_amount": gross_amount, "billed_amount": billed_amount,
+                    "xporadia_margin": billed_amount - gross_amount,
+                },
+            )
+            note(c)
+            if c:
+                WorkedHours.objects.filter(id__in=[wh.id for wh in worked_hours_rows]).update(payroll_entry=payroll_entry)
+            _, c = WalletTransaction.objects.get_or_create(
+                payroll_entry=payroll_entry, defaults={"teacher": homeroom_user, "amount": gross_amount},
+            )
+            note(c)
+
+            # Un mois en cours, pas encore clôturé — heures déclarées mais
+            # encore en attente de validation par le directeur, pour tester
+            # ce second état (distinct du mois déjà payé ci-dessus).
+            _, c = WorkedHours.objects.get_or_create(
+                recruitment=recruitment, date=timezone.localdate() - timedelta(days=2),
+                defaults={"hours": Decimal("3.00"), "note": "Vacations de philosophie", "status": WorkedHoursStatus.PENDING},
+            )
+            note(c)
+
+            # === Enseignante : portefeuille (paiement réel, distinct de la formation) ===
+            _, c = Payment.objects.get_or_create(
+                tx_ref=f"XPD-SHOWCASE-TUTORING-{homeroom_user.id}",
+                defaults={
+                    "user": homeroom_user, "amount": 7500, "operator": MobileOperator.WAVE,
+                    "phone_number": "0700000002", "payment_type": PaymentType.TUTORING,
+                    "status": PayStatus.COMPLETED, "completed_at": timezone.now() - timedelta(days=15),
+                },
+            )
+            note(c)
+
         self.stdout.write(self.style.SUCCESS(
-            f"Élève vitrine prêt — demo.eleve.showcase@xporadia.ci / {DEMO_PASSWORD} "
+            f"Écosystème vitrine prêt (mot de passe commun : {DEMO_PASSWORD}) — "
+            f"élève : demo.eleve.showcase@xporadia.ci · "
+            f"enseignante (titulaire + Philosophie) : demo.titulaire.showcase@xporadia.ci · "
+            f"parent : demo.parent.showcase@xporadia.ci "
             f"(objets créés : {created_counts['created']}, déjà présents : {created_counts['existing']})."
         ))
