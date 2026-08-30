@@ -55,6 +55,16 @@ urlpatterns = [
     path("my-agenda/", views.MyAgendaView.as_view(), name="my-agenda"),
     path("my-teacher-agenda/", views.MyTeacherAgendaView.as_view(), name="my-teacher-agenda"),
     path(
+        "my-attendance-overview/",
+        views.TeacherAttendanceOverviewView.as_view(),
+        name="my-attendance-overview",
+    ),
+    path(
+        "timetable-slots/<int:slot_id>/attendance/",
+        views.SlotAttendanceView.as_view(),
+        name="slot-attendance",
+    ),
+    path(
         "personal-blocks/",
         views.PersonalScheduleBlockListCreateView.as_view(),
         name="personal-block-list",

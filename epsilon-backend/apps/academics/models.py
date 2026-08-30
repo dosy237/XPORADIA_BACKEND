@@ -465,3 +465,59 @@ class Enrollment(models.Model):
 
     def __str__(self):
         return f"{self.child.first_name} — {self.school_class} ({self.status})"
+
+
+class AttendanceStatus(models.TextChoices):
+    """Un élève sans ligne d'exception pour un créneau donné est présent
+    par défaut — jamais l'inverse. Ces statuts ne couvrent donc QUE les
+    exceptions à saisir, ce qui rend l'appel d'une classe de 40 élèves
+    rapide : on ne touche que les quelques élèves concernés, jamais toute
+    la liste."""
+
+    ABSENT = "absent", "Absent"
+    LATE = "late", "En retard"
+    EXCUSED = "excused", "Absence justifiée"
+
+
+class AttendanceSession(models.Model):
+    """Marque qu'un appel a été fait pour CE créneau à CETTE date précise
+    — sans cette ligne, impossible de distinguer "personne n'a encore
+    fait l'appel" de "appel fait, tout le monde était présent" (les deux
+    cas laissent AttendanceException entièrement vide). Une classe peut
+    avoir plusieurs enseignants au fil de la journée : l'appel reste par
+    créneau, jamais par classe entière."""
+
+    timetable_slot = models.ForeignKey(TimetableSlot, on_delete=models.CASCADE, related_name="attendance_sessions")
+    date = models.DateField()
+    taken_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="attendance_sessions_taken"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Appel"
+        verbose_name_plural = "Appels"
+        unique_together = ("timetable_slot", "date")
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"Appel {self.timetable_slot} — {self.date}"
+
+
+class AttendanceException(models.Model):
+    """Un élève NON présent (absent, en retard, excusé) sur l'appel d'un
+    créneau — jamais une ligne par élève présent, voir AttendanceStatus."""
+
+    session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name="exceptions")
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="attendance_exceptions")
+    status = models.CharField(max_length=10, choices=AttendanceStatus.choices)
+    reason = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "Exception d'appel"
+        verbose_name_plural = "Exceptions d'appel"
+        unique_together = ("session", "child")
+
+    def __str__(self):
+        return f"{self.child.first_name} {self.child.last_name} — {self.get_status_display()}"

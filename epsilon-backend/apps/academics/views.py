@@ -18,6 +18,9 @@ from apps.notifications.services import notify_user
 from apps.users.models import Child, DirectorProfile, ParentProfile, User, UserRole
 
 from .models import (
+    AttendanceException,
+    AttendanceSession,
+    AttendanceStatus,
     DelegatedTask,
     Department,
     Enrollment,
@@ -35,11 +38,13 @@ from .models import (
     Track,
 )
 from .serializers import (
+    AttendanceExceptionInputSerializer,
     ChildBasicSerializer,
     DepartmentSerializer,
     EnrollmentSerializer,
     EstablishmentEventSerializer,
     PersonalScheduleBlockSerializer,
+    RosterAttendanceEntrySerializer,
     SchoolClassSerializer,
     SubjectSerializer,
     TeacherInvitationPreviewSerializer,
@@ -410,6 +415,23 @@ def _require_timetable_write_access(school_class, user):
     raise PermissionDenied(
         "Réservé au titulaire de cette classe, au directeur de l'établissement, ou à un enseignant "
         "délégué pour la gestion des emplois du temps."
+    )
+
+
+def _require_slot_attendance_access(slot, user):
+    """Enseignant dédié de la matière de CE créneau (celui qui fait
+    réellement cours), titulaire de la classe, ou directeur — jamais
+    l'enseignant délégué pour les emplois du temps, qui n'a aucune
+    légitimité pédagogique sur un cours qu'il ne donne pas lui-même."""
+    if slot.subject.teacher_id == user.id:
+        return
+    if slot.school_class.homeroom_teacher_id == user.id:
+        return
+    establishment = slot.school_class.track.department.establishment
+    if user.has_role(UserRole.DIRECTOR) and establishment.user_id == user.id:
+        return
+    raise PermissionDenied(
+        "Réservé à l'enseignant de cette matière, au titulaire de la classe, ou au directeur de l'établissement."
     )
 
 
@@ -1098,6 +1120,23 @@ class MyAgendaView(APIView):
         })
 
 
+def _teacher_is_school_day(user, target_date):
+    """"Jour d'école" pour l'enseignant = au moins une de ses classes a un
+    trimestre couvrant cette date — distinct de "l'enseignant a
+    personnellement un cours ce jour-là" (ce dernier peut être faux un
+    jour d'école normal, ex. mercredi sans créneau pour lui)."""
+    if target_date.weekday() > 5:
+        return False
+    class_ids = Subject.objects.filter(teacher=user).values_list("school_class_id", flat=True).distinct()
+    for school_class in SchoolClass.objects.filter(id__in=class_ids).select_related(
+        "track__department__establishment"
+    ):
+        establishment = school_class.track.department.establishment
+        if term_for_date(establishment, school_class.school_year, target_date):
+            return True
+    return False
+
+
 class MyTeacherAgendaView(APIView):
     """Agenda d'une journée pour l'enseignant connecté, agrégeant TOUTES
     ses classes (celles où il est enseignant dédié d'une matière) — jamais
@@ -1119,28 +1158,166 @@ class MyTeacherAgendaView(APIView):
         slots = teacher_timetable_slots_for_date(request.user, target_date)
         official_slots = TeacherTimetableSlotSerializer(slots, many=True).data
 
-        # "Jour d'école" pour l'enseignant = au moins une de ses classes a
-        # un trimestre couvrant cette date — distinct de "l'enseignant a
-        # personnellement un cours ce jour-là" (ce dernier peut être faux
-        # un jour d'école normal, ex. mercredi sans créneau pour lui).
-        is_school_day = False
-        if target_date.weekday() <= 5:
-            class_ids = Subject.objects.filter(teacher=request.user).values_list(
-                "school_class_id", flat=True
-            ).distinct()
-            for school_class in SchoolClass.objects.filter(id__in=class_ids).select_related(
-                "track__department__establishment"
-            ):
-                establishment = school_class.track.department.establishment
-                if term_for_date(establishment, school_class.school_year, target_date):
-                    is_school_day = True
-                    break
+        return Response({
+            "date": target_date.isoformat(),
+            "weekday": target_date.weekday(),
+            "is_school_day": _teacher_is_school_day(request.user, target_date),
+            "official_slots": official_slots,
+        })
+
+
+def _get_timetable_slot(slot_id):
+    try:
+        return TimetableSlot.objects.select_related(
+            "subject", "school_class__track__department__establishment"
+        ).get(pk=slot_id)
+    except TimetableSlot.DoesNotExist:
+        raise Http404
+
+
+def _attendance_roster(school_class, session, request):
+    """Liste d'appel complète : tous les élèves activement inscrits,
+    présents par défaut (status=None), les exceptions de la session (s'il
+    y en a une) écrasant ce statut par défaut — jamais l'inverse."""
+    exceptions_by_child = {}
+    if session:
+        exceptions_by_child = {
+            exc.child_id: exc for exc in session.exceptions.all()
+        }
+    enrollments = Enrollment.objects.filter(
+        school_class=school_class, status=EnrollmentStatus.ACTIVE
+    ).select_related("child", "child__user").order_by("child__last_name", "child__first_name")
+
+    roster = []
+    for enrollment in enrollments:
+        child = enrollment.child
+        exc = exceptions_by_child.get(child.id)
+        avatar = None
+        if child.user_id and child.user.avatar:
+            avatar = request.build_absolute_uri(child.user.avatar.url)
+        roster.append({
+            "child": child.id,
+            "first_name": child.first_name,
+            "last_name": child.last_name,
+            "avatar": avatar,
+            "status": exc.status if exc else None,
+            "reason": exc.reason if exc else "",
+        })
+    return roster
+
+
+class SlotAttendanceView(APIView):
+    """Appel d'un créneau précis à une date précise — tous les élèves
+    inscrits sont présents par défaut, seule une exception (absent, en
+    retard, excusé) doit être saisie explicitement. GET renvoie l'état
+    actuel (jamais écrit en base tant qu'aucun appel n'a été fait sur ce
+    créneau/cette date) ; POST enregistre l'appel complet en un seul
+    envoi — jamais un aller-retour réseau par élève, essentiel pour une
+    classe de 40 élèves."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, slot_id):
+        slot = _get_timetable_slot(slot_id)
+        _require_slot_attendance_access(slot, request.user)
+        raw_date = request.query_params.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+
+        session = AttendanceSession.objects.filter(timetable_slot=slot, date=target_date).select_related(
+            "taken_by"
+        ).prefetch_related("exceptions").first()
+
+        return Response({
+            "date": target_date.isoformat(),
+            "taken": session is not None,
+            "taken_by": session.taken_by.get_full_name() if session and session.taken_by else None,
+            "taken_at": session.updated_at.isoformat() if session else None,
+            "roster": RosterAttendanceEntrySerializer(
+                _attendance_roster(slot.school_class, session, request), many=True
+            ).data,
+        })
+
+    def post(self, request, slot_id):
+        slot = _get_timetable_slot(slot_id)
+        _require_slot_attendance_access(slot, request.user)
+        raw_date = request.data.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+
+        entries_serializer = AttendanceExceptionInputSerializer(data=request.data.get("exceptions", []), many=True)
+        entries_serializer.is_valid(raise_exception=True)
+        entries = entries_serializer.validated_data
+
+        valid_child_ids = set(
+            Enrollment.objects.filter(
+                school_class=slot.school_class, status=EnrollmentStatus.ACTIVE
+            ).values_list("child_id", flat=True)
+        )
+        for entry in entries:
+            if entry["child"] not in valid_child_ids:
+                raise ValidationError({"exceptions": f"L'élève {entry['child']} n'est pas inscrit dans cette classe."})
+
+        session, _ = AttendanceSession.objects.get_or_create(
+            timetable_slot=slot, date=target_date, defaults={"taken_by": request.user}
+        )
+        session.taken_by = request.user
+        session.save(update_fields=["taken_by", "updated_at"])
+
+        # Remplace systématiquement l'ensemble des exceptions par l'envoi
+        # reçu — le frontend renvoie toujours la liste complète des
+        # exceptions actuelles, jamais un delta, ce qui rend une
+        # correction (élève finalement présent) aussi simple qu'un ajout.
+        session.exceptions.all().delete()
+        AttendanceException.objects.bulk_create([
+            AttendanceException(
+                session=session, child_id=entry["child"], status=entry["status"], reason=entry.get("reason", "")
+            )
+            for entry in entries
+        ])
+
+        session.refresh_from_db()
+        return Response({
+            "date": target_date.isoformat(),
+            "taken": True,
+            "taken_by": request.user.get_full_name(),
+            "taken_at": session.updated_at.isoformat(),
+            "roster": RosterAttendanceEntrySerializer(
+                _attendance_roster(slot.school_class, session, request), many=True
+            ).data,
+        })
+
+
+class TeacherAttendanceOverviewView(APIView):
+    """Créneaux du jour pour l'enseignant connecté (mêmes classes que
+    MyTeacherAgendaView), chacun annoté de l'état de son appel — pour
+    afficher d'un coup d'œil lesquels restent à faire."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("Réservé aux enseignants.")
+        raw_date = request.query_params.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+
+        slots = teacher_timetable_slots_for_date(request.user, target_date)
+        sessions_by_slot = {
+            s.timetable_slot_id: s
+            for s in AttendanceSession.objects.filter(
+                timetable_slot__in=slots, date=target_date
+            ).prefetch_related("exceptions")
+        }
+
+        data = TeacherTimetableSlotSerializer(slots, many=True).data
+        for slot_data, slot in zip(data, slots):
+            session = sessions_by_slot.get(slot.id)
+            slot_data["attendance_taken"] = session is not None
+            slot_data["attendance_exceptions_count"] = len(session.exceptions.all()) if session else 0
 
         return Response({
             "date": target_date.isoformat(),
             "weekday": target_date.weekday(),
-            "is_school_day": is_school_day,
-            "official_slots": official_slots,
+            "is_school_day": _teacher_is_school_day(request.user, target_date),
+            "slots": data,
         })
 
 

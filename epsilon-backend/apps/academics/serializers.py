@@ -3,6 +3,9 @@ from rest_framework import serializers
 from apps.users.models import Child, User, UserRole
 
 from .models import (
+    AttendanceException,
+    AttendanceSession,
+    AttendanceStatus,
     Department,
     Enrollment,
     EstablishmentEvent,
@@ -242,3 +245,26 @@ class EstablishmentEventSerializer(serializers.ModelSerializer):
         if start and end and start >= end:
             raise serializers.ValidationError("L'heure de fin doit être après l'heure de début.")
         return attrs
+
+
+class AttendanceExceptionInputSerializer(serializers.Serializer):
+    """Une ligne d'exception à saisir — jamais une ligne par élève présent
+    (voir AttendanceStatus) : seuls les élèves effectivement absents, en
+    retard ou excusés sont envoyés, ce qui garde l'appel d'une classe de
+    40 élèves rapide (quelques envois au lieu de 40)."""
+
+    child = serializers.IntegerField()
+    status = serializers.ChoiceField(choices=AttendanceStatus.choices)
+    reason = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+
+
+class RosterAttendanceEntrySerializer(serializers.Serializer):
+    """Une ligne de la liste d'appel — présent par défaut (status=None),
+    l'exception (le cas échéant) écrasant ce statut par défaut."""
+
+    child = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    avatar = serializers.CharField(allow_null=True)
+    status = serializers.ChoiceField(choices=AttendanceStatus.choices, allow_null=True)
+    reason = serializers.CharField(allow_blank=True)
