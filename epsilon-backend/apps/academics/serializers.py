@@ -176,6 +176,19 @@ class TimetableSlotSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class TeacherTimetableSlotSerializer(TimetableSlotSerializer):
+    """TimetableSlotSerializer + le nom de la classe — nécessaire dès que
+    des créneaux de classes différentes sont mélangés dans une même liste
+    (agenda enseignant agrégé), ce que le serializer élève n'a jamais eu à
+    faire puisqu'un élève n'a qu'une seule classe."""
+
+    school_class_name = serializers.CharField(source="school_class.name", read_only=True)
+
+    class Meta(TimetableSlotSerializer.Meta):
+        fields = TimetableSlotSerializer.Meta.fields + ["school_class_name"]
+        read_only_fields = TimetableSlotSerializer.Meta.read_only_fields + ["school_class_name"]
+
+
 class PersonalScheduleBlockSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     weekday_label = serializers.CharField(source="get_weekday_display", read_only=True)

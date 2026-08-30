@@ -77,6 +77,32 @@ def timetable_slots_for_date(school_class, target_date):
     ).filter(Q(term__isnull=True) | Q(term=term)).select_related("subject")
 
 
+def teacher_timetable_slots_for_date(teacher, target_date):
+    """Créneaux officiels de TOUTES les classes où `teacher` intervient
+    comme enseignant dédié d'une matière, agrégés pour une seule date —
+    l'équivalent enseignant de timetable_slots_for_date, mais traversant
+    plusieurs classes (potentiellement de filières/années scolaires
+    différentes) au lieu d'une seule. Réutilise timetable_slots_for_date
+    classe par classe (même déduction vacances/jour férié), puis ne garde
+    que les créneaux dont la matière est dédiée à ce professeur — jamais
+    toute la classe, y compris quand `teacher` est aussi le titulaire."""
+    from .models import SchoolClass, Subject
+
+    class_ids = Subject.objects.filter(teacher=teacher).values_list(
+        "school_class_id", flat=True
+    ).distinct()
+
+    slots = []
+    for school_class in SchoolClass.objects.filter(id__in=class_ids).select_related(
+        "track__department__establishment"
+    ):
+        slots.extend(
+            timetable_slots_for_date(school_class, target_date).filter(subject__teacher=teacher)
+        )
+    slots.sort(key=lambda slot: (slot.start_time, slot.school_class_id))
+    return slots
+
+
 def events_for_date(establishment, school_class, target_date, audience_role):
     """Événements d'établissement pertinents pour `target_date`, sur cette
     classe (ou déclarés pour tout l'établissement), et dont le public

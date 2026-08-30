@@ -43,10 +43,17 @@ from .serializers import (
     SchoolClassSerializer,
     SubjectSerializer,
     TeacherInvitationPreviewSerializer,
+    TeacherTimetableSlotSerializer,
     TimetableSlotSerializer,
     TrackSerializer,
 )
-from .services import events_for_date, personal_blocks_for_date, term_for_date, timetable_slots_for_date
+from .services import (
+    events_for_date,
+    personal_blocks_for_date,
+    teacher_timetable_slots_for_date,
+    term_for_date,
+    timetable_slots_for_date,
+)
 
 
 def _require_director(user):
@@ -1088,6 +1095,52 @@ class MyAgendaView(APIView):
             "official_slots": official_slots,
             "personal_blocks": personal_blocks_for_date(child, target_date),
             "school_events": school_events,
+        })
+
+
+class MyTeacherAgendaView(APIView):
+    """Agenda d'une journée pour l'enseignant connecté, agrégeant TOUTES
+    ses classes (celles où il est enseignant dédié d'une matière) — jamais
+    une classe à la fois. Miroir de MyAgendaView côté élève, mais sans
+    créneaux personnels ni notion de "ma classe" unique : un enseignant
+    dédié n'a pas de créneaux personnels ici, et school_events est laissé
+    vide (les événements sont déjà consultables par classe ailleurs, une
+    agrégation multi-classes n'aurait pas de calendrier d'audience simple
+    à filtrer)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.has_role(UserRole.TEACHER):
+            raise PermissionDenied("Réservé aux enseignants.")
+        raw_date = request.query_params.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+
+        slots = teacher_timetable_slots_for_date(request.user, target_date)
+        official_slots = TeacherTimetableSlotSerializer(slots, many=True).data
+
+        # "Jour d'école" pour l'enseignant = au moins une de ses classes a
+        # un trimestre couvrant cette date — distinct de "l'enseignant a
+        # personnellement un cours ce jour-là" (ce dernier peut être faux
+        # un jour d'école normal, ex. mercredi sans créneau pour lui).
+        is_school_day = False
+        if target_date.weekday() <= 5:
+            class_ids = Subject.objects.filter(teacher=request.user).values_list(
+                "school_class_id", flat=True
+            ).distinct()
+            for school_class in SchoolClass.objects.filter(id__in=class_ids).select_related(
+                "track__department__establishment"
+            ):
+                establishment = school_class.track.department.establishment
+                if term_for_date(establishment, school_class.school_year, target_date):
+                    is_school_day = True
+                    break
+
+        return Response({
+            "date": target_date.isoformat(),
+            "weekday": target_date.weekday(),
+            "is_school_day": is_school_day,
+            "official_slots": official_slots,
         })
 
 
