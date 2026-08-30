@@ -95,6 +95,33 @@ def _require_director_establishment(user):
         raise PermissionDenied("Aucun établissement associé à ce compte.")
 
 
+def _require_join_request_access(user):
+    """Directeur de l'établissement, OU enseignant à qui la gestion des
+    demandes de rattachement a été déléguée (voir apps.academics.models.
+    TaskDelegation) — jamais mis en cache, une révocation coupe l'accès
+    immédiatement, même principe que _require_timetable_write_access côté
+    emploi du temps. Ne couvre jamais la gestion des trimestres, qui reste
+    strictement director-only via _require_director_establishment."""
+    from apps.users.models import DirectorProfile
+
+    try:
+        return user.director_profile
+    except DirectorProfile.DoesNotExist:
+        pass
+
+    from apps.academics.models import DelegatedTask, TaskDelegation
+
+    delegation = TaskDelegation.objects.filter(
+        teacher=user, task=DelegatedTask.JOIN_REQUESTS
+    ).select_related("establishment").first()
+    if delegation:
+        return delegation.establishment
+
+    raise PermissionDenied(
+        "Réservé au directeur de l'établissement, ou à un enseignant délégué pour les rattachements."
+    )
+
+
 def _require_subject_teacher(subject, user):
     """Seul l'enseignant dédié de CETTE matière peut y créer des
     évaluations et y saisir des notes — jamais le titulaire de la classe
@@ -788,7 +815,7 @@ class DirectorJoinRequestsView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        establishment = _require_director_establishment(self.request.user)
+        establishment = _require_join_request_access(self.request.user)
         return EstablishmentJoinRequest.objects.filter(
             establishment=establishment
         ).select_related("child").order_by("status", "-created_at")
@@ -803,7 +830,7 @@ class ReviewJoinRequestView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        establishment = _require_director_establishment(request.user)
+        establishment = _require_join_request_access(request.user)
         join_request = get_object_or_404(
             EstablishmentJoinRequest.objects.select_related("child__user"), pk=pk, establishment=establishment
         )
@@ -859,7 +886,7 @@ class ApprovedUnplacedChildrenView(generics.ListAPIView):
     pagination_class = None
 
     def list(self, request, *args, **kwargs):
-        establishment = _require_director_establishment(request.user)
+        establishment = _require_join_request_access(request.user)
         approved = EstablishmentJoinRequest.objects.filter(
             establishment=establishment, status=JoinRequestStatus.APPROVED
         ).select_related("child")
@@ -889,7 +916,7 @@ class ParseAdmissionReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        establishment = _require_director_establishment(request.user)
+        establishment = _require_join_request_access(request.user)
         uploaded = request.FILES.get("file")
         if not uploaded:
             raise ValidationError({"file": "Un fichier est requis."})
@@ -925,7 +952,7 @@ class ConfirmAdmissionReportView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        establishment = _require_director_establishment(request.user)
+        establishment = _require_join_request_access(request.user)
         decisions = request.data.get("decisions", [])
         if not isinstance(decisions, list) or not decisions:
             raise ValidationError({"decisions": "Au moins une décision est requise."})
@@ -971,3 +998,26 @@ class ConfirmAdmissionReportView(APIView):
             "failed": sum(1 for r in results if not r["success"]),
             "results": results,
         })
+
+
+class ClassesForJoinRequestPlacementView(generics.ListAPIView):
+    """Classes de l'établissement pour placer un élève lors du traitement
+    d'une demande de rattachement (approbation directe ou rapport
+    d'admission) — accessible au directeur ou à l'enseignant délégué pour
+    les rattachements (voir _require_join_request_access), jamais pour la
+    gestion des classes elle-même (création/modification), qui reste
+    strictement director-only via apps.academics.SchoolClassViewSet."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def get_serializer_class(self):
+        from apps.academics.serializers import SchoolClassSerializer
+
+        return SchoolClassSerializer
+
+    def get_queryset(self):
+        establishment = _require_join_request_access(self.request.user)
+        return SchoolClass.objects.filter(
+            track__department__establishment=establishment
+        ).select_related("track", "homeroom_teacher")

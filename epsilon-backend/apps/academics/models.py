@@ -31,6 +31,7 @@ class DelegatedTask(models.TextChoices):
     mécanisme lui-même."""
 
     TIMETABLE = "timetable", "Gestion des emplois du temps"
+    JOIN_REQUESTS = "join_requests", "Gestion des demandes de rattachement"
 
 
 class TaskDelegation(models.Model):

@@ -76,4 +76,9 @@ urlpatterns = [
         views.ConfirmAdmissionReportView.as_view(),
         name="admission-report-confirm",
     ),
+    path(
+        "classes-for-join-requests/",
+        views.ClassesForJoinRequestPlacementView.as_view(),
+        name="classes-for-join-requests",
+    ),
 ]
