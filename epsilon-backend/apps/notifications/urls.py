@@ -7,4 +7,5 @@ urlpatterns = [
     path("<uuid:pk>/read/", views.MarkNotificationReadView.as_view(), name="notification-mark-read"),
     path("devices/register/", views.RegisterDeviceTokenView.as_view(), name="device-register"),
     path("devices/unregister/", views.UnregisterDeviceTokenView.as_view(), name="device-unregister"),
+    path("preferences/", views.MyNotificationPreferencesView.as_view(), name="notification-preferences"),
 ]

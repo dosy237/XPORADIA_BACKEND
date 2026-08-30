@@ -46,6 +46,17 @@ class NotificationChannel(models.TextChoices):
     INAPP = "inapp", "In-app"
 
 
+class NotificationCategory(models.TextChoices):
+    """Grand domaine auquel appartient un NotificationType (voir
+    apps.notifications.constants.CATEGORY_BY_NOTIF_TYPE) — jamais par
+    type unitaire, trop fin pour un réglage utilisateur."""
+
+    SCHOOL_LIFE = "school_life", "Scolarité"
+    EMPLOYMENT = "employment", "Emploi"
+    MESSAGING = "messaging", "Messagerie"
+    ADMINISTRATIVE = "administrative", "Administratif"
+
+
 class Notification(models.Model):
     """
     Notification multi-canal envoyée à un utilisateur.
@@ -117,3 +128,27 @@ class DeviceToken(models.Model):
 
     def __str__(self):
         return f"{self.token[:24]}... — {self.user.get_full_name()}"
+
+
+class NotificationPreference(models.Model):
+    """Préférence d'un utilisateur pour une grande catégorie de
+    notification. Activée par défaut : l'absence de ligne pour une
+    catégorie signifie qu'elle est activée, une ligne n'est créée que
+    lorsque l'utilisateur la désactive explicitement (même principe que
+    PersonalScheduleException — exceptions seules, jamais l'état par
+    défaut). Seul apps.notifications.services.notify_user consulte cette
+    préférence avant d'envoyer, aucune autre logique d'envoi à dupliquer."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_preferences"
+    )
+    category = models.CharField(max_length=20, choices=NotificationCategory.choices)
+    enabled = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Préférence de notification"
+        verbose_name_plural = "Préférences de notification"
+        unique_together = ("user", "category")
+
+    def __str__(self):
+        return f"{self.user.get_full_name()} — {self.category} ({'activé' if self.enabled else 'désactivé'})"
