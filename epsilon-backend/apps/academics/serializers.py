@@ -13,6 +13,7 @@ from .models import (
     PersonalScheduleBlock,
     SchoolClass,
     Subject,
+    TeacherAbsence,
     TeacherInvitation,
     TimetableSlot,
     Track,
@@ -214,6 +215,18 @@ class PersonalScheduleBlockSerializer(serializers.ModelSerializer):
         if valid_from and valid_until and valid_until < valid_from:
             raise serializers.ValidationError("La date de fin de validité doit être après la date de début.")
         return attrs
+
+
+class DeclareTeacherAbsenceSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    reason = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+
+
+class TeacherAbsenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TeacherAbsence
+        fields = ["id", "timetable_slot", "date", "reason", "declared_by", "created_at"]
+        read_only_fields = fields
 
 
 class EstablishmentEventSerializer(serializers.ModelSerializer):

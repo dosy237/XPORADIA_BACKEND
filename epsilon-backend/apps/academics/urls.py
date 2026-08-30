@@ -65,6 +65,11 @@ urlpatterns = [
         name="slot-attendance",
     ),
     path(
+        "timetable-slots/<int:slot_id>/absence/",
+        views.TeacherAbsenceDeclarationView.as_view(),
+        name="teacher-absence-declare",
+    ),
+    path(
         "personal-blocks/",
         views.PersonalScheduleBlockListCreateView.as_view(),
         name="personal-block-list",

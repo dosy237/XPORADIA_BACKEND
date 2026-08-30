@@ -346,6 +346,7 @@ class EventType(models.TextChoices):
     REPORT_CARD_DISTRIBUTION = "report_card_distribution", "Remise de bulletins"
     MEETING = "meeting", "Réunion"
     HOLIDAY = "holiday", "Jour férié"
+    CANCELLED_CLASS = "cancelled_class", "Cours annulé"
     OTHER = "other", "Autre"
 
 
@@ -386,6 +387,30 @@ class EstablishmentEvent(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.date})"
+
+
+class TeacherAbsence(models.Model):
+    """Déclaration par l'enseignant dédié qu'il ne tiendra pas un créneau
+    précis de son emploi du temps à une date donnée. Génère un
+    EstablishmentEvent (cours annulé) sur l'agenda de la classe plutôt
+    qu'un système d'affichage séparé — voir
+    apps.academics.views.TeacherAbsenceDeclarationView. Supprimer l'event
+    lié annule la déclaration (cascade)."""
+
+    timetable_slot = models.ForeignKey(TimetableSlot, on_delete=models.CASCADE, related_name="absences")
+    date = models.DateField()
+    reason = models.CharField(max_length=200, blank=True)
+    declared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    event = models.OneToOneField(EstablishmentEvent, on_delete=models.CASCADE, related_name="teacher_absence")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Absence enseignant"
+        verbose_name_plural = "Absences enseignant"
+        unique_together = ("timetable_slot", "date")
+
+    def __str__(self):
+        return f"Absence {self.timetable_slot} ({self.date})"
 
 
 class TeacherInvitation(models.Model):

@@ -469,6 +469,16 @@ class WorkedHoursListCreateView(generics.ListCreateAPIView):
             raise PermissionDenied("Ce recrutement est en CDI — pas de déclaration d'heures nécessaire.")
         if WorkedHours.objects.filter(recruitment=recruitment, date=serializer.validated_data["date"]).exists():
             raise ValidationError("Des heures ont déjà été déclarées pour cette date.")
+        from apps.academics.models import TeacherAbsence
+
+        if TeacherAbsence.objects.filter(
+            timetable_slot__subject__teacher=recruitment.teacher,
+            timetable_slot__school_class__track__department__establishment__user=recruitment.school,
+            date=serializer.validated_data["date"],
+        ).exists():
+            raise ValidationError(
+                "Une absence a été déclarée sur un cours annulé ce jour-là : ces heures ne peuvent pas être déclarées."
+            )
         serializer.save(recruitment=recruitment)
         notify_user(
             recruitment.school,

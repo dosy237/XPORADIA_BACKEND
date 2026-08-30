@@ -33,6 +33,7 @@ from .models import (
     SchoolClass,
     Subject,
     TaskDelegation,
+    TeacherAbsence,
     TeacherInvitation,
     TimetableSlot,
     Track,
@@ -40,6 +41,7 @@ from .models import (
 from .serializers import (
     AttendanceExceptionInputSerializer,
     ChildBasicSerializer,
+    DeclareTeacherAbsenceSerializer,
     DepartmentSerializer,
     EnrollmentSerializer,
     EstablishmentEventSerializer,
@@ -47,6 +49,7 @@ from .serializers import (
     RosterAttendanceEntrySerializer,
     SchoolClassSerializer,
     SubjectSerializer,
+    TeacherAbsenceSerializer,
     TeacherInvitationPreviewSerializer,
     TeacherTimetableSlotSerializer,
     TimetableSlotSerializer,
@@ -433,6 +436,17 @@ def _require_slot_attendance_access(slot, user):
     raise PermissionDenied(
         "Réservé à l'enseignant de cette matière, au titulaire de la classe, ou au directeur de l'établissement."
     )
+
+
+def _require_own_slot_teacher(slot, user):
+    """Seul l'enseignant dédié de CETTE matière peut déclarer sa propre
+    absence sur ce créneau — jamais le titulaire ni le directeur à sa
+    place, qui n'ont pas la légitimité de décider si LUI tient cours ou
+    non (distinct de _require_slot_attendance_access, qui couvre l'appel,
+    un geste que le titulaire ou le directeur peuvent légitimement faire
+    à sa place)."""
+    if slot.subject.teacher_id != user.id:
+        raise PermissionDenied("Seul l'enseignant dédié de cette matière peut déclarer une absence sur ce créneau.")
 
 
 def _require_establishment_director(school_class, user):
@@ -1226,12 +1240,15 @@ class SlotAttendanceView(APIView):
         session = AttendanceSession.objects.filter(timetable_slot=slot, date=target_date).select_related(
             "taken_by"
         ).prefetch_related("exceptions").first()
+        absence = TeacherAbsence.objects.filter(timetable_slot=slot, date=target_date).first()
 
         return Response({
             "date": target_date.isoformat(),
             "taken": session is not None,
             "taken_by": session.taken_by.get_full_name() if session and session.taken_by else None,
             "taken_at": session.updated_at.isoformat() if session else None,
+            "cancelled": absence is not None,
+            "cancelled_reason": absence.reason if absence else "",
             "roster": RosterAttendanceEntrySerializer(
                 _attendance_roster(slot.school_class, session, request), many=True
             ).data,
@@ -1242,6 +1259,9 @@ class SlotAttendanceView(APIView):
         _require_slot_attendance_access(slot, request.user)
         raw_date = request.data.get("date")
         target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+
+        if TeacherAbsence.objects.filter(timetable_slot=slot, date=target_date).exists():
+            raise ValidationError("Ce cours a été annulé pour cette date : impossible de faire l'appel.")
 
         entries_serializer = AttendanceExceptionInputSerializer(data=request.data.get("exceptions", []), many=True)
         entries_serializer.is_valid(raise_exception=True)
@@ -1306,12 +1326,18 @@ class TeacherAttendanceOverviewView(APIView):
                 timetable_slot__in=slots, date=target_date
             ).prefetch_related("exceptions")
         }
+        cancelled_slot_ids = set(
+            TeacherAbsence.objects.filter(
+                timetable_slot__in=slots, date=target_date
+            ).values_list("timetable_slot_id", flat=True)
+        )
 
         data = TeacherTimetableSlotSerializer(slots, many=True).data
         for slot_data, slot in zip(data, slots):
             session = sessions_by_slot.get(slot.id)
             slot_data["attendance_taken"] = session is not None
             slot_data["attendance_exceptions_count"] = len(session.exceptions.all()) if session else 0
+            slot_data["cancelled"] = slot.id in cancelled_slot_ids
 
         return Response({
             "date": target_date.isoformat(),
@@ -1319,6 +1345,110 @@ class TeacherAttendanceOverviewView(APIView):
             "is_school_day": _teacher_is_school_day(request.user, target_date),
             "slots": data,
         })
+
+
+def _notify_teacher_absence(absence):
+    """Notifie titulaire et directeur (équipe), puis élèves et parents de
+    la classe (élève directement s'il a un compte actif, parent EN PLUS
+    s'il est rattaché, jamais l'un à la place de l'autre) qu'un cours ne
+    sera pas tenu — même principe que _notify_holiday_declared."""
+    slot = absence.timetable_slot
+    school_class = slot.school_class
+    subject = slot.subject
+    date_label = absence.date.strftime("%d/%m/%Y")
+    teacher_name = subject.teacher.get_full_name() if subject.teacher_id else "L'enseignant dédié"
+
+    staff_body = f"{teacher_name} ne tiendra pas le cours de {subject.name} ({school_class}) du {date_label}."
+    if absence.reason:
+        staff_body += f" Motif : {absence.reason}"
+
+    staff_recipients = []
+    if school_class.homeroom_teacher_id and school_class.homeroom_teacher_id != subject.teacher_id:
+        staff_recipients.append(school_class.homeroom_teacher)
+    establishment = school_class.track.department.establishment
+    if establishment.user_id and establishment.user_id != subject.teacher_id:
+        staff_recipients.append(establishment.user)
+    for recipient in staff_recipients:
+        notify_user(
+            recipient, NotificationType.SESSION_CANCELLED,
+            title="Cours annulé",
+            body=staff_body,
+            data={"timetable_slot_id": slot.id, "date": absence.date.isoformat()},
+        )
+
+    student_body = f"Le cours de {subject.name} du {date_label} n'aura pas lieu."
+    enrollments = Enrollment.objects.filter(
+        school_class=school_class, status=EnrollmentStatus.ACTIVE
+    ).select_related("child__user", "child__parent__user")
+    for enrollment in enrollments:
+        child = enrollment.child
+        recipients = []
+        if child.user_id:
+            recipients.append(child.user)
+        if child.parent_id and child.parent.user_id:
+            recipients.append(child.parent.user)
+        for recipient in recipients:
+            notify_user(
+                recipient, NotificationType.SESSION_CANCELLED,
+                title="Cours annulé",
+                body=student_body,
+                data={"timetable_slot_id": slot.id, "date": absence.date.isoformat()},
+            )
+
+
+class TeacherAbsenceDeclarationView(APIView):
+    """Déclaration par l'enseignant dédié qu'il ne tiendra pas ce créneau à
+    une date précise. Réutilise EstablishmentEvent pour représenter le
+    cours annulé sur l'agenda de la classe plutôt qu'un système
+    d'affichage parallèle (voir TeacherAbsence.event). DELETE annule la
+    déclaration (l'enseignant peut finalement assurer le cours)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, slot_id):
+        slot = _get_timetable_slot(slot_id)
+        _require_own_slot_teacher(slot, request.user)
+
+        serializer = DeclareTeacherAbsenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        target_date = serializer.validated_data["date"]
+        reason = serializer.validated_data.get("reason", "")
+
+        if not timetable_slots_for_date(slot.school_class, target_date).filter(id=slot.id).exists():
+            raise ValidationError("Ce créneau n'a pas lieu à cette date.")
+        if TeacherAbsence.objects.filter(timetable_slot=slot, date=target_date).exists():
+            raise ValidationError("Une absence a déjà été déclarée sur ce créneau à cette date.")
+
+        establishment = slot.school_class.track.department.establishment
+        event = EstablishmentEvent.objects.create(
+            establishment=establishment,
+            school_class=slot.school_class,
+            event_type=EventType.CANCELLED_CLASS,
+            title=slot.subject.name,
+            description=reason,
+            date=target_date,
+            start_time=slot.start_time,
+            end_time=slot.end_time,
+            audience=[EventAudience.STUDENTS, EventAudience.PARENTS],
+            created_by=request.user,
+        )
+        absence = TeacherAbsence.objects.create(
+            timetable_slot=slot, date=target_date, reason=reason, declared_by=request.user, event=event,
+        )
+        _notify_teacher_absence(absence)
+        return Response(TeacherAbsenceSerializer(absence).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, slot_id):
+        slot = _get_timetable_slot(slot_id)
+        _require_own_slot_teacher(slot, request.user)
+        raw_date = request.query_params.get("date")
+        target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
+        try:
+            absence = TeacherAbsence.objects.select_related("event").get(timetable_slot=slot, date=target_date)
+        except TeacherAbsence.DoesNotExist:
+            raise Http404
+        absence.event.delete()  # cascade supprime aussi la ligne TeacherAbsence
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class PersonalScheduleBlockListCreateView(generics.ListCreateAPIView):
