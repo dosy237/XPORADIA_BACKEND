@@ -121,11 +121,16 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
         if not is_director:
             if not user.has_role(UserRole.TEACHER):
                 raise PermissionDenied("Seuls les enseignants et directeurs peuvent publier une ressource.")
+            from apps.certification.constants import is_gold_or_above
             from apps.users.serializers import _current_certification_level
 
-            if _current_certification_level(user) != "gold":
+            # "Au moins Or" (Or, Platine ou Diamant) — jamais une égalité
+            # stricte avec "gold" seul, qui exclurait à tort les enseignants
+            # qui ont dépassé ce palier (bug réel constaté en conditions
+            # réelles : un enseignant Platine se voyait refuser l'accès).
+            if not is_gold_or_above(_current_certification_level(user)):
                 raise PermissionDenied(
-                    "La contribution à la bibliothèque est réservée aux enseignants certifiés Or."
+                    "La contribution à la bibliothèque est réservée aux enseignants certifiés Or ou plus."
                 )
 
         file_url = serializer.validated_data.get("file_url")

@@ -13,11 +13,24 @@ class PostAuthorSerializer(serializers.ModelSerializer):
     role_label = serializers.CharField(source="get_primary_role_display", read_only=True)
     is_followed_by_me = serializers.SerializerMethodField()
     followers_count = serializers.IntegerField(source="followers.count", read_only=True)
+    certification_level = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "full_name", "avatar", "primary_role", "role_label", "is_followed_by_me", "followers_count"]
+        fields = [
+            "id", "full_name", "avatar", "primary_role", "role_label", "is_followed_by_me",
+            "followers_count", "certification_level",
+        ]
         read_only_fields = fields
+
+    def get_certification_level(self, obj):
+        from apps.users.models import UserRole
+
+        if obj.primary_role != UserRole.TEACHER:
+            return None
+        from apps.users.serializers import _current_certification_level
+
+        return _current_certification_level(obj)
 
     def get_is_followed_by_me(self, obj):
         request = self.context.get("request")

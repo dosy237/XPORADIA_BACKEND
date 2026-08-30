@@ -36,6 +36,24 @@ def badge_for_points(total_points: int) -> str:
     return badge
 
 
+LEVEL_ORDER = [
+    CertificationLevel.ZERO,
+    CertificationLevel.BRONZE,
+    CertificationLevel.SILVER,
+    CertificationLevel.GOLD,
+    CertificationLevel.PLATINUM,
+    CertificationLevel.DIAMOND,
+]
+
+
+def is_gold_or_above(level: str) -> bool:
+    """Or, Platine ou Diamant — jamais une égalité stricte avec "gold" seul,
+    qui exclurait à tort les paliers au-dessus (bug réel corrigé dans la
+    bibliothèque : un enseignant Platine se voyait refuser la contribution
+    réservée aux enseignants "certifiés Or")."""
+    return LEVEL_ORDER.index(level) >= LEVEL_ORDER.index(CertificationLevel.GOLD)
+
+
 def points_to_next_level(total_points: int) -> dict | None:
     """Combien de points manquent pour le prochain palier — alimente la
     frise de progression sur le profil. None si déjà au niveau maximum."""
