@@ -514,8 +514,15 @@ class AttendanceSession(models.Model):
 
     timetable_slot = models.ForeignKey(TimetableSlot, on_delete=models.CASCADE, related_name="attendance_sessions")
     date = models.DateField()
+    # Traçabilité minimale (Point 8) : `taken_by` + `updated_at` reflètent
+    # déjà qui a modifié l'appel en dernier et quand (réassignés à chaque
+    # POST, voir SlotAttendanceView) — `created_by` conserve en plus
+    # l'auteur du tout premier appel, jamais écrasé ensuite.
     taken_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="attendance_sessions_taken"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

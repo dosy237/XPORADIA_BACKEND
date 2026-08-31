@@ -98,6 +98,17 @@ class Grade(models.Model):
     # baisser la moyenne (contrairement à une note de 0 bien réelle).
     is_excused = models.BooleanField(default=False)
     graded_at = models.DateTimeField(auto_now=True)
+    # Traçabilité minimale (Point 8) : qui a saisi cette note et quand, qui
+    # l'a modifiée en dernier — jamais recalculé, jamais écrasé par un
+    # compte de service. `graded_at` ci-dessus sert déjà d'horodatage de
+    # dernière modification, aucun doublon nécessaire.
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
 
     class Meta:
         verbose_name = "Note"
@@ -193,6 +204,18 @@ class ReportCard(models.Model):
     sanction = models.CharField(max_length=20, choices=ReportCardSanction.choices, default=ReportCardSanction.NONE)
     document = models.FileField(upload_to="report_cards/", null=True, blank=True)
     published_at = models.DateTimeField(auto_now_add=True)
+    # Traçabilité minimale (Point 8) : une republication (voir
+    # GenerateReportCardsView, update_or_create) écrase le bulletin
+    # précédent du même trimestre — conserve qui a publié la toute
+    # première fois, et qui a publié en dernier (peut être quelqu'un
+    # d'autre après une correction de note).
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
 
     class Meta:
         verbose_name = "Bulletin"

@@ -1277,7 +1277,8 @@ class SlotAttendanceView(APIView):
                 raise ValidationError({"exceptions": f"L'élève {entry['child']} n'est pas inscrit dans cette classe."})
 
         session, _ = AttendanceSession.objects.get_or_create(
-            timetable_slot=slot, date=target_date, defaults={"taken_by": request.user}
+            timetable_slot=slot, date=target_date,
+            defaults={"taken_by": request.user, "created_by": request.user},
         )
         session.taken_by = request.user
         session.save(update_fields=["taken_by", "updated_at"])

@@ -26,7 +26,7 @@ class EvaluationAdmin(admin.ModelAdmin):
 
 @admin.register(Grade)
 class GradeAdmin(admin.ModelAdmin):
-    list_display = ["child", "evaluation", "score", "is_excused", "graded_at"]
+    list_display = ["child", "evaluation", "score", "is_excused", "graded_at", "created_by", "updated_by"]
     list_filter = ["is_excused"]
     search_fields = ["child__first_name", "child__last_name"]
 
@@ -38,7 +38,10 @@ class SubjectReportEntryInline(admin.TabularInline):
 
 @admin.register(ReportCard)
 class ReportCardAdmin(admin.ModelAdmin):
-    list_display = ["child", "term", "school_class", "general_average", "rank", "class_size", "published_at"]
+    list_display = [
+        "child", "term", "school_class", "general_average", "rank", "class_size",
+        "published_at", "created_by", "updated_by",
+    ]
     list_filter = ["term"]
     search_fields = ["child__first_name", "child__last_name"]
     inlines = [SubjectReportEntryInline]

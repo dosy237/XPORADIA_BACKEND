@@ -210,6 +210,24 @@ class EvaluationDetailView(generics.RetrieveUpdateDestroyAPIView):
         return evaluation
 
 
+def _save_grade(evaluation, child_id, score, is_excused, user):
+    """Crée ou met à jour une note en conservant qui l'a saisie la
+    première fois (`created_by`, jamais réécrit ensuite) et qui l'a
+    modifiée en dernier (`updated_by`, `graded_at` déjà auto_now) — seul
+    point d'écriture de Grade, utilisé par les deux écrans de saisie
+    (évaluation seule et grille multi-évaluations)."""
+    grade, created = Grade.objects.get_or_create(
+        evaluation=evaluation, child_id=child_id,
+        defaults={"score": score, "is_excused": is_excused, "created_by": user, "updated_by": user},
+    )
+    if not created:
+        grade.score = score
+        grade.is_excused = is_excused
+        grade.updated_by = user
+        grade.save(update_fields=["score", "is_excused", "updated_by", "graded_at"])
+    return grade
+
+
 class EvaluationGradesView(APIView):
     """Saisie en lot des notes d'une évaluation — GET renvoie tout
     l'effectif de la classe avec la note existante si déjà saisie (jamais
@@ -267,10 +285,7 @@ class EvaluationGradesView(APIView):
         for entry in serializer.validated_data:
             if entry["child"] not in valid_child_ids:
                 continue  # élève qui n'est plus inscrit dans cette classe — ignoré, pas d'erreur bloquante
-            grade, _ = Grade.objects.update_or_create(
-                evaluation=evaluation, child_id=entry["child"],
-                defaults={"score": entry.get("score"), "is_excused": entry.get("is_excused", False)},
-            )
+            grade = _save_grade(evaluation, entry["child"], entry.get("score"), entry.get("is_excused", False), request.user)
             saved.append(grade)
         return Response(GradeSerializer(saved, many=True).data)
 
@@ -424,10 +439,7 @@ class SubjectGradeGridView(APIView):
                 continue  # évaluation hors matière/trimestre — ignorée, pas d'erreur bloquante
             if entry["child"] not in valid_child_ids:
                 continue  # élève qui n'est plus inscrit dans cette classe — ignoré
-            grade, _ = Grade.objects.update_or_create(
-                evaluation=evaluation, child_id=entry["child"],
-                defaults={"score": entry.get("score"), "is_excused": entry.get("is_excused", False)},
-            )
+            grade = _save_grade(evaluation, entry["child"], entry.get("score"), entry.get("is_excused", False), request.user)
             saved.append(grade)
             touched_child_ids.add(entry["child"])
 
@@ -551,7 +563,11 @@ class GenerateReportCardsView(APIView):
             # "Refusé(e)", qui reste une décision humaine (voir
             # services.suggest_distinction).
             distinction = distinctions.get(child_key) or services.suggest_distinction(entry["general_average"])
-            report_card, _ = ReportCard.objects.update_or_create(
+            # Traçabilité minimale (Point 8) : `created_by` n'est jamais
+            # réécrit une fois posé — seule `defaults` d'un update_or_create
+            # s'appliquerait aussi bien à la création qu'à une
+            # republication, ce qui perdrait l'auteur de la 1re publication.
+            report_card, is_new = ReportCard.objects.update_or_create(
                 child=child, term=term,
                 defaults={
                     "school_class": school_class,
@@ -566,8 +582,12 @@ class GenerateReportCardsView(APIView):
                     "unjustified_absence_hours": absence_entry.get("unjustified") or 0,
                     "distinction": distinction,
                     "sanction": sanctions.get(child_key) or ReportCardSanction.NONE,
+                    "updated_by": request.user,
                 },
             )
+            if is_new:
+                report_card.created_by = request.user
+                report_card.save(update_fields=["created_by"])
             report_card.subject_entries.all().delete()
             for subject in subjects:
                 subject_avg = services.compute_subject_average(child, subject, term)

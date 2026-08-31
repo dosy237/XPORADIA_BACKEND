@@ -53,11 +53,21 @@ class EvaluationSerializer(serializers.ModelSerializer):
 class GradeSerializer(serializers.ModelSerializer):
     child_first_name = serializers.CharField(source="child.first_name", read_only=True)
     child_last_name = serializers.CharField(source="child.last_name", read_only=True)
+    # Traçabilité minimale (Point 8) — jamais un champ éditable, uniquement
+    # la trace du dernier enregistrement (voir apps.grading.views._save_grade).
+    updated_by_name = serializers.SerializerMethodField()
+    updated_at = serializers.DateTimeField(source="graded_at", read_only=True)
+
+    def get_updated_by_name(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by_id else None
 
     class Meta:
         model = Grade
-        fields = ["id", "evaluation", "child", "child_first_name", "child_last_name", "score", "is_excused"]
-        read_only_fields = ["id", "child_first_name", "child_last_name"]
+        fields = [
+            "id", "evaluation", "child", "child_first_name", "child_last_name", "score", "is_excused",
+            "updated_by_name", "updated_at",
+        ]
+        read_only_fields = ["id", "child_first_name", "child_last_name", "updated_by_name", "updated_at"]
 
 
 class BulkGradeEntrySerializer(serializers.Serializer):
@@ -109,6 +119,13 @@ class ReportCardSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         return request.build_absolute_uri(path) if request else path
 
+    # Traçabilité minimale (Point 8) : qui a publié en dernier (une
+    # republication écrase le bulletin précédent, voir GenerateReportCardsView).
+    updated_by_name = serializers.SerializerMethodField()
+
+    def get_updated_by_name(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by_id else None
+
     class Meta:
         model = ReportCard
         fields = [
@@ -116,6 +133,6 @@ class ReportCardSerializer(serializers.ModelSerializer):
             "general_average", "class_average", "highest_average", "lowest_average", "rank", "class_size",
             "homeroom_comment", "justified_absence_hours", "unjustified_absence_hours",
             "distinction", "distinction_label", "sanction", "sanction_label",
-            "document", "subject_entries", "published_at",
+            "document", "subject_entries", "published_at", "updated_by_name", "updated_at",
         ]
         read_only_fields = fields
