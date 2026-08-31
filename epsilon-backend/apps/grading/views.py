@@ -370,7 +370,17 @@ class SubjectGradeGridView(APIView):
             for evaluation in evaluations:
                 grade = grades_by_key.get((evaluation.id, child.id))
                 grades[str(evaluation.id)] = (
-                    {"score": grade.score, "is_excused": grade.is_excused} if grade else None
+                    {
+                        "score": grade.score,
+                        "is_excused": grade.is_excused,
+                        # Traçabilité minimale (Point 8) : qui a saisi/modifié
+                        # en dernier — pertinent surtout après une réaffectation
+                        # de matière en cours d'année, où l'enseignant qui
+                        # consulte la grille n'est pas forcément l'auteur.
+                        "updated_by_name": grade.updated_by.get_full_name() if grade.updated_by_id else None,
+                        "updated_at": grade.graded_at.isoformat(),
+                    }
+                    if grade else None
                 )
             students.append({
                 "child_id": child.id,
