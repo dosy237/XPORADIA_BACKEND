@@ -6,11 +6,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
+from apps.grading.models import Evaluation, EvaluationType
+from apps.grading.views import _save_grade
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
 from apps.users.models import Child, UserRole
 
-from .models import Exercise, ExerciseStatus, Submission, SubmissionStatus, VirtualClass
+from .models import Exercise, ExerciseKind, ExerciseStatus, Submission, SubmissionStatus, VirtualClass
 from .serializers import (
     ChildSubjectSerializer,
     ExerciseSerializer,
@@ -94,6 +96,10 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
         virtual_class, subject = self._get_virtual_class()
         if not _can_manage(subject, self.request.user):
             raise PermissionDenied("Réservé à l'enseignant dédié de cette matière.")
+        term = serializer.validated_data.get("term")
+        establishment = subject.school_class.track.department.establishment
+        if term and term.establishment_id != establishment.id:
+            raise ValidationError({"term": "Ce trimestre n'appartient pas à cet établissement."})
         exercise = serializer.save(virtual_class=virtual_class)
         if exercise.status == ExerciseStatus.PUBLISHED and not exercise.published_at:
             exercise.published_at = timezone.now()
@@ -409,6 +415,34 @@ class MyGradingQueueView(APIView):
         return Response({"total_pending": total_pending, "exercises": queue[:5]})
 
 
+def _sync_grading_column(submission, teacher):
+    """Une correction notée dans "Ma classe" doit se refléter dans le
+    tableur de notes officiel — jusqu'ici Exercise/Submission et
+    Evaluation/Grade étaient deux systèmes complètement séparés : noter
+    un devoir n'avait aucun effet sur la moyenne ni le bulletin. La
+    colonne (Evaluation) est créée à la première note réelle, jamais à
+    la création du devoir (pas de colonne vide avant toute correction),
+    et seulement si un trimestre a été renseigné (voir Exercise.term —
+    nullable pour les devoirs créés avant l'ajout de ce champ)."""
+    exercise = submission.exercise
+    if submission.grade is None or exercise.term_id is None:
+        return
+    if exercise.evaluation_id is None:
+        eval_type = EvaluationType.EXAM if exercise.kind == ExerciseKind.EXAM else EvaluationType.HOMEWORK
+        evaluation = Evaluation.objects.create(
+            subject=exercise.virtual_class.subject,
+            term=exercise.term,
+            title=exercise.title,
+            eval_type=eval_type,
+            max_score=20,
+            date=exercise.deadline.date() if exercise.deadline else timezone.localdate(),
+            created_by=teacher,
+        )
+        exercise.evaluation = evaluation
+        exercise.save(update_fields=["evaluation"])
+    _save_grade(exercise.evaluation, submission.child_id, submission.grade, False, teacher)
+
+
 class SubmissionDetailView(generics.RetrieveUpdateAPIView):
     """Détail d'une soumission — consultable par l'enseignant dédié et
     l'élève/parent concerné. Deux chemins d'écriture bien distincts :
@@ -466,6 +500,7 @@ class SubmissionDetailView(generics.RetrieveUpdateAPIView):
         submission = serializer.save(
             status=SubmissionStatus.GRADED, graded_by=user, graded_at=timezone.now()
         )
+        _sync_grading_column(submission, user)
         notify_user(
             submission.submitted_by,
             NotificationType.CORRECTION_READY,

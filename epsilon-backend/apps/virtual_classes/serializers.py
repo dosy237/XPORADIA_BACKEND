@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.grading.models import Term
 from apps.users.models import Child
 
 from .models import Exercise, ExerciseStatus, Submission, VirtualClass
@@ -7,11 +8,16 @@ from .models import Exercise, ExerciseStatus, Submission, VirtualClass
 
 class ExerciseSerializer(serializers.ModelSerializer):
     is_overdue = serializers.BooleanField(read_only=True)
+    # Obligatoire à la création (voir Exercise.term) — la correction d'une
+    # soumission notée en a besoin pour savoir dans quel trimestre
+    # alimenter le tableur de notes. La portée réelle (établissement) est
+    # vérifiée côté vue, pas ici (même convention que le reste du projet).
+    term = serializers.PrimaryKeyRelatedField(queryset=Term.objects.all())
 
     class Meta:
         model = Exercise
         fields = [
-            "id", "kind", "title", "instructions", "attachments", "deadline",
+            "id", "kind", "title", "instructions", "attachments", "deadline", "term",
             "status", "is_overdue", "published_at", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "is_overdue", "published_at", "created_at", "updated_at"]

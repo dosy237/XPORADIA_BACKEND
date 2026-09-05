@@ -60,6 +60,21 @@ class Exercise(models.Model):
     instructions = models.TextField()
     attachments = models.JSONField(default=list, blank=True)
     deadline = models.DateTimeField(null=True, blank=True)
+    # Trimestre auquel rattacher ce devoir — obligatoire à la création
+    # (voir ExerciseSerializer), pour que la correction d'une soumission
+    # (voir Submission.grade) sache dans quel trimestre alimenter le
+    # tableur de notes officiel. Nullable ici uniquement pour ne pas
+    # casser les devoirs créés avant l'ajout de ce champ.
+    term = models.ForeignKey(
+        "grading.Term", on_delete=models.SET_NULL, null=True, blank=True, related_name="exercises"
+    )
+    # Colonne du tableur de notes (grading.Evaluation) créée automatiquement
+    # à la première correction notée de ce devoir — jamais à la création,
+    # pour ne pas faire apparaître une colonne vide avant toute note
+    # réelle. Voir apps/virtual_classes/views.py::_sync_grading_column.
+    evaluation = models.OneToOneField(
+        "grading.Evaluation", on_delete=models.SET_NULL, null=True, blank=True, related_name="exercise"
+    )
     status = models.CharField(max_length=15, choices=ExerciseStatus.choices, default=ExerciseStatus.DRAFT)
     published_at = models.DateTimeField(null=True, blank=True)
     # Marqueurs d'idempotence pour la commande de rappel programmé — évite
