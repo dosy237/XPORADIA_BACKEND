@@ -319,22 +319,28 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         self._validate_track_ownership(serializer)
+        subject_name = serializer.validated_data.pop("homeroom_subject_name", "").strip()
         school_class = serializer.save()
         if school_class.homeroom_teacher_id:
-            self._notify_and_grant_homeroom(school_class, previous_teacher_id=None)
+            self._notify_and_grant_homeroom(school_class, previous_teacher_id=None, subject_name=subject_name)
 
     def perform_update(self, serializer):
         self._validate_track_ownership(serializer)
+        subject_name = serializer.validated_data.pop("homeroom_subject_name", "").strip()
         previous_teacher_id = serializer.instance.homeroom_teacher_id
         school_class = serializer.save()
         if school_class.homeroom_teacher_id != previous_teacher_id:
-            self._notify_and_grant_homeroom(school_class, previous_teacher_id)
+            self._notify_and_grant_homeroom(school_class, previous_teacher_id, subject_name=subject_name)
 
-    def _notify_and_grant_homeroom(self, school_class, previous_teacher_id):
+    def _notify_and_grant_homeroom(self, school_class, previous_teacher_id, subject_name=""):
         """Nomination (ou changement) de titulaire — notifie le nouveau
-        titulaire et transfère les droits d'administration du canal de
-        classe, qui ne se mettent jamais à jour tout seuls sinon (le
-        titulaire précédent resterait admin indéfiniment)."""
+        titulaire, transfère les droits d'administration du canal de
+        classe (qui ne se mettent jamais à jour tout seuls sinon : le
+        titulaire précédent resterait admin indéfiniment), et lui rattache
+        sa propre matière dans cette classe si le directeur en a précisé
+        une : un titulaire est d'abord un enseignant, jamais un rôle
+        déconnecté de l'enseignement réel (voir Subject.teacher, dont
+        dépend l'agrégation de l'emploi du temps personnel du professeur)."""
         from apps.messaging.models import ChannelMembership
         from apps.messaging.services import get_or_create_class_channel
 
@@ -355,6 +361,10 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
                 title="Nomination professeur principal",
                 body=f"Vous avez été nommé(e) professeur principal de la classe {school_class}.",
             )
+            if subject_name:
+                Subject.objects.update_or_create(
+                    school_class=school_class, name=subject_name, defaults={"teacher": new_teacher}
+                )
 
 
 class MyHomeroomClassesView(generics.ListAPIView):

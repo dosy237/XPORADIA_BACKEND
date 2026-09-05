@@ -74,12 +74,20 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    # Un titulaire est d'abord un enseignant : le nommer sans lui donner de
+    # matière dans SA classe le laissait sans aucune heure de cours propre
+    # (voir Subject, "enseignant dédié"), donc sans créneau dans son propre
+    # emploi du temps agrégé (teacher_timetable_slots_for_date ne retient
+    # que les matières dédiées). Optionnel pour ne pas casser un titulaire
+    # déjà correctement rattaché à une matière existante de cette classe.
+    homeroom_subject_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = SchoolClass
         fields = [
             "id", "track", "track_id", "name", "school_year",
-            "homeroom_teacher", "homeroom_teacher_email", "capacity", "is_active", "created_at",
+            "homeroom_teacher", "homeroom_teacher_email", "homeroom_subject_name",
+            "capacity", "is_active", "created_at",
         ]
         read_only_fields = ["id", "created_at"]
 
