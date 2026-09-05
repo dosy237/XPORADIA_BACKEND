@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
 from apps.grading.models import Evaluation, EvaluationType
 from apps.grading.views import _save_grade
+from apps.messaging.services import save_uploaded_attachments
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
 from apps.users.models import Child, UserRole
@@ -101,6 +102,10 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
         if term and term.establishment_id != establishment.id:
             raise ValidationError({"term": "Ce trimestre n'appartient pas à cet établissement."})
         exercise = serializer.save(virtual_class=virtual_class)
+        files = self.request.FILES.getlist("attachments")
+        if files:
+            exercise.attachments = save_uploaded_attachments(files, self.request, upload_to="exercise_attachments")
+            exercise.save(update_fields=["attachments"])
         if exercise.status == ExerciseStatus.PUBLISHED and not exercise.published_at:
             exercise.published_at = timezone.now()
             exercise.save(update_fields=["published_at"])

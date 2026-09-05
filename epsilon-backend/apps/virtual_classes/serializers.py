@@ -20,7 +20,11 @@ class ExerciseSerializer(serializers.ModelSerializer):
             "id", "kind", "title", "instructions", "attachments", "deadline", "term",
             "status", "is_overdue", "published_at", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "is_overdue", "published_at", "created_at", "updated_at"]
+        # attachments : jamais une liste JSON fournie telle quelle par le
+        # client, toujours des fichiers réellement transférés (multipart)
+        # traités côté vue via save_uploaded_attachments — même convention
+        # que Message/Submission (voir apps.messaging.services).
+        read_only_fields = ["id", "attachments", "is_overdue", "published_at", "created_at", "updated_at"]
 
 
 class ExerciseCardSerializer(serializers.ModelSerializer):
