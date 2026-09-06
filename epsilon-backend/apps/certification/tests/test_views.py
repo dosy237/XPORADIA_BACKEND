@@ -169,10 +169,10 @@ def test_my_status_forbidden_for_non_teacher(api_client):
     assert response.status_code == 403
 
 
-def test_my_status_no_certification_returns_null_level(authed_client):
+def test_my_status_no_certification_returns_zero_level(authed_client):
     response = authed_client.get("/api/v1/certification/my-status/")
     assert response.status_code == 200
-    assert response.data["current_level"] is None
+    assert response.data["current_level"] == "zero"
     assert response.data["next_level"] == "bronze"
     assert response.data["certifications"] == []
 
@@ -203,7 +203,7 @@ def test_my_status_ignores_revoked_certification(authed_client, teacher, trainer
     _issue_certification(teacher, trainer, CertificationLevel.BRONZE, is_valid=False)
 
     response = authed_client.get("/api/v1/certification/my-status/")
-    assert response.data["current_level"] is None
+    assert response.data["current_level"] == "zero"
     assert response.data["certifications"] == []
 
 

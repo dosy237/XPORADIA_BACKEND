@@ -14,9 +14,12 @@ from apps.payments.models import Payment
 
  
 class CertificationLevel(models.TextChoices):
-    BRONZE = "bronze", "Bronze"
-    SILVER = "silver", "Argent"
-    GOLD   = "gold",   "Or"
+    ZERO     = "zero",     "Zéro"
+    BRONZE   = "bronze",   "Bronze"
+    SILVER   = "silver",   "Argent"
+    GOLD     = "gold",     "Or"
+    PLATINUM = "platinum", "Platine"
+    DIAMOND  = "diamond",  "Diamant"
  
  
 class ModuleCategory(models.TextChoices):
@@ -36,8 +39,15 @@ class TrainingModule(models.Model):
     prerequisites = models.TextField(blank=True)
     duration_hours = models.PositiveSmallIntegerField(default=8)
     price        = models.PositiveIntegerField(help_text="FCFA")
+    # Points fixes apportés au cumul de l'enseignant quand cette formation
+    # est validée — indépendant du score obtenu à l'examen (voir constants.py
+    # pour les seuils de badge). Une formation Or vaut davantage qu'une
+    # formation Bronze, mais le nombre de formations compte tout autant :
+    # accumuler beaucoup de formations Bronze fait progresser aussi.
+    points       = models.PositiveSmallIntegerField(default=10)
     target_level = models.CharField(max_length=10, choices=CertificationLevel.choices,
                                      default=CertificationLevel.BRONZE)
+    cover_image  = models.ImageField(upload_to="certification_modules/", null=True, blank=True)
     is_active    = models.BooleanField(default=True)
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
@@ -233,8 +243,13 @@ class Certification(models.Model):
     attempt      = models.OneToOneField(ExamAttempt, on_delete=models.PROTECT,
                                          related_name="certification")
     level        = models.CharField(max_length=10, choices=CertificationLevel.choices)
+    # Copié depuis module.points au moment de l'émission — une certification
+    # déjà délivrée garde sa valeur même si le barème du module change plus
+    # tard (cohérent avec score_total, figé lui aussi à l'émission).
+    points_awarded = models.PositiveSmallIntegerField(default=10)
     score_total  = models.DecimalField(max_digits=5, decimal_places=2)
     qr_code      = models.CharField(max_length=100, unique=True)
+    document     = models.FileField(upload_to="certificates/", null=True, blank=True)
     pdf_url      = models.URLField(blank=True)
     issued_at    = models.DateTimeField(auto_now_add=True)
     expires_at   = models.DateField()

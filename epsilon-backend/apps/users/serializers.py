@@ -4,10 +4,13 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import (
     Child,
+    ChildClaimRequest,
     CompanyProfile,
     DirectorProfile,
     ParentProfile,
     PreRegistrationCode,
+    SchoolGroup,
+    SchoolGroupInvitation,
     TeacherComment,
     TeacherProfile,
     User,
@@ -17,16 +20,24 @@ from .models import (
 
 class UserSerializer(serializers.ModelSerializer):
     all_roles = serializers.ListField(source="get_all_roles", read_only=True)
+    child_id = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             "id", "email", "phone", "first_name", "last_name", "avatar",
-            "primary_role", "secondary_roles", "all_roles",
+            "primary_role", "secondary_roles", "all_roles", "child_id",
             "is_verified", "is_documents_validated", "two_fa_enabled", "created_at",
             "profile_visible", "notify_email", "notify_sms", "notify_push",
         ]
         read_only_fields = fields
+
+    def get_child_id(self, obj):
+        """Présent uniquement pour un compte élève — évite au frontend de
+        redemander explicitement sa propre fiche ENFANT pour soumettre un
+        devoir ou consulter son espace personnel."""
+        child = getattr(obj, "child_profile", None)
+        return child.id if child else None
 
 
 class BaseRegisterSerializer(serializers.Serializer):
@@ -120,6 +131,28 @@ class ChildSerializer(serializers.Serializer):
     target_subjects = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
 
+class RegisterStudentSerializer(BaseRegisterSerializer):
+    """Inscription directe d'un élève — sans passer par l'invitation d'un
+    directeur. Crée un compte STUDENT et sa propre fiche Child, sans
+    parent rattaché (Child.parent reste nul tant qu'aucun parent ne
+    revendique ce profil). Le rattachement à un établissement est une
+    étape séparée (EstablishmentJoinRequest), volontairement détachée de
+    l'inscription pour permettre l'option "plus tard"."""
+
+    declared_level = serializers.CharField()
+
+    def create(self):
+        user = self.create_user(UserRole.STUDENT)
+        child = Child.objects.create(
+            parent=None,
+            user=user,
+            first_name=self.validated_data["first_name"],
+            last_name=self.validated_data["last_name"],
+            class_level=self.validated_data["declared_level"],
+        )
+        return user, child
+
+
 class RegisterParentSerializer(BaseRegisterSerializer):
     location = serializers.CharField(required=False, allow_blank=True, default="")
     children = ChildSerializer(many=True, required=False, default=list)
@@ -207,30 +240,115 @@ class DirectorProfileSerializer(serializers.ModelSerializer):
         model = DirectorProfile
         fields = [
             "school_name", "address", "levels_taught", "student_count", "is_partner",
+            "phone", "contact_email", "establishment_code", "is_public", "logo",
         ]
-        read_only_fields = ["is_partner"]
+        read_only_fields = ["is_partner", "logo"]
+
+
+class SchoolGroupEstablishmentSerializer(serializers.ModelSerializer):
+    """Un établissement membre, tel qu'affiché dans une carte du tableau
+    de bord de groupe — chiffres réels calculés à la volée (voir
+    apps.users.services.establishment_summary), jamais stockés."""
+
+    director_id = serializers.IntegerField(source="user_id", read_only=True)
+    student_count = serializers.SerializerMethodField()
+    pending_join_requests = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DirectorProfile
+        fields = ["id", "director_id", "school_name", "logo", "student_count", "pending_join_requests"]
+        read_only_fields = fields
+
+    def get_student_count(self, obj):
+        from .services import establishment_summary
+
+        return establishment_summary(obj)["student_count"]
+
+    def get_pending_join_requests(self, obj):
+        from .services import establishment_summary
+
+        return establishment_summary(obj)["pending_join_requests"]
+
+
+class SchoolGroupSerializer(serializers.ModelSerializer):
+    established_by = serializers.CharField(source="created_by.get_full_name", read_only=True)
+    establishments = SchoolGroupEstablishmentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SchoolGroup
+        fields = ["id", "name", "created_by", "established_by", "establishments", "created_at"]
+        read_only_fields = fields
+
+
+class SchoolGroupInvitationSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(source="group.name", read_only=True)
+    invited_director_name = serializers.CharField(source="invited_director.get_full_name", read_only=True)
+
+    class Meta:
+        model = SchoolGroupInvitation
+        fields = [
+            "id", "group", "group_name", "invited_director", "invited_director_name",
+            "status", "created_at", "responded_at",
+        ]
+        read_only_fields = ["id", "group_name", "invited_director_name", "status", "created_at", "responded_at"]
 
 
 class CompanyProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompanyProfile
-        fields = ["company_name", "sector", "address", "is_partner"]
+        fields = [
+            "company_name", "sector", "address", "is_partner",
+            "brand_primary_color", "brand_secondary_color",
+        ]
         read_only_fields = ["is_partner"]
 
 
 def _current_certification_level(user):
-    from apps.certification.models import Certification, CertificationLevel
+    from apps.certification.constants import badge_for_points
+    from apps.certification.services import teacher_total_points
 
-    levels_achieved = set(
-        Certification.objects.filter(teacher=user, is_valid=True).values_list("level", flat=True)
-    )
-    for level in [CertificationLevel.GOLD, CertificationLevel.SILVER, CertificationLevel.BRONZE]:
-        if level in levels_achieved:
-            return level
-    return None
+    return badge_for_points(teacher_total_points(user))
 
 
-class TeacherDirectoryCardSerializer(serializers.ModelSerializer):
+def _teacher_total_points(user):
+    from apps.certification.services import teacher_total_points
+
+    return teacher_total_points(user)
+
+
+class FollowStatsMixin(serializers.Serializer):
+    """Compteurs sociaux communs à toute fiche d'annuaire consultable
+    (enseignant, établissement, entreprise) — c'est ce qui permet, en
+    tapant sur un compte n'importe où dans l'app, d'ouvrir un vrai profil
+    public avec ses abonnés, ses abonnements et ses publications, comme un
+    réseau social plutôt qu'une simple fiche catalogue."""
+
+    followers_count = serializers.SerializerMethodField()
+    following_count = serializers.SerializerMethodField()
+    is_following = serializers.SerializerMethodField()
+    posts_count = serializers.SerializerMethodField()
+
+    def get_followers_count(self, obj):
+        return obj.user.followers.count()
+
+    def get_following_count(self, obj):
+        return obj.user.following.count()
+
+    def get_is_following(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        from apps.feed.models import Follow
+
+        return Follow.objects.filter(follower=request.user, followed=obj.user).exists()
+
+    def get_posts_count(self, obj):
+        from apps.feed.models import Post
+
+        return Post.objects.filter(author=obj.user, is_hidden=False).count()
+
+
+class TeacherDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializer):
     """Vue d'un profil enseignant par un enseignant tiers (annuaire).
 
     Reflète la matrice de visibilité du cahier des charges pour le rôle
@@ -245,25 +363,44 @@ class TeacherDirectoryCardSerializer(serializers.ModelSerializer):
     last_name = serializers.CharField(source="user.last_name", read_only=True)
     avatar = serializers.ImageField(source="user.avatar", read_only=True)
     current_level = serializers.SerializerMethodField()
+    total_points = serializers.SerializerMethodField()
 
     class Meta:
         model = TeacherProfile
         fields = [
             "id", "first_name", "last_name", "avatar", "subjects", "experience_years",
-            "location", "available_for_tutoring", "available_for_employment", "current_level",
+            "location", "available_for_tutoring", "available_for_employment",
+            "current_level", "total_points",
+            "followers_count", "following_count", "is_following", "posts_count",
         ]
         read_only_fields = fields
 
     def get_current_level(self, obj):
         return _current_certification_level(obj.user)
 
+    def get_total_points(self, obj):
+        return _teacher_total_points(obj.user)
+
 
 class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
     certifications = serializers.SerializerMethodField()
+    employment_history = serializers.SerializerMethodField()
+    profile_visible = serializers.SerializerMethodField()
 
     class Meta(TeacherDirectoryCardSerializer.Meta):
-        fields = TeacherDirectoryCardSerializer.Meta.fields + ["bio", "certifications"]
+        fields = TeacherDirectoryCardSerializer.Meta.fields + [
+            "bio", "certifications", "employment_history", "profile_visible",
+        ]
         read_only_fields = fields
+
+    def get_profile_visible(self, obj):
+        # Uniquement pertinent (et exposé) pour un administrateur — pour
+        # tout le monde d'autre, cette information n'a pas de sens
+        # puisqu'un profil masqué n'apparaîtrait de toute façon jamais.
+        request = self.context.get("request")
+        if not (request and request.user.is_staff):
+            return None
+        return obj.user.profile_visible
 
     def get_certifications(self, obj):
         from apps.certification.models import Certification
@@ -275,6 +412,17 @@ class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
             .order_by("-issued_at")
         )
         return CertificationSerializer(qs, many=True).data
+
+    def get_employment_history(self, obj):
+        from apps.employment.models import Recruitment
+        from apps.employment.serializers import EstablishmentEmploymentHistorySerializer
+
+        qs = (
+            Recruitment.objects.filter(teacher=obj.user)
+            .select_related("school__director_profile")
+            .order_by("-confirmed_at")
+        )
+        return EstablishmentEmploymentHistorySerializer(qs, many=True).data
 
 
 class TeacherTutoringCardSerializer(TeacherDirectoryCardSerializer):
@@ -307,7 +455,7 @@ class TeacherTutoringDetailSerializer(TeacherTutoringCardSerializer):
         return CertificationSerializer(qs, many=True).data
 
 
-class EstablishmentDirectoryCardSerializer(serializers.ModelSerializer):
+class EstablishmentDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializer):
     """Vue publique d'un établissement — alimente le fil d'actualité au même
     titre que les enseignants."""
 
@@ -316,15 +464,22 @@ class EstablishmentDirectoryCardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DirectorProfile
-        fields = ["id", "school_name", "address", "levels_taught", "student_count", "is_partner", "avatar"]
+        fields = [
+            "id", "school_name", "address", "levels_taught", "student_count", "is_partner", "avatar",
+            "followers_count", "following_count", "is_following", "posts_count",
+        ]
         read_only_fields = fields
 
 
 class EstablishmentDirectoryDetailSerializer(EstablishmentDirectoryCardSerializer):
     departments = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
 
     class Meta(EstablishmentDirectoryCardSerializer.Meta):
-        fields = EstablishmentDirectoryCardSerializer.Meta.fields + ["departments"]
+        fields = EstablishmentDirectoryCardSerializer.Meta.fields + [
+            "departments", "average_rating", "review_count",
+        ]
         read_only_fields = fields
 
     def get_departments(self, obj):
@@ -333,6 +488,80 @@ class EstablishmentDirectoryDetailSerializer(EstablishmentDirectoryCardSerialize
 
         qs = Department.objects.filter(establishment=obj)
         return DepartmentSerializer(qs, many=True).data
+
+    def _reviews(self, obj):
+        from apps.employment.constants import MIN_REVIEWS_FOR_PUBLIC_DISPLAY
+        from apps.employment.models import EmployerReview
+
+        reviews = list(EmployerReview.objects.filter(recruitment__school=obj.user, is_moderated=True))
+        if len(reviews) < MIN_REVIEWS_FOR_PUBLIC_DISPLAY:
+            return []
+        return reviews
+
+    def get_average_rating(self, obj):
+        reviews = self._reviews(obj)
+        if not reviews:
+            return None
+        return round(sum(r.average_rating() for r in reviews) / len(reviews), 2)
+
+    def get_review_count(self, obj):
+        return len(self._reviews(obj))
+
+
+class CompanyDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializer):
+    """Vue publique d'une entreprise — symétrique à l'annuaire établissements,
+    pour que les enseignants et stagiaires puissent la découvrir dans
+    l'Annuaire général avant de postuler à ses offres."""
+
+    id = serializers.IntegerField(source="user.id", read_only=True)
+    avatar = serializers.ImageField(source="user.avatar", read_only=True)
+
+    class Meta:
+        model = CompanyProfile
+        fields = [
+            "id", "company_name", "sector", "address", "is_partner", "avatar",
+            "followers_count", "following_count", "is_following", "posts_count",
+        ]
+        read_only_fields = fields
+
+
+class CompanyDirectoryDetailSerializer(CompanyDirectoryCardSerializer):
+    open_internship_offers = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+
+    class Meta(CompanyDirectoryCardSerializer.Meta):
+        fields = CompanyDirectoryCardSerializer.Meta.fields + [
+            "open_internship_offers", "average_rating", "review_count",
+        ]
+        read_only_fields = fields
+
+    def get_open_internship_offers(self, obj):
+        from apps.internships.models import InternshipOffer
+        from apps.internships.serializers import InternshipOfferSerializer
+
+        qs = InternshipOffer.objects.filter(company=obj.user, is_active=True).order_by("-created_at")
+        return InternshipOfferSerializer(qs, many=True).data
+
+    def _reviews(self, obj):
+        from apps.internships.models import CompanyReview
+
+        reviews = list(CompanyReview.objects.filter(convention__application__offer__company=obj.user))
+        # Un seul avis, même identifié, ne doit pas à lui seul déterminer
+        # la réputation publique d'une entreprise — même logique d'équité
+        # que la notation enseignant → établissement.
+        if len(reviews) < 3:
+            return []
+        return reviews
+
+    def get_average_rating(self, obj):
+        reviews = self._reviews(obj)
+        if not reviews:
+            return None
+        return round(sum(r.average_rating() for r in reviews) / len(reviews), 2)
+
+    def get_review_count(self, obj):
+        return len(self._reviews(obj))
 
 
 class TeacherCommentSerializer(serializers.ModelSerializer):
@@ -361,7 +590,24 @@ class CreateTeacherCommentSerializer(serializers.ModelSerializer):
 class ChildDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child
-        fields = ["id", "first_name", "class_level", "target_subjects"]
+        fields = [
+            "id", "first_name", "class_level", "target_subjects",
+            "matricule", "sex", "nationality", "birth_date", "birth_place",
+        ]
+
+
+class ChildClaimRequestSerializer(serializers.ModelSerializer):
+    child_first_name = serializers.CharField(source="child.first_name", read_only=True)
+    child_last_name = serializers.CharField(source="child.last_name", read_only=True)
+    parent_name = serializers.CharField(source="parent.user.get_full_name", read_only=True)
+
+    class Meta:
+        model = ChildClaimRequest
+        fields = [
+            "id", "child", "child_first_name", "child_last_name", "parent_name",
+            "status", "created_at", "reviewed_at",
+        ]
+        read_only_fields = fields
 
 
 class ParentProfileSerializer(serializers.ModelSerializer):
@@ -378,12 +624,80 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        data["user"] = UserSerializer(self.user).data
+        data["user"] = UserSerializer(self.user, context=self.context).data
         return data
 
 
 class VerifyOTPSerializer(serializers.Serializer):
     code = serializers.CharField(max_length=6, min_length=6)
+
+
+class StudentActivationPreviewSerializer(serializers.Serializer):
+    """Aperçu affiché avant activation — ce que l'élève voit avant de
+    choisir son mot de passe : sa fiche, pas de données sensibles."""
+
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    class_level = serializers.CharField()
+    school_name = serializers.CharField(allow_null=True)
+    email = serializers.EmailField()
+
+
+class StudentActivationSerializer(serializers.Serializer):
+    """Complète l'activation du compte élève à partir d'un token
+    d'invitation valide. Le mot de passe choisi ici active le compte ; la
+    preuve de possession de l'email (avoir reçu et cliqué le lien) tient
+    lieu de vérification — pas d'OTP supplémentaire pour ne pas doubler
+    une étape déjà accomplie."""
+
+    token = serializers.CharField()
+    password = serializers.CharField(min_length=8, write_only=True)
+    # Le prénom est déjà connu (fiche ENFANT) ; le nom de famille peut
+    # manquer sur les fiches historiques — demandé ici si absent.
+    last_name = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_token(self, value):
+        from .models import StudentActivationInvite
+
+        try:
+            invite = StudentActivationInvite.objects.select_related("child").get(token=value)
+        except StudentActivationInvite.DoesNotExist:
+            raise serializers.ValidationError("Lien d'activation invalide.")
+        if invite.is_accepted:
+            raise serializers.ValidationError("Ce compte élève a déjà été activé.")
+        self._invite = invite
+        return value
+
+    def create(self):
+        from django.utils import timezone
+
+        from .models import UserRole
+
+        invite = self._invite
+        child = invite.child
+        last_name = self.validated_data.get("last_name") or child.last_name
+        if not last_name:
+            raise serializers.ValidationError({"last_name": "Le nom de famille est requis."})
+
+        user = User.objects.create_user(
+            email=invite.email,
+            password=self.validated_data["password"],
+            first_name=child.first_name,
+            last_name=last_name,
+            primary_role=UserRole.STUDENT,
+            is_verified=True,
+            is_documents_validated=True,
+        )
+        child.user = user
+        if not child.last_name:
+            child.last_name = last_name
+        child.save(update_fields=["user", "last_name"])
+
+        invite.is_accepted = True
+        invite.accepted_at = timezone.now()
+        invite.save(update_fields=["is_accepted", "accepted_at"])
+
+        return user, child
 
 
 class UpdateMeSerializer(serializers.ModelSerializer):

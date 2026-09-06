@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import DevicePlatform, Notification
+from .models import DevicePlatform, Notification, NotificationCategory
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -17,3 +17,14 @@ class RegisterDeviceTokenSerializer(serializers.Serializer):
 
 class UnregisterDeviceTokenSerializer(serializers.Serializer):
     token = serializers.CharField(max_length=255)
+
+
+class NotificationPreferenceEntrySerializer(serializers.Serializer):
+    category = serializers.ChoiceField(choices=NotificationCategory.choices)
+    category_label = serializers.CharField()
+    enabled = serializers.BooleanField()
+
+
+class UpdateNotificationPreferenceSerializer(serializers.Serializer):
+    category = serializers.ChoiceField(choices=NotificationCategory.choices)
+    enabled = serializers.BooleanField()

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2.2cm 2cm; }
+  body { font-family: "DejaVu Sans", sans-serif; color: #1a1a1a; font-size: 11pt; line-height: 1.55; }
+  .header { border-bottom: 4px solid {{ secondary_color }}; padding-bottom: 16px; margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .company-name { font-size: 20pt; font-weight: bold; color: {{ primary_color }}; }
+  .doc-title { text-align: right; font-size: 10pt; letter-spacing: 1px; text-transform: uppercase; color: #6b7280; }
+  h1 { font-size: 15pt; color: {{ primary_color }}; margin: 0 0 4px; }
+  .subtitle { color: #6b7280; font-size: 9.5pt; margin-bottom: 24px; }
+  .grid { display: flex; gap: 24px; margin-bottom: 20px; }
+  .box { flex: 1; background: #f7f7f8; border-left: 3px solid {{ secondary_color }}; padding: 12px 16px; border-radius: 4px; }
+  .box .label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; margin-bottom: 3px; }
+  .box .value { font-size: 11pt; font-weight: bold; color: #1a1a1a; }
+  .section-title { font-size: 11pt; font-weight: bold; color: {{ primary_color }}; margin: 24px 0 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+  table.info { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.info td { padding: 5px 0; font-size: 10.5pt; vertical-align: top; }
+  table.info td.k { color: #6b7280; width: 38%; }
+  table.info td.v { font-weight: bold; }
+  .missions { white-space: pre-wrap; }
+  .signatures { margin-top: 48px; display: flex; justify-content: space-between; gap: 40px; }
+  .sig-block { flex: 1; }
+  .sig-line { border-top: 1px solid #1a1a1a; margin-top: 48px; padding-top: 6px; font-size: 9pt; color: #6b7280; }
+  .footer { margin-top: 40px; font-size: 8pt; color: #9ca3af; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="company-name">{{ company_name }}</div>
+    <div class="doc-title">Convention de stage</div>
+  </div>
+
+  <h1>Convention de stage — {{ position_title }}</h1>
+  <div class="subtitle">Générée via Xporadia le {{ generated_date }}</div>
+
+  <div class="grid">
+    <div class="box">
+      <div class="label">Stagiaire</div>
+      <div class="value">{{ student_name }}</div>
+    </div>
+    <div class="box">
+      <div class="label">Établissement</div>
+      <div class="value">{{ school_name }}</div>
+    </div>
+  </div>
+
+  <div class="section-title">Modalités du stage</div>
+  <table class="info">
+    <tr><td class="k">Entreprise d'accueil</td><td class="v">{{ company_name }}{% if company_address %} — {{ company_address }}{% endif %}</td></tr>
+    <tr><td class="k">Poste occupé</td><td class="v">{{ position_title }}</td></tr>
+    <tr><td class="k">Domaine</td><td class="v">{{ domain }}</td></tr>
+    <tr><td class="k">Ville</td><td class="v">{{ city }}</td></tr>
+    <tr><td class="k">Période</td><td class="v">Du {{ period_start }} au {{ period_end }} ({{ duration_weeks }} semaines)</td></tr>
+  </table>
+
+  <div class="section-title">Missions confiées</div>
+  <div class="missions">{{ missions }}</div>
+
+  <div class="signatures">
+    <div class="sig-block">
+      <div class="sig-line">Pour l'établissement — {{ school_name }}</div>
+    </div>
+    <div class="sig-block">
+      <div class="sig-line">Pour l'entreprise — {{ company_name }}</div>
+    </div>
+  </div>
+
+  <div class="footer">Document généré automatiquement par Xporadia — plateforme de certification pédagogique.</div>
+</body>
+</html>

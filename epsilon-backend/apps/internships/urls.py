@@ -15,11 +15,31 @@ urlpatterns = [
         name="internship-offer-applications",
     ),
     path(
+        "offers/<uuid:offer_id>/distribute/",
+        views.DistributeOfferToSchoolsView.as_view(),
+        name="internship-offer-distribute",
+    ),
+    path(
+        "offer-links/distributed-to-me/",
+        views.MyDistributedOffersView.as_view(),
+        name="internship-offer-links-distributed-to-me",
+    ),
+    path(
+        "offer-links/<int:pk>/publish/",
+        views.PublishOfferForMySchoolView.as_view(),
+        name="internship-offer-link-publish",
+    ),
+    path(
         "applications/<uuid:pk>/",
         views.InternshipApplicationDetailView.as_view(),
         name="internship-application-detail",
     ),
     path("conventions/<uuid:pk>/sign/", views.SignConventionView.as_view(), name="internship-convention-sign"),
+    path(
+        "conventions/<uuid:pk>/generate-pdf/",
+        views.GenerateConventionPdfView.as_view(),
+        name="internship-convention-generate-pdf",
+    ),
     path(
         "conventions/<uuid:convention_id>/journal/",
         views.ConventionJournalView.as_view(),
@@ -29,6 +49,11 @@ urlpatterns = [
         "conventions/<uuid:convention_id>/evaluations/",
         views.ConventionEvaluationView.as_view(),
         name="internship-convention-evaluations",
+    ),
+    path(
+        "conventions/<uuid:convention_id>/company-review/",
+        views.SubmitCompanyReviewView.as_view(),
+        name="submit-company-review",
     ),
     path("", include(router.urls)),
 ]

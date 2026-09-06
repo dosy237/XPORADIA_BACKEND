@@ -1,0 +1,138 @@
+from rest_framework import serializers
+
+from .models import Evaluation, EstablishmentJoinRequest, Grade, ReportCard, SubjectReportEntry, Term
+
+
+class JoinRequestSerializer(serializers.ModelSerializer):
+    establishment_name = serializers.SerializerMethodField()
+    child_first_name = serializers.CharField(source="child.first_name", read_only=True)
+    child_last_name = serializers.CharField(source="child.last_name", read_only=True)
+
+    class Meta:
+        model = EstablishmentJoinRequest
+        fields = [
+            "id", "child", "child_first_name", "child_last_name", "establishment",
+            "establishment_name", "other_establishment_name", "declared_level",
+            "status", "rejection_reason", "created_at", "reviewed_at",
+        ]
+        read_only_fields = [
+            "id", "child", "child_first_name", "child_last_name", "establishment_name",
+            "status", "rejection_reason", "created_at", "reviewed_at",
+        ]
+
+    def get_establishment_name(self, obj):
+        return obj.establishment.school_name if obj.establishment else obj.other_establishment_name
+
+    def validate(self, attrs):
+        if not attrs.get("establishment") and not attrs.get("other_establishment_name"):
+            raise serializers.ValidationError(
+                "Précisez un établissement existant ou son nom si absent de la liste."
+            )
+        return attrs
+
+
+class TermSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Term
+        fields = ["id", "school_year", "number", "name", "start_date", "end_date", "is_active"]
+        read_only_fields = ["id"]
+
+
+class EvaluationSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+
+    class Meta:
+        model = Evaluation
+        fields = [
+            "id", "subject", "subject_name", "term", "title", "eval_type",
+            "coefficient", "max_score", "date", "created_at",
+        ]
+        read_only_fields = ["id", "subject", "subject_name", "created_at"]
+
+
+class GradeSerializer(serializers.ModelSerializer):
+    child_first_name = serializers.CharField(source="child.first_name", read_only=True)
+    child_last_name = serializers.CharField(source="child.last_name", read_only=True)
+    # Traçabilité minimale (Point 8) — jamais un champ éditable, uniquement
+    # la trace du dernier enregistrement (voir apps.grading.views._save_grade).
+    updated_by_name = serializers.SerializerMethodField()
+    updated_at = serializers.DateTimeField(source="graded_at", read_only=True)
+
+    def get_updated_by_name(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by_id else None
+
+    class Meta:
+        model = Grade
+        fields = [
+            "id", "evaluation", "child", "child_first_name", "child_last_name", "score", "is_excused",
+            "updated_by_name", "updated_at",
+        ]
+        read_only_fields = ["id", "child_first_name", "child_last_name", "updated_by_name", "updated_at"]
+
+
+class BulkGradeEntrySerializer(serializers.Serializer):
+    """Une ligne de saisie en lot — le score est optionnel (élève pas
+    encore noté) mais child et is_excused sont toujours requis, pour
+    permettre de traiter toute la classe (ou toute la grille
+    multi-évaluations) en un seul envoi plutôt qu'un appel réseau par
+    élève. evaluation est optionnel : implicite depuis l'URL pour
+    l'ancien endpoint mono-colonne (EvaluationGradesView), explicite pour
+    le tableur multi-évaluations (SubjectGradeGridView), où chaque entrée
+    peut viser une colonne différente. La borne haute de la note dépend
+    du barème PROPRE à chaque évaluation (max_score) — volontairement pas
+    vérifiée ici en dur (ne serait valable que pour une échelle fixe),
+    mais côté vue, qui connaît l'évaluation réelle de chaque entrée."""
+
+    evaluation = serializers.IntegerField(required=False)
+    child = serializers.IntegerField()
+    score = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    is_excused = serializers.BooleanField(default=False)
+
+    def validate_score(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("La note ne peut pas être négative.")
+        return value
+
+
+class SubjectReportEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubjectReportEntry
+        fields = ["subject_name", "subject_average", "coefficient", "teacher_comment", "teacher_name", "category"]
+        read_only_fields = fields
+
+
+class ReportCardSerializer(serializers.ModelSerializer):
+    subject_entries = SubjectReportEntrySerializer(many=True, read_only=True)
+    child_first_name = serializers.CharField(source="child.first_name", read_only=True)
+    child_last_name = serializers.CharField(source="child.last_name", read_only=True)
+    term_label = serializers.CharField(source="term.__str__", read_only=True)
+    distinction_label = serializers.CharField(source="get_distinction_display", read_only=True)
+    sanction_label = serializers.CharField(source="get_sanction_display", read_only=True)
+    # Volontairement PAS le fichier stocké (ReportCard.document) : celui-ci
+    # dépend du disque/S3 et peut devenir introuvable après coup (voir
+    # ReportCardPdfView). On pointe systématiquement vers l'endpoint qui
+    # régénère le PDF à la volée depuis les données déjà figées.
+    document = serializers.SerializerMethodField()
+
+    def get_document(self, obj):
+        path = f"/api/v1/grading/report-cards/{obj.id}/pdf/"
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request else path
+
+    # Traçabilité minimale (Point 8) : qui a publié en dernier (une
+    # republication écrase le bulletin précédent, voir GenerateReportCardsView).
+    updated_by_name = serializers.SerializerMethodField()
+
+    def get_updated_by_name(self, obj):
+        return obj.updated_by.get_full_name() if obj.updated_by_id else None
+
+    class Meta:
+        model = ReportCard
+        fields = [
+            "id", "child", "child_first_name", "child_last_name", "term", "term_label",
+            "general_average", "class_average", "highest_average", "lowest_average", "rank", "class_size",
+            "homeroom_comment", "justified_absence_hours", "unjustified_absence_hours",
+            "distinction", "distinction_label", "sanction", "sanction_label",
+            "document", "subject_entries", "published_at", "updated_by_name", "updated_at",
+        ]
+        read_only_fields = fields

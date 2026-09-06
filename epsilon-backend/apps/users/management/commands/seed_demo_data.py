@@ -1,10 +1,15 @@
 import datetime
+import os
+from decimal import Decimal
+from pathlib import Path
 
+from django.conf import settings
+from django.core.files import File
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.academics.models import Department, Enrollment, SchoolClass, Subject, Track
+from apps.academics.models import Department, Enrollment, SchoolClass, Subject, TimetableSlot, Track, Weekday
 from apps.certification.models import (
     Certification,
     CertificationLevel,
@@ -26,6 +31,10 @@ from apps.employment.models import (
     JobStatus,
     Recruitment,
 )
+from apps.feed.models import Follow, Post, PostComment, PostImage, PostLike
+from apps.messaging.models import Channel, ChannelType, Message
+from apps.messaging.services import create_subject_channel, ensure_student_messaging
+from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
 from apps.internships.models import (
     ConventionStatus,
     InternshipApplication,
@@ -36,11 +45,17 @@ from apps.internships.models import (
     InternshipLevel,
     InternshipOffer,
 )
-from apps.library.models import LibraryResource, ModerationStatus, ResourceType, SchoolLevel
+from apps.library.models import (
+    LibraryResource,
+    ModerationStatus,
+    ResourceCategory,
+    ResourceRating,
+    ResourceType,
+    SchoolLevel,
+)
 from apps.notifications.services import notify_user
 from apps.notifications.models import NotificationType
 from apps.payments.models import MobileOperator, Payment, PaymentStatus, PaymentType
-from apps.tutoring.models import TutoringReview, TutoringSession, TutoringSessionStatus
 from apps.users.models import (
     Child,
     CompanyProfile,
@@ -51,10 +66,78 @@ from apps.users.models import (
     UserRole,
 )
 from apps.virtual_classes.models import Exercise, ExerciseStatus, Submission, VirtualClass
+from apps.grading import services as grading_services
+from apps.grading.models import (
+    EstablishmentJoinRequest,
+    Evaluation,
+    EvaluationType,
+    Grade,
+    JoinRequestStatus,
+    ReportCard,
+    SubjectReportEntry,
+    Term,
+)
 
 DEMO_PASSWORD = "Xporadia2026!"
 TODAY = datetime.date.today
 CERT_VALIDITY_DAYS = 730
+
+
+def _find_frontend_images_dir():
+    """Localise mobile/assets/images/ du dépôt frontend, checkouté à côté du
+    backend (ex. ~/rodrigue/xporadia-backend et ~/rodrigue/xporadia-frontend).
+    Surchargeable via la variable d'environnement FRONTEND_ASSETS_DIR. Ne
+    lève jamais — les images de démo sont un bonus visuel, pas un pré-requis
+    pour que le seed fonctionne."""
+    override = os.environ.get("FRONTEND_ASSETS_DIR")
+    candidates = [Path(override)] if override else []
+
+    siblings_root = Path(settings.BASE_DIR).parent.parent
+    if siblings_root.is_dir():
+        for child in sorted(siblings_root.iterdir()):
+            if child.is_dir() and "frontend" in child.name.lower():
+                candidates.append(child / "epsilon-frontend" / "mobile" / "assets" / "images")
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _attach_demo_image(instance, field_name, filename, images_dir, save=True):
+    """Copie une image du dossier assets/images du frontend vers un
+    ImageField. Idempotent : ne touche à rien si le champ est déjà rempli
+    (évite de dupliquer le fichier stocké à chaque relance du seed)."""
+    field_file = getattr(instance, field_name)
+    if field_file:
+        return False
+    if not images_dir:
+        return False
+    source = images_dir / filename
+    if not source.is_file():
+        return False
+    with source.open("rb") as fh:
+        field_file.save(filename, File(fh), save=save)
+    return True
+
+
+# Pool réutilisé pour les comptes générés en masse (enseignants/parents/
+# élèves de l'expansion) — un jeu de photos limité forcément partagé entre
+# plusieurs comptes Faker, contrairement aux comptes nommés qui ont chacun
+# la leur (voir les appels _attach_demo_image individuels ci-dessous).
+_BULK_AVATARS_F = [
+    "avatar_awa_bamba.jpg", "avatar_aminata_diarra.jpg", "avatar_mariam_coulibaly.jpg",
+    "avatar_adjoua_kone.jpg", "avatar_fatou_traore.jpg", "avatar_nadege_yao.jpg",
+]
+_BULK_AVATARS_M = [
+    "avatar_yao_kouassi.jpg", "avatar_ibrahim_fofana.jpg", "avatar_kouassi_nguessan.jpg",
+    "avatar_serge_kouadio.jpg",
+]
+
+
+def _attach_bulk_avatar(instance, is_female, index, images_dir):
+    pool = _BULK_AVATARS_F if is_female else _BULK_AVATARS_M
+    _attach_demo_image(instance, "avatar", pool[index % len(pool)], images_dir)
 
 
 def _payment(user, amount, payment_type, status, content_object=None, operator=MobileOperator.ORANGE):
@@ -88,6 +171,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        self._images_dir = _find_frontend_images_dir()
+        if self._images_dir:
+            self.stdout.write(f"Images de démo : {self._images_dir}")
+        else:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Dossier assets/images du frontend introuvable — publications, modules et "
+                    "offres de démo seront créés sans image (voir FRONTEND_ASSETS_DIR)."
+                )
+            )
+
         if options["reset"]:
             demo_users = User.objects.filter(email__endswith="@xporadia.ci")
             # Certification.attempt et TrainingSession.trainer sont en PROTECT :
@@ -104,12 +198,17 @@ class Command(BaseCommand):
             modules = self._seed_certification_catalog(users)
             self._seed_certifications(users, modules)
             establishments = self._seed_academics(users)
+            self._seed_grading(users, establishments)
             self._seed_virtual_classes(establishments, users)
             self._seed_library(establishments, users)
             self._seed_employment(users)
             self._seed_internships(users, establishments)
-            self._seed_tutoring(users)
             self._seed_training_enrollment(users, modules)
+            self._seed_feed(users)
+            self._seed_student_activation(establishments, users)
+            self._seed_bulk_expansion(establishments, users, modules)
+            self._seed_self_registration_flow(establishments)
+            self._seed_admin_accounts()
 
         self.stdout.write(self.style.SUCCESS(f"\nJeu de données de démonstration prêt."))
         self.stdout.write(self.style.SUCCESS(f"Mot de passe commun de démo : {DEMO_PASSWORD}"))
@@ -153,10 +252,12 @@ class Command(BaseCommand):
                 available_for_tutoring=True, available_for_employment=True,
             ),
         )
+        _attach_demo_image(awa, "avatar", "avatar_awa_bamba.jpg", self._images_dir)
 
         yao, _ = self._get_or_create_user(
             "yao.teacher@xporadia.ci", UserRole.TEACHER, "Yao", "Kouassi", "+2250700000006"
         )
+        _attach_demo_image(yao, "avatar", "avatar_yao_kouassi.jpg", self._images_dir)
         TeacherProfile.objects.get_or_create(
             user=yao,
             defaults=dict(
@@ -177,6 +278,7 @@ class Command(BaseCommand):
                 available_for_tutoring=True, available_for_employment=True,
             ),
         )
+        _attach_demo_image(aminata, "avatar", "avatar_aminata_diarra.jpg", self._images_dir)
 
         ibrahim, _ = self._get_or_create_user(
             "ibrahim.teacher@xporadia.ci", UserRole.TEACHER, "Ibrahim", "Fofana", "+2250700000008"
@@ -189,10 +291,12 @@ class Command(BaseCommand):
                 available_for_tutoring=False, available_for_employment=True,
             ),
         )
+        _attach_demo_image(ibrahim, "avatar", "avatar_ibrahim_fofana.jpg", self._images_dir)
 
         mariam, _ = self._get_or_create_user(
             "mariam.teacher@xporadia.ci", UserRole.TEACHER, "Mariam", "Coulibaly", "+2250700000009"
         )
+        _attach_demo_image(mariam, "avatar", "avatar_mariam_coulibaly.jpg", self._images_dir)
         TeacherProfile.objects.get_or_create(
             user=mariam,
             defaults=dict(
@@ -213,6 +317,7 @@ class Command(BaseCommand):
                 levels_taught=["Primaire", "Collège"], student_count=420, is_partner=True,
             ),
         )
+        _attach_demo_image(kouassi, "avatar", "avatar_kouassi_nguessan.jpg", self._images_dir)
 
         adjoua, _ = self._get_or_create_user(
             "adjoua.director@xporadia.ci", UserRole.DIRECTOR, "Adjoua", "Kone", "+2250700000010"
@@ -224,43 +329,55 @@ class Command(BaseCommand):
                 levels_taught=["Collège", "Lycée"], student_count=610, is_partner=False,
             ),
         )
+        _attach_demo_image(adjoua, "avatar", "avatar_adjoua_kone.jpg", self._images_dir)
 
         # --- Parents et enfants ---
         fatou, _ = self._get_or_create_user(
             "fatou.parent@xporadia.ci", UserRole.PARENT, "Fatou", "Traoré", "+2250700000003"
         )
+        _attach_demo_image(fatou, "avatar", "avatar_fatou_traore.jpg", self._images_dir)
         fatou_profile, _ = ParentProfile.objects.get_or_create(
             user=fatou, defaults=dict(location="Marcory, Abidjan", subscription_active=True)
         )
         aicha, _ = Child.objects.get_or_create(
             parent=fatou_profile, first_name="Aïcha",
-            defaults=dict(class_level="5ème", target_subjects=["Anglais", "Maths"]),
+            defaults=dict(
+                class_level="5ème", target_subjects=["Anglais", "Maths"], birth_date=datetime.date(2013, 11, 20),
+            ),
         )
         ibrahim_child, _ = Child.objects.get_or_create(
             parent=fatou_profile, first_name="Ibrahim Jr",
-            defaults=dict(class_level="CM2", target_subjects=["Français"]),
+            defaults=dict(
+                class_level="CM2", target_subjects=["Français"], birth_date=datetime.date(2015, 3, 10),
+            ),
         )
 
         aya, _ = self._get_or_create_user(
             "aya.parent@xporadia.ci", UserRole.PARENT, "Aya", "Bamba", "+2250700000011"
         )
+        _attach_bulk_avatar(aya, is_female=True, index=1, images_dir=self._images_dir)
         aya_profile, _ = ParentProfile.objects.get_or_create(
             user=aya, defaults=dict(location="Cocody, Abidjan", subscription_active=False)
         )
         kouadio, _ = Child.objects.get_or_create(
             parent=aya_profile, first_name="Kouadio",
-            defaults=dict(class_level="6ème", target_subjects=["Mathématiques"]),
+            defaults=dict(
+                class_level="6ème", target_subjects=["Mathématiques"], birth_date=datetime.date(2014, 6, 15),
+            ),
         )
 
         bakary, _ = self._get_or_create_user(
             "bakary.parent@xporadia.ci", UserRole.PARENT, "Bakary", "Diallo", "+2250700000012"
         )
+        _attach_bulk_avatar(bakary, is_female=False, index=1, images_dir=self._images_dir)
         bakary_profile, _ = ParentProfile.objects.get_or_create(
             user=bakary, defaults=dict(location="Yopougon, Abidjan", subscription_active=False)
         )
         mariam_child, _ = Child.objects.get_or_create(
             parent=bakary_profile, first_name="Mariam Jr",
-            defaults=dict(class_level="5ème", target_subjects=["Anglais"]),
+            defaults=dict(
+                class_level="5ème", target_subjects=["Anglais"], birth_date=datetime.date(2013, 9, 2),
+            ),
         )
 
         # --- Entreprises ---
@@ -274,6 +391,7 @@ class Command(BaseCommand):
                 address="Plateau, Abidjan", is_partner=False,
             ),
         )
+        _attach_demo_image(serge, "avatar", "avatar_serge_kouadio.jpg", self._images_dir)
 
         nadege, _ = self._get_or_create_user(
             "rh.entreprise2@xporadia.ci", UserRole.COMPANY, "Nadège", "Yao", "+2250700000013"
@@ -285,6 +403,7 @@ class Command(BaseCommand):
                 is_partner=True,
             ),
         )
+        _attach_demo_image(nadege, "avatar", "avatar_nadege_yao.jpg", self._images_dir)
 
         users.update(
             teachers={"awa": awa, "yao": yao, "aminata": aminata, "ibrahim": ibrahim, "mariam": mariam},
@@ -336,11 +455,26 @@ class Command(BaseCommand):
             ),
         ]
         modules = {}
+        MODULE_POINTS_BY_LEVEL = {
+            CertificationLevel.BRONZE: 10,
+            CertificationLevel.SILVER: 25,
+            CertificationLevel.GOLD: 50,
+        }
+        MODULE_COVER_IMAGES = {
+            "Fondamentaux pédagogiques": "formation.png",
+            "Didactique disciplinaire": "seance_dicdactique_disciplinaire.jpg",
+            "Gestion de classe avancée": "college_fraternite.jpg",
+            "Leadership pédagogique": "nouvelle_promo.jpg",
+        }
         for data in module_defs:
+            data.setdefault("points", MODULE_POINTS_BY_LEVEL[data["target_level"]])
             module, created = TrainingModule.objects.get_or_create(title=data["title"], defaults=data)
             modules[module.title] = module
             if created:
                 self.stdout.write(self.style.SUCCESS(f"Module créé : {module.title}"))
+            cover = MODULE_COVER_IMAGES.get(module.title)
+            if cover:
+                _attach_demo_image(module, "cover_image", cover, self._images_dir)
 
         # Questions QCM/Vrai-Faux pour l'examen en ligne du module Bronze de base.
         bronze_module = modules["Fondamentaux pédagogiques"]
@@ -385,7 +519,8 @@ class Command(BaseCommand):
         attempt = ExamAttempt.objects.create(teacher=teacher, score_total=score, status="graded")
         Certification.objects.create(
             teacher=teacher, module=module, attempt=attempt, level=module.target_level,
-            score_total=score, qr_code=f"XPO-CERT-{teacher.id}-{module.target_level}-DEMO",
+            points_awarded=module.points, score_total=score,
+            qr_code=f"XPO-CERT-{teacher.id}-{module.target_level}-DEMO",
             expires_at=TODAY() + datetime.timedelta(days=CERT_VALIDITY_DAYS),
         )
         self.stdout.write(self.style.SUCCESS(f"Certification {module.target_level} créée pour {teacher.email}"))
@@ -439,6 +574,12 @@ class Command(BaseCommand):
         subj_svt, _ = Subject.objects.get_or_create(
             school_class=cinquieme, name="SVT", defaults=dict(teacher=teachers["aminata"])
         )
+        # Complète les matières déclarées dans l'objectif de vie d'Aïcha
+        # (LifeGoal.related_subjects, voir _seed_bulk_expansion) — sans ça
+        # "Mathématiques" n'aurait jamais de note réelle pour elle.
+        subj_maths_5e, _ = Subject.objects.get_or_create(
+            school_class=cinquieme, name="Mathématiques", defaults=dict(teacher=teachers["mariam"])
+        )
 
         # --- Établissement 2 : Institution Sainte Marie ---
         dept2, _ = Department.objects.get_or_create(
@@ -469,6 +610,133 @@ class Command(BaseCommand):
         }
 
     # ------------------------------------------------------------------
+    # Vie scolaire — trimestres, évaluations, notes, bulletins publiés.
+    # Scopé aux classes "nommées" (celles où sont inscrits nos enfants de
+    # démo identifiés) et pas aux classes générées en masse : c'est de
+    # cette donnée précise dont a besoin le tableau de bord élève
+    # (tendance de moyenne, radar de compétences) — mieux vaut peu de
+    # classes mais des notes réellement cohérentes et exploitables que
+    # beaucoup de classes avec des notes anecdotiques.
+    # ------------------------------------------------------------------
+    def _homeroom_comment(self, general_average):
+        # Jugé sur la moyenne elle-même, pas sur le rang relatif : avec des
+        # classes de démo à faible effectif, "2e sur 2" ne veut rien dire
+        # (une bonne moyenne y serait quand même qualifiée de "difficile").
+        average = float(general_average)
+        if average >= 16:
+            return "Excellent trimestre, élève très sérieux et impliqué en classe."
+        if average >= 13:
+            return "Bon trimestre, des résultats réguliers. Continuez ainsi."
+        if average >= 10:
+            return "Trimestre correct, des efforts supplémentaires permettraient de progresser encore."
+        return "Trimestre difficile, un accompagnement renforcé est recommandé."
+
+    def _seed_grading(self, users, establishments):
+        import random
+
+        rng = random.Random(2026)
+
+        # Calendrier réaliste d'une année scolaire ivoirienne à 3 trimestres
+        # (primaire/collège/lycée) — les 2 établissements de démo n'ont que
+        # ces niveaux, donc pas de découpage en semestres ici (réservé au
+        # supérieur, absent du jeu de données pour l'instant).
+        SCHOOL_YEAR = "2025-2026"
+        TERM_DATES = [
+            (1, datetime.date(2025, 9, 15), datetime.date(2025, 12, 19)),
+            (2, datetime.date(2026, 1, 5), datetime.date(2026, 3, 27)),
+            (3, datetime.date(2026, 4, 13), datetime.date(2026, 6, 30)),
+        ]
+
+        def score_for(base, term_index):
+            # Légère progression au fil de l'année + bruit plausible,
+            # arrondi au demi-point comme un vrai relevé de notes.
+            value = base + term_index * 0.35 + rng.uniform(-1.2, 1.2)
+            value = max(6.0, min(19.5, value))
+            return Decimal(str(round(value * 2) / 2))
+
+        named_classes = [
+            ("kouassi", establishments["kouassi"]["classes"]["cm2"]),
+            ("kouassi", establishments["kouassi"]["classes"]["5eme"]),
+            ("adjoua", establishments["adjoua"]["classes"]["6eme"]),
+        ]
+
+        for est_key, school_class in named_classes:
+            establishment_profile = establishments[est_key]["profile"]
+            terms = []
+            for number, start, end in TERM_DATES:
+                term, _ = Term.objects.get_or_create(
+                    establishment=establishment_profile, school_year=SCHOOL_YEAR, number=number,
+                    defaults=dict(name=f"Trimestre {number}", start_date=start, end_date=end, is_active=False),
+                )
+                terms.append(term)
+
+            subjects = list(Subject.objects.filter(school_class=school_class))
+            children_in_class = [
+                e.child for e in Enrollment.objects.filter(school_class=school_class, status="active")
+                .select_related("child")
+            ]
+            if not subjects or not children_in_class:
+                continue
+
+            # Profil de base par enfant (niveau général), pour que les
+            # moyennes par matière d'un même élève restent cohérentes entre
+            # elles et dans le temps plutôt que purement aléatoires.
+            base_ability = {child.id: rng.uniform(10.0, 16.0) for child in children_in_class}
+
+            for term_index, term in enumerate(terms):
+                for subject in subjects:
+                    creator = subject.teacher or school_class.homeroom_teacher
+                    homework, _ = Evaluation.objects.get_or_create(
+                        subject=subject, term=term, title=f"Devoir : {subject.name}",
+                        defaults=dict(
+                            eval_type=EvaluationType.HOMEWORK, coefficient=1,
+                            date=term.start_date + datetime.timedelta(days=20), created_by=creator,
+                        ),
+                    )
+                    exam, _ = Evaluation.objects.get_or_create(
+                        subject=subject, term=term, title=f"Composition : {subject.name}",
+                        defaults=dict(
+                            eval_type=EvaluationType.EXAM, coefficient=3,
+                            date=term.end_date - datetime.timedelta(days=10), created_by=creator,
+                        ),
+                    )
+                    for child in children_in_class:
+                        base = base_ability[child.id]
+                        Grade.objects.get_or_create(
+                            evaluation=homework, child=child, defaults=dict(score=score_for(base, term_index)),
+                        )
+                        Grade.objects.get_or_create(
+                            evaluation=exam, child=child, defaults=dict(score=score_for(base, term_index)),
+                        )
+
+                # Publication du bulletin du trimestre pour toute la classe —
+                # même logique que GenerateReportCardsView.post(), sans PDF ni
+                # notification (superflu pour des données de démo).
+                result = grading_services.compute_class_rankings(school_class, term)
+                for entry in result["ranked"]:
+                    child = entry["child"]
+                    report_card, _ = ReportCard.objects.update_or_create(
+                        child=child, term=term,
+                        defaults=dict(
+                            school_class=school_class, general_average=entry["general_average"],
+                            class_average=result["class_average"], rank=entry["rank"],
+                            class_size=entry["class_size"],
+                            homeroom_comment=self._homeroom_comment(entry["general_average"]),
+                        ),
+                    )
+                    report_card.subject_entries.all().delete()
+                    for subject in subjects:
+                        subject_avg = grading_services.compute_subject_average(child, subject, term)
+                        SubjectReportEntry.objects.create(
+                            report_card=report_card, subject_name=subject.name,
+                            subject_average=subject_avg, coefficient=subject.coefficient,
+                        )
+
+        self.stdout.write(
+            self.style.SUCCESS("Vie scolaire : 3 trimestres notés et bulletins publiés pour les classes nommées.")
+        )
+
+    # ------------------------------------------------------------------
     # Espace numérique (cours/exercices) + soumissions d'élève
     # ------------------------------------------------------------------
     def _seed_virtual_classes(self, establishments, users):
@@ -476,7 +744,7 @@ class Command(BaseCommand):
         children = users["children"]
 
         vc_maths, _ = VirtualClass.objects.get_or_create(
-            subject=subjects["maths_cm2"], defaults=dict(description="Espace de la classe de CM2 A — mathématiques.")
+            subject=subjects["maths_cm2"], defaults=dict(description="Espace de la classe de CM2 A : mathématiques.")
         )
         ex_fractions, _ = Exercise.objects.get_or_create(
             virtual_class=vc_maths, title="Devoir sur les fractions",
@@ -495,10 +763,10 @@ class Command(BaseCommand):
         )
 
         vc_anglais, _ = VirtualClass.objects.get_or_create(
-            subject=subjects["anglais"], defaults=dict(description="Espace de la classe de 5ème A — anglais.")
+            subject=subjects["anglais"], defaults=dict(description="Espace de la classe de 5ème A : anglais.")
         )
         ex_vocab, _ = Exercise.objects.get_or_create(
-            virtual_class=vc_anglais, title="Vocabulaire — la famille",
+            virtual_class=vc_anglais, title="Vocabulaire : la famille",
             defaults=dict(
                 instructions="Apprendre le vocabulaire de la famille et faire l'exercice joint.",
                 status=ExerciseStatus.PUBLISHED, published_at=timezone.now(),
@@ -513,7 +781,7 @@ class Command(BaseCommand):
         )
         # Un devoir encore en brouillon pour illustrer le flux enseignant.
         Exercise.objects.get_or_create(
-            virtual_class=vc_anglais, title="Contrôle — temps du passé",
+            virtual_class=vc_anglais, title="Contrôle : temps du passé",
             defaults=dict(instructions="Contrôle sur le prétérit, à publier la semaine prochaine.", status=ExerciseStatus.DRAFT),
         )
 
@@ -522,30 +790,79 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     def _seed_library(self, establishments, users):
         teachers = users["teachers"]
+        parents = users["parents"]
+        children = users["children"]
         kouassi_profile = establishments["kouassi"]["profile"]
-        LibraryResource.objects.get_or_create(
-            establishment=kouassi_profile,
-            title="Cours — Les fractions au CM2",
-            defaults=dict(
+
+        resource_defs = [
+            dict(
+                title="Cours : Les fractions au CM2",
                 description="Support de cours complet sur les fractions.", resource_type=ResourceType.COURSE,
-                level=SchoolLevel.SIXIEME,
+                category=ResourceCategory.ACADEMIC, level=SchoolLevel.SIXIEME,
                 subject="Mathématiques", file_url="https://example.com/demo/fractions-cm2.pdf",
                 file_size_kb=850, tags=["fractions", "cm2"], author=teachers["mariam"],
-                moderation_status=ModerationStatus.APPROVED,
             ),
-        )
-        LibraryResource.objects.get_or_create(
-            establishment=kouassi_profile,
-            title="Fiche de révision — Vocabulaire de la famille",
-            defaults=dict(
+            dict(
+                title="Fiche de révision : Vocabulaire de la famille",
                 description="Fiche de vocabulaire anglais à réviser avant le contrôle.",
-                resource_type=ResourceType.REVISION,
+                resource_type=ResourceType.REVISION, category=ResourceCategory.ACADEMIC,
                 level=SchoolLevel.CINQUIEME,
                 subject="Anglais", file_url="https://example.com/demo/vocab-famille.pdf",
                 file_size_kb=210, tags=["vocabulaire", "famille"], author=teachers["yao"],
-                moderation_status=ModerationStatus.APPROVED,
             ),
-        )
+            # Rayons de curiosité générale — au-delà du contenu strictement
+            # scolaire, pour que l'écran de bibliothèque présente déjà sa
+            # structure en rayons plutôt qu'un unique rayon "Scolaire".
+            dict(
+                title="Une si longue lettre : Mariama Bâ",
+                description="Roman épistolaire ivoiro-sénégalais, classique de la littérature africaine francophone.",
+                resource_type=ResourceType.COURSE, category=ResourceCategory.LITERATURE,
+                level=SchoolLevel.PREMIERE, subject="Littérature",
+                file_url="https://example.com/demo/une-si-longue-lettre.pdf",
+                file_size_kb=430, tags=["roman", "littérature africaine"], author=teachers["ibrahim"],
+            ),
+            dict(
+                title="Comprendre le changement climatique en Afrique de l'Ouest",
+                description="Vulgarisation scientifique sur les enjeux climatiques régionaux.",
+                resource_type=ResourceType.COURSE, category=ResourceCategory.ENVIRONMENT,
+                level=SchoolLevel.SECONDE, subject="SVT",
+                file_url="https://example.com/demo/climat-afrique-ouest.pdf",
+                file_size_kb=610, tags=["climat", "environnement"], author=teachers["aminata"],
+            ),
+            dict(
+                title="Portrait : Une entrepreneure ivoirienne de la tech",
+                description="Parcours d'une fondatrice de startup abidjanaise, de l'idée au financement.",
+                resource_type=ResourceType.COURSE, category=ResourceCategory.BIOGRAPHY,
+                level=SchoolLevel.TERMINALE, subject="Économie",
+                file_url="https://example.com/demo/portrait-entrepreneure.pdf",
+                file_size_kb=380, tags=["entrepreneuriat", "portrait"], author=teachers["awa"],
+            ),
+        ]
+
+        resources = {}
+        for data in resource_defs:
+            title = data.pop("title")
+            resource, _ = LibraryResource.objects.get_or_create(
+                establishment=kouassi_profile, title=title,
+                defaults=dict(moderation_status=ModerationStatus.APPROVED, **data),
+            )
+            resources[title] = resource
+
+        # Quelques notes individuelles réelles — sans elles, avg_rating/
+        # ratings_count restent à zéro partout et le carrousel "Recommandé
+        # pour toi" retombe systématiquement sur "Nouveautés" en démo.
+        raters = [parents["fatou"], parents["aya"], teachers["ibrahim"]]
+        if children["aicha"].user_id:
+            raters.append(children["aicha"].user)
+        rating_defs = [
+            ("Cours : Les fractions au CM2", [5, 4, 5]),
+            ("Une si longue lettre : Mariama Bâ", [5, 5]),
+            ("Portrait : Une entrepreneure ivoirienne de la tech", [4]),
+        ]
+        for title, scores in rating_defs:
+            resource = resources[title]
+            for rater, score in zip(raters, scores):
+                ResourceRating.objects.get_or_create(resource=resource, user=rater, defaults=dict(score=score))
 
     # ------------------------------------------------------------------
     # Marché de l'emploi
@@ -555,7 +872,7 @@ class Command(BaseCommand):
         teachers = users["teachers"]
 
         listing_active, _ = JobListing.objects.get_or_create(
-            school=directors["kouassi"], title="Enseignant(e) de Mathématiques — Collège",
+            school=directors["kouassi"], title="Enseignant(e) de Mathématiques : Collège",
             defaults=dict(
                 subject="Mathématiques", levels=["6ème", "5ème"], contract_type=ContractType.CDI,
                 salary_min=150000, salary_max=220000, cert_level_required=CertificationLevel.BRONZE,
@@ -583,7 +900,7 @@ class Command(BaseCommand):
                         send_push=False)
 
         JobListing.objects.get_or_create(
-            school=directors["adjoua"], title="Enseignant(e) d'Anglais — Lycée",
+            school=directors["adjoua"], title="Enseignant(e) d'Anglais : Lycée",
             defaults=dict(
                 subject="Anglais", levels=["Seconde", "Première"], contract_type=ContractType.CDD,
                 cert_level_required=CertificationLevel.BRONZE,
@@ -607,7 +924,7 @@ class Command(BaseCommand):
         children = users["children"]
 
         offer1, _ = InternshipOffer.objects.get_or_create(
-            company=companies["serge"], title="Stage découverte — Développement web",
+            company=companies["serge"], title="Stage découverte : Développement web",
             defaults=dict(
                 domain="Numérique", missions="Initiation au développement web, observation des équipes techniques.",
                 level=InternshipLevel.COLLEGE, duration_weeks=2,
@@ -616,6 +933,7 @@ class Command(BaseCommand):
                 places=3, city="Abidjan", skills_wanted=["Curiosité", "Autonomie"],
             ),
         )
+        _attach_demo_image(offer1, "cover_image", "image_abidjan_tech_hub.jpg", self._images_dir)
         application1, _ = InternshipApplication.objects.get_or_create(
             offer=offer1, school=directors["kouassi"], student=children["ibrahim_jr"],
             defaults=dict(motivation="Élève très motivé par le numérique.", status=InternshipApplicationStatus.ACCEPTED),
@@ -636,7 +954,7 @@ class Command(BaseCommand):
         )
 
         offer2, _ = InternshipOffer.objects.get_or_create(
-            company=companies["nadege"], title="Stage découverte — Marketing digital",
+            company=companies["nadege"], title="Stage découverte : Marketing digital",
             defaults=dict(
                 domain="Marketing", missions="Support aux campagnes digitales et réseaux sociaux.",
                 level=InternshipLevel.SECONDE, duration_weeks=1,
@@ -645,6 +963,7 @@ class Command(BaseCommand):
                 places=2, city="Abidjan",
             ),
         )
+        _attach_demo_image(offer2, "cover_image", "stagiaire_abidjan_tech_hub.jpg", self._images_dir)
         InternshipApplication.objects.get_or_create(
             offer=offer2, school=directors["kouassi"], student=children["aicha"],
             defaults=dict(motivation="Intéressée par le marketing digital.", status=InternshipApplicationStatus.PENDING),
@@ -653,40 +972,6 @@ class Command(BaseCommand):
     # ------------------------------------------------------------------
     # Cours particuliers
     # ------------------------------------------------------------------
-    def _seed_tutoring(self, users):
-        teachers = users["teachers"]
-        parents = users["parents"]
-
-        completed_session, created = TutoringSession.objects.get_or_create(
-            teacher=teachers["aminata"], parent=parents["fatou"],
-            child_name="Aïcha", child_level="5ème", subject="SVT", mode="home",
-            date=TODAY() - datetime.timedelta(days=5),
-            defaults=dict(
-                start_time="16:00", duration_min=90, address="Marcory, Abidjan",
-                gross_amount=8500, status=TutoringSessionStatus.COMPLETED,
-                escrow_released=True, released_at=timezone.now(),
-                confirmed_at=timezone.now() - datetime.timedelta(days=6),
-            ),
-        )
-        if created:
-            payment = _payment(parents["fatou"], 8500, PaymentType.TUTORING, PaymentStatus.COMPLETED, completed_session)
-            TutoringReview.objects.get_or_create(
-                session=completed_session, author=parents["fatou"],
-                defaults=dict(author_type="parent", rating=5, comment="Excellente pédagogue, ma fille progresse vite."),
-            )
-
-        confirmed_session, created = TutoringSession.objects.get_or_create(
-            teacher=teachers["awa"], parent=parents["aya"],
-            child_name="Kouadio", child_level="6ème", subject="Mathématiques", mode="online",
-            date=TODAY() + datetime.timedelta(days=4),
-            defaults=dict(
-                start_time="17:00", duration_min=60, gross_amount=6000,
-                status=TutoringSessionStatus.CONFIRMED, confirmed_at=timezone.now(),
-            ),
-        )
-        if created:
-            _payment(parents["aya"], 6000, PaymentType.TUTORING, PaymentStatus.ESCROW, confirmed_session)
-
     # ------------------------------------------------------------------
     # Inscription à une session de formation (paiement direct plateforme)
     # ------------------------------------------------------------------
@@ -704,3 +989,629 @@ class Command(BaseCommand):
             enrollment.save(update_fields=["payment"])
             session.enrolled_count += 1
             session.save(update_fields=["enrolled_count"])
+
+    # ------------------------------------------------------------------
+    # Fil d'actualité — publications, j'aime, commentaires
+    # ------------------------------------------------------------------
+    def _seed_feed(self, users):
+        teachers = users["teachers"]
+        directors = users["directors"]
+        parents = users["parents"]
+        companies = users["companies"]
+
+        posts_data = [
+            dict(
+                author=teachers["awa"],
+                title="Certification Argent décrochée !",
+                body=(
+                    "Ravie d'avoir décroché ma certification Argent ce mois-ci ! Merci à l'équipe "
+                    "pédagogique Xporadia pour l'accompagnement pendant le module de didactique."
+                ),
+                days_ago=6,
+                images=["seance_dicdactique_disciplinaire.jpg"],
+            ),
+            dict(
+                author=directors["kouassi"],
+                title="Recrutement : Collège Fraternité",
+                body=(
+                    "Le Collège Fraternité recrute deux enseignants de Mathématiques certifiés Or "
+                    "pour la rentrée. Les candidatures se font directement via l'annuaire Xporadia."
+                ),
+                days_ago=4,
+                images=["college_fraternite.jpg"],
+            ),
+            dict(
+                author=teachers["ibrahim"],
+                body=(
+                    "Petit retour d'expérience après ma première session de cours particuliers via "
+                    "la plateforme : l'outil de suivi de progression change vraiment la donne."
+                ),
+                days_ago=3,
+                images=["bibliotheque_numerique.jpg"],
+            ),
+            dict(
+                author=companies["nadege"],
+                title="5 nouvelles places de stage",
+                body=(
+                    "Abidjan Tech Hub ouvre 5 nouvelles places de stage pour les élèves de Terminale "
+                    "intéressés par le développement web. Missions concrètes, encadrement dédié."
+                ),
+                days_ago=2,
+                images=["image_abidjan_tech_hub.jpg", "stagiaire_abidjan_tech_hub.jpg"],
+            ),
+            dict(
+                author=parents["fatou"],
+                body=(
+                    "Merci à la communauté enseignante pour vos conseils sur l'accompagnement en SVT, "
+                    "les progrès de ma fille depuis la rentrée sont impressionnants."
+                ),
+                days_ago=1,
+                images=["acompagnement_en_svt.jpg", "progres_de_ma_fille.jpg"],
+            ),
+            dict(
+                author=teachers["aminata"],
+                body="Session de formation continue sur la gestion de classe très enrichissante ce week-end à Cocody.",
+                days_ago=0,
+                images=["formation2.jpg"],
+            ),
+        ]
+
+        likers = [teachers["yao"], teachers["mariam"], parents["aya"], directors["adjoua"], parents["bakary"]]
+        comments_bank = [
+            "Merci pour ce retour, très utile !",
+            "Félicitations, bien mérité.",
+            "Je suis intéressé, comment postuler ?",
+            "Xporadia continue de prouver sa valeur sur le terrain.",
+        ]
+
+        for i, data in enumerate(posts_data):
+            post, created = Post.objects.get_or_create(
+                author=data["author"], body=data["body"],
+                defaults=dict(
+                    title=data.get("title", ""),
+                    created_at=timezone.now() - datetime.timedelta(days=data["days_ago"]),
+                ),
+            )
+            if created:
+                # created_at a auto_now_add=True — on le corrige après coup pour
+                # étaler les publications dans le temps (fil chronologique crédible).
+                Post.objects.filter(pk=post.pk).update(
+                    created_at=timezone.now() - datetime.timedelta(days=data["days_ago"])
+                )
+                for liker in likers[: (i % len(likers)) + 2]:
+                    PostLike.objects.get_or_create(post=post, user=liker)
+                for j, comment_author in enumerate([teachers["yao"], parents["aya"]][: i % 3]):
+                    PostComment.objects.get_or_create(
+                        post=post, author=comment_author, body=comments_bank[(i + j) % len(comments_bank)],
+                    )
+            elif data.get("title") and not post.title:
+                # Backfill pour une base déjà seedée avant l'ajout du titre.
+                Post.objects.filter(pk=post.pk).update(title=data["title"])
+
+            if data.get("images") and self._images_dir and not post.images.exists():
+                for order, filename in enumerate(data["images"]):
+                    source = self._images_dir / filename
+                    if not source.is_file():
+                        continue
+                    image = PostImage(post=post, order=order)
+                    with source.open("rb") as fh:
+                        image.image.save(filename, File(fh), save=True)
+
+        self.stdout.write(self.style.SUCCESS(f"Fil d'actualité : {len(posts_data)} publication(s) de démo créées."))
+
+    # ------------------------------------------------------------------
+    # Compte élève de démonstration — activation directe (sans passer par
+    # le lien email) pour que le profil Élève soit testable immédiatement,
+    # avec emploi du temps, canaux de matière peuplés, et espace personnel
+    # (objectif de vie, bucket list, note) déjà renseignés.
+    # ------------------------------------------------------------------
+    def _seed_student_activation(self, establishments, users):
+        children = users["children"]
+        aicha = children["aicha"]
+
+        if not aicha.user_id:
+            student_user = User.objects.create_user(
+                email="aicha.eleve@xporadia.ci",
+                password="Xporadia2026!",
+                first_name=aicha.first_name,
+                last_name="Koné",
+                primary_role=UserRole.STUDENT,
+                is_verified=True,
+                is_documents_validated=True,
+            )
+            _attach_demo_image(student_user, "avatar", "avatar_aicha_kone.jpg", self._images_dir)
+            aicha.user = student_user
+            aicha.last_name = "Koné"
+            aicha.save(update_fields=["user", "last_name"])
+        ensure_student_messaging(aicha)
+
+        cinquieme = establishments["kouassi"]["classes"]["5eme"]
+        subj_anglais = establishments["kouassi"]["subjects"]["anglais"]
+        subj_svt = establishments["kouassi"]["subjects"]["svt"]
+
+        TimetableSlot.objects.get_or_create(
+            school_class=cinquieme, subject=subj_anglais, weekday=Weekday.MONDAY,
+            defaults=dict(start_time="08:00", end_time="09:00", room="Salle 12"),
+        )
+        TimetableSlot.objects.get_or_create(
+            school_class=cinquieme, subject=subj_svt, weekday=Weekday.MONDAY,
+            defaults=dict(start_time="09:00", end_time="10:00", room="Labo SVT"),
+        )
+        TimetableSlot.objects.get_or_create(
+            school_class=cinquieme, subject=subj_anglais, weekday=Weekday.WEDNESDAY,
+            defaults=dict(start_time="10:15", end_time="11:15", room="Salle 12"),
+        )
+
+        # Canal de matière SVT créé par l'enseignant dédié (action délibérée,
+        # pas automatique — voir apps.messaging.services), avec un message
+        # d'accueil pour que le fil de démonstration ne soit pas vide.
+        svt_channel = Channel.objects.filter(channel_type=ChannelType.SUBJECT, subject=subj_svt).first()
+        if not svt_channel:
+            svt_channel = create_subject_channel(subj_svt, subj_svt.teacher)
+            Message.objects.create(
+                channel=svt_channel, author=subj_svt.teacher,
+                body="Bienvenue dans le canal de SVT, postez vos questions ici entre deux cours.",
+            )
+
+        LifeGoal.objects.get_or_create(
+            child=aicha,
+            defaults=dict(
+                description="Devenir ingénieure en informatique et travailler sur des projets qui aident les écoles africaines.",
+                related_subjects=["Mathématiques", "SVT", "Anglais"],
+            ),
+        )
+        BucketListItem.objects.get_or_create(
+            child=aicha, title="Terminer ma certification en algorithmique junior",
+            defaults=dict(description="Module découverte proposé par Xporadia."),
+        )
+        BucketListItem.objects.get_or_create(
+            child=aicha, title="Lire un livre de développement personnel par mois", defaults=dict(is_done=True),
+        )
+        PersonalNote.objects.get_or_create(
+            child=aicha, subject=subj_anglais, title="Vocabulaire : la famille",
+            defaults=dict(content="Mother, father, sibling, cousin, nephew, niece..."),
+        )
+
+        # Abonnement à son enseignante de SVT — donnée réelle pour la bande
+        # "activité récente" du dashboard élève (fil social filtré sur les
+        # personnes suivies), pas une note d'école au sens propre.
+        Follow.objects.get_or_create(follower=aicha.user, followed=subj_svt.teacher)
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Compte élève de démo activé : aicha.eleve@xporadia.ci / Xporadia2026! "
+                "(emploi du temps, canal de matière et espace personnel peuplés)."
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Expansion massive — bien plus de comptes, classes, publications,
+    # ressources et candidatures pour que l'app soit dense et crédible en
+    # démonstration plutôt que peuplée du strict minimum fonctionnel.
+    # Idempotent : ne s'exécute qu'une fois (marqueur ci-dessous).
+    # ------------------------------------------------------------------
+    def _seed_bulk_expansion(self, establishments, users, modules):
+        modules_list = list(modules.values())
+        import random
+
+        if User.objects.filter(email="bulk.seed.marker@xporadia.ci").exists():
+            self.stdout.write("Expansion massive déjà présente, ignorée (idempotence).")
+            return
+
+        rng = random.Random(42)
+
+        FIRST_NAMES_F = [
+            "Adjoua", "Akissi", "Affoué", "Aya", "Ama", "Rokia", "Fatoumata", "Mariame",
+            "Nafissatou", "Salimata", "Djeneba", "Aïssata", "Kadiatou", "Assetou", "Bintou",
+            "Awa", "Coumba", "Ramatoulaye", "Khady", "Ndèye",
+        ]
+        FIRST_NAMES_M = [
+            "Yao", "Kouassi", "Koffi", "Konan", "Kouame", "Adama", "Moussa", "Ibrahim",
+            "Souleymane", "Mamadou", "Sekou", "Boubacar", "Cheikh", "Abdoulaye", "Lassina",
+            "Drissa", "Issouf", "Bakary", "Sidiki", "Vamara",
+        ]
+        LAST_NAMES = [
+            "Kouassi", "Kone", "Traore", "Coulibaly", "Diabate", "Ouattara", "Bamba", "Diarra",
+            "Toure", "Camara", "Sanogo", "Kante", "Sangare", "Fofana", "Diallo", "Cisse",
+            "Yeo", "Silue", "Soro", "N'Guessan", "Kouame", "Assi", "Brou", "Angoua", "Kacou",
+        ]
+        CITIES = ["Abidjan", "Bouaké", "Yamoussoukro", "San-Pédro", "Korhogo", "Daloa", "Man", "Gagnoa"]
+        SUBJECTS_BANK = [
+            "Mathématiques", "Physique-Chimie", "SVT", "Français", "Anglais", "Histoire-Géographie",
+            "Philosophie", "EPS", "Arts Plastiques", "Espagnol", "Allemand", "Économie",
+        ]
+        SCHOOL_LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1ere", "tle"]
+        POST_TOPICS = [
+            ("Ravi(e) d'avoir terminé le module {module} cette semaine, la formation était dense mais "
+             "vraiment utile pour ma pratique en classe. #{hashtag1} #formation"),
+            ("Nouvelle promotion d'élèves accueillie ce matin à {city}. Une rentrée pleine d'énergie "
+             "! #{hashtag1} #rentree"),
+            ("Question à la communauté : quelles ressources conseillez-vous pour préparer le BEPC en "
+             "{subject} ? #{hashtag1} #entraide"),
+            ("Session de cours particuliers très enrichissante hier soir avec un élève de {level}. "
+             "Les progrès en quelques semaines sont impressionnants. #{hashtag1} #tutorat"),
+            ("Notre établissement recrute des enseignants certifiés en {subject} pour {city}. "
+             "Candidatures ouvertes via l'annuaire Xporadia. #{hashtag1} #recrutement"),
+            ("Petit rappel pour les élèves : la bibliothèque numérique s'est enrichie de nouvelles "
+             "fiches de révision en {subject} cette semaine. #{hashtag1} #bibliotheque"),
+            ("Fier de mes élèves qui ont particulièrement bien réussi le dernier contrôle de "
+             "{subject}. Le travail paie ! #{hashtag1} #reussite"),
+            ("Stage de découverte très riche pour nos élèves de {level} chez nos entreprises "
+             "partenaires cette semaine. #{hashtag1} #stage"),
+        ]
+        HASHTAGS_BANK = [
+            "education", "xporadia", "pedagogie", "cotedivoire", "enseignement", "college", "lycee",
+            "certification", "abidjan", "afrique",
+        ]
+        COMMENTS_BANK = [
+            "Merci pour ce partage !", "Bravo, bien mérité.", "Très intéressant, merci.",
+            "Je suis intéressé, comment en savoir plus ?", "Xporadia continue de faire la différence.",
+            "Excellente initiative.", "Bon courage pour la suite !",
+        ]
+
+        # --- 1. Enseignants supplémentaires (25) ---
+        new_teachers = []
+        for i in range(25):
+            is_f = rng.random() < 0.5
+            first = rng.choice(FIRST_NAMES_F if is_f else FIRST_NAMES_M)
+            last = rng.choice(LAST_NAMES)
+            email = f"teacher{i}.{first.lower()}@xporadia.ci"
+            if User.objects.filter(email=email).exists():
+                continue
+            user = User.objects.create_user(
+                email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                primary_role=UserRole.TEACHER, is_verified=True, is_documents_validated=True,
+            )
+            _attach_bulk_avatar(user, is_female=is_f, index=i, images_dir=self._images_dir)
+            TeacherProfile.objects.get_or_create(
+                user=user,
+                defaults=dict(
+                    subjects=[rng.choice(SUBJECTS_BANK) for _ in range(rng.randint(1, 2))],
+                    bio="Enseignant(e) engagé(e) dans la réussite de ses élèves.",
+                    hourly_rate=rng.choice([2500, 3000, 3500, 4000]),
+                    location=rng.choice(CITIES),
+                    experience_years=rng.randint(1, 15),
+                ),
+            )
+            if modules_list:
+                self._issue_certification(user, rng.choice(modules_list), score=rng.randint(65, 98))
+            new_teachers.append(user)
+
+        # --- 2. Classes et matières supplémentaires dans les 2 établissements existants ---
+        new_subjects = []
+        new_classes = []
+        for key in ("kouassi", "adjoua"):
+            dept = establishments[key]["department"]
+            track = establishments[key]["track"]
+            for level in rng.sample(SCHOOL_LEVELS, 3):
+                class_name = f"{level.upper()} {rng.choice('ABC')}"
+                sc, created = SchoolClass.objects.get_or_create(
+                    track=track, name=class_name, school_year="2025-2026",
+                    defaults=dict(
+                        homeroom_teacher=rng.choice(new_teachers) if new_teachers else None, capacity=40,
+                    ),
+                )
+                if created:
+                    new_classes.append(sc)
+                for subject_name in rng.sample(SUBJECTS_BANK, 4):
+                    subj, s_created = Subject.objects.get_or_create(
+                        school_class=sc, name=subject_name,
+                        defaults=dict(teacher=rng.choice(new_teachers) if new_teachers else None),
+                    )
+                    if s_created:
+                        new_subjects.append(subj)
+                # Emploi du temps sommaire pour chaque nouvelle classe.
+                if created:
+                    for day in range(5):
+                        subject_of_day = rng.choice(sc.subjects.all()) if sc.subjects.exists() else None
+                        if subject_of_day:
+                            hour = 8 + day
+                            TimetableSlot.objects.get_or_create(
+                                school_class=sc, subject=subject_of_day, weekday=day,
+                                defaults=dict(
+                                    start_time=f"{hour:02d}:00", end_time=f"{hour + 1:02d}:00",
+                                    room=f"Salle {rng.randint(1, 20)}",
+                                ),
+                            )
+
+        # --- 3. Parents et enfants supplémentaires, une partie activés élèves ---
+        new_children = []
+        for i in range(40):
+            is_f = rng.random() < 0.5
+            first = rng.choice(FIRST_NAMES_F if is_f else FIRST_NAMES_M)
+            last = rng.choice(LAST_NAMES)
+            parent_email = f"parent{i}.{first.lower()}@xporadia.ci"
+            if User.objects.filter(email=parent_email).exists():
+                continue
+            parent_user = User.objects.create_user(
+                email=parent_email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                primary_role=UserRole.PARENT, is_verified=True, is_documents_validated=True,
+            )
+            _attach_bulk_avatar(parent_user, is_female=is_f, index=i, images_dir=self._images_dir)
+            parent_profile, _ = ParentProfile.objects.get_or_create(user=parent_user)
+            child_is_f = rng.random() < 0.5
+            child_first = rng.choice(FIRST_NAMES_F if child_is_f else FIRST_NAMES_M)
+            child = Child.objects.create(
+                parent=parent_profile, first_name=child_first, last_name=last,
+                class_level=rng.choice(SCHOOL_LEVELS).upper(),
+            )
+            target_class = rng.choice(new_classes) if new_classes else None
+            if target_class:
+                Enrollment.objects.get_or_create(child=child, school_class=target_class, defaults=dict(status="active"))
+            # Un enfant sur trois environ obtient un compte élève activé.
+            if rng.random() < 0.35:
+                student_user = User.objects.create_user(
+                    email=f"student{i}.{child_first.lower()}@xporadia.ci", password=DEMO_PASSWORD,
+                    first_name=child_first, last_name=last, primary_role=UserRole.STUDENT,
+                    is_verified=True, is_documents_validated=True,
+                )
+                _attach_bulk_avatar(student_user, is_female=child_is_f, index=i, images_dir=self._images_dir)
+                child.user = student_user
+                child.save(update_fields=["user"])
+                ensure_student_messaging(child)
+            new_children.append(child)
+
+        all_authors = (
+            list(users["teachers"].values())
+            + list(users["directors"].values())
+            + new_teachers
+            + [c.user for c in new_children if c.user_id]
+        )
+
+        # --- 4. Abonnements aléatoires (réseau) ---
+        from apps.feed.models import Follow
+
+        follow_pairs = set()
+        for _ in range(120):
+            if len(all_authors) < 2:
+                break
+            a, b = rng.sample(all_authors, 2)
+            follow_pairs.add((a.id, b.id))
+        Follow.objects.bulk_create(
+            [Follow(follower_id=a, followed_id=b) for a, b in follow_pairs], ignore_conflicts=True
+        )
+
+        # --- 5. Publications supplémentaires (60), avec likes et commentaires ---
+        for i in range(60):
+            if not all_authors:
+                break
+            author = rng.choice(all_authors)
+            template = rng.choice(POST_TOPICS)
+            body = template.format(
+                module=rng.choice(modules_list).title if modules_list else "Fondamentaux pédagogiques",
+                city=rng.choice(CITIES),
+                subject=rng.choice(SUBJECTS_BANK),
+                level=rng.choice(SCHOOL_LEVELS).upper(),
+                hashtag1=rng.choice(HASHTAGS_BANK),
+            )
+            post = Post.objects.create(author=author, body=body)
+            Post.objects.filter(pk=post.pk).update(
+                created_at=timezone.now() - datetime.timedelta(days=rng.randint(0, 25), hours=rng.randint(0, 23))
+            )
+            # Deux publications de cette série reçoivent une image de démo,
+            # pour varier le rendu du fil au-delà des 6 publications fixes.
+            if i == 0 and self._images_dir:
+                Post.objects.filter(pk=post.pk).update(title="Résultats d'examen")
+                source = self._images_dir / "examen1.jpg"
+                if source.is_file():
+                    with source.open("rb") as fh:
+                        PostImage(post=post, order=0).image.save("examen1.jpg", File(fh), save=True)
+            elif i == 1 and self._images_dir:
+                source = self._images_dir / "bepc_allemand.jpg"
+                if source.is_file():
+                    with source.open("rb") as fh:
+                        PostImage(post=post, order=0).image.save("bepc_allemand.jpg", File(fh), save=True)
+            for liker in rng.sample(all_authors, min(rng.randint(0, 8), len(all_authors))):
+                if liker.id != author.id:
+                    PostLike.objects.get_or_create(post=post, user=liker)
+            for _ in range(rng.randint(0, 3)):
+                commenter = rng.choice(all_authors)
+                if commenter.id != author.id:
+                    PostComment.objects.get_or_create(
+                        post=post, author=commenter, body=rng.choice(COMMENTS_BANK)
+                    )
+
+        # --- 6. Bibliothèque enrichie (35 ressources) ---
+        LIB_TITLES = [
+            "Fiche de révision", "Cours complet", "Annale corrigée", "Exercices d'application",
+            "Support de cours", "Corrigé type", "Préparation d'examen",
+        ]
+        for i in range(35):
+            establishment = rng.choice(
+                [establishments["kouassi"]["profile"], establishments["adjoua"]["profile"]]
+            )
+            author = rng.choice(new_teachers) if new_teachers else None
+            subject_name = rng.choice(SUBJECTS_BANK)
+            LibraryResource.objects.get_or_create(
+                establishment=establishment,
+                title=f"{rng.choice(LIB_TITLES)} : {subject_name} {rng.choice(SCHOOL_LEVELS).upper()} #{i}",
+                defaults=dict(
+                    resource_type=rng.choice(list(ResourceType)),
+                    level=rng.choice(list(SchoolLevel)),
+                    subject=subject_name,
+                    file_url=f"https://example.com/library/resource-{i}.pdf",
+                    author=author,
+                    is_contributed=bool(author),
+                    moderation_status=ModerationStatus.APPROVED,
+                ),
+            )
+
+        # --- 7. Offres d'emploi et de stage supplémentaires ---
+        companies = list(CompanyProfile.objects.all())
+        directors = list(users["directors"].values())
+        for i in range(15):
+            director = rng.choice(directors)
+            JobListing.objects.get_or_create(
+                school=director, title=f"Poste enseignant {rng.choice(SUBJECTS_BANK)} #{i}",
+                defaults=dict(
+                    subject=rng.choice(SUBJECTS_BANK), levels=[rng.choice(SCHOOL_LEVELS)],
+                    contract_type=rng.choice(list(ContractType)),
+                    salary_min=rng.randint(150000, 250000), salary_max=rng.randint(250000, 400000),
+                    description="Poste à pourvoir dès que possible.", status=JobStatus.ACTIVE,
+                ),
+            )
+        for i in range(12):
+            if not companies:
+                break
+            company_profile = rng.choice(companies)
+            bulk_offer, _ = InternshipOffer.objects.get_or_create(
+                company=company_profile.user, title=f"Stage découverte {rng.choice(SUBJECTS_BANK)} #{i}",
+                defaults=dict(
+                    domain=rng.choice(["Numérique", "Commerce", "Industrie", "Communication"]),
+                    missions="Observation et participation aux activités de l'équipe.",
+                    level=rng.choice(["3e", "2nde", "1ere", "terminale"]),
+                    duration_weeks=rng.randint(1, 4),
+                    period_start=TODAY() + datetime.timedelta(days=rng.randint(10, 60)),
+                    period_end=TODAY() + datetime.timedelta(days=rng.randint(70, 100)),
+                    city=rng.choice(CITIES), places=rng.randint(1, 3),
+                ),
+            )
+            if i == 0:
+                _attach_demo_image(bulk_offer, "cover_image", "stagiaire_abidjan_tech_hub.jpg", self._images_dir)
+
+        # --- Marqueur d'idempotence ---
+        User.objects.create_user(
+            email="bulk.seed.marker@xporadia.ci", password=DEMO_PASSWORD,
+            first_name="Marqueur", last_name="Seed", primary_role=UserRole.ADMIN,
+            is_verified=True, is_active=False,
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Expansion massive : {len(new_teachers)} enseignants, {len(new_children)} enfants, "
+                f"{len(new_classes)} classes, {len(new_subjects)} matières, 60 publications, "
+                "35 ressources bibliothèque, 15 offres d'emploi, 12 offres de stage, "
+                f"{len(follow_pairs)} abonnements."
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Auto-inscription élève — flow complet sans invitation d'un
+    # directeur : compte créé directement par l'élève, puis demande de
+    # rattachement à un établissement (en attente / approuvée mais pas
+    # encore placée / rejetée / cas "Autre" établissement absent de
+    # Xporadia). Idempotent via l'email de chaque compte de démo.
+    # ------------------------------------------------------------------
+    def _seed_self_registration_flow(self, establishments):
+        kouassi_profile = establishments["kouassi"]["profile"]
+
+        def _self_registered_student(email, first_name, last_name, declared_level):
+            if User.objects.filter(email=email).exists():
+                return User.objects.get(email=email), User.objects.get(email=email).child_profile
+            user = User.objects.create_user(
+                email=email, password=DEMO_PASSWORD, first_name=first_name, last_name=last_name,
+                primary_role=UserRole.STUDENT, is_verified=True, is_documents_validated=True,
+            )
+            child = Child.objects.create(
+                parent=None, user=user, first_name=first_name, last_name=last_name,
+                class_level=declared_level,
+            )
+            return user, child
+
+        # 1. Demande en attente — l'élève vient de s'inscrire, le
+        # directeur n'a pas encore statué.
+        _, child_pending = _self_registered_student(
+            "amara.pending@xporadia.ci", "Amara", "Ouattara", "5e"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_pending,
+            defaults=dict(
+                establishment=kouassi_profile, declared_level="5e",
+                status=JoinRequestStatus.PENDING,
+            ),
+        )
+
+        # 2. Demande approuvée, mais l'élève n'est ENCORE inscrit dans
+        # aucune classe — teste directement l'écran "élèves à placer".
+        _, child_approved = _self_registered_student(
+            "salimata.approved@xporadia.ci", "Salimata", "Bamba", "4e"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_approved,
+            defaults=dict(
+                establishment=kouassi_profile, declared_level="4e",
+                status=JoinRequestStatus.APPROVED, reviewed_at=timezone.now(),
+            ),
+        )
+
+        # 3. Demande rejetée — teste l'affichage du motif et la
+        # possibilité de retenter ailleurs.
+        _, child_rejected = _self_registered_student(
+            "ibrahim.rejected@xporadia.ci", "Ibrahim", "Sanogo", "Terminale"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_rejected,
+            defaults=dict(
+                establishment=kouassi_profile, declared_level="Terminale",
+                status=JoinRequestStatus.REJECTED, rejection_reason="Effectif de Terminale déjà complet.",
+                reviewed_at=timezone.now(),
+            ),
+        )
+
+        # 4. Cas "Autre" — établissement pas encore sur Xporadia, reste
+        # en attente indéfiniment jusqu'à ce qu'il nous rejoigne.
+        _, child_other = _self_registered_student(
+            "kadiatou.other@xporadia.ci", "Kadiatou", "Diarra", "3e"
+        )
+        EstablishmentJoinRequest.objects.get_or_create(
+            child=child_other,
+            defaults=dict(
+                establishment=None, other_establishment_name="Collège Moderne d'Adjamé",
+                declared_level="3e", status=JoinRequestStatus.PENDING,
+            ),
+        )
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Flux d'auto-inscription : 4 élèves de démo (en attente / approuvé non placé / "
+                "rejeté / cas \"Autre\") — mot de passe commun Xporadia2026!"
+            )
+        )
+
+    # ------------------------------------------------------------------
+    # Comptes administrateurs de démo — 2 admins complets (accès total,
+    # is_superuser=True, contournent volontairement les permissions
+    # Django) + 1 formateur (is_superuser=False, accès Django Admin
+    # réellement restreint via un groupe aux seuls modèles de formation).
+    # Aucun de ces comptes ne peut être créé par inscription publique —
+    # voir apps.users.views.CreateAdminView, seul chemin après le tout
+    # premier bootstrap (manage.py createsuperuser).
+    # ------------------------------------------------------------------
+    def _seed_admin_accounts(self):
+        from django.contrib.auth.models import Group, Permission
+
+        for email, first, last in [
+            ("admin1@xporadia.ci", "Awa", "Koffi"),
+            ("admin2@xporadia.ci", "Moussa", "Diabaté"),
+        ]:
+            if not User.objects.filter(email=email).exists():
+                User.objects.create_superuser(
+                    email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                )
+
+        # Groupe "Formateurs" — permissions Django réellement limitées aux
+        # modèles de formation, jamais tout le reste de la plateforme.
+        formateurs_group, _ = Group.objects.get_or_create(name="Formateurs")
+        training_models = ["trainingmodule", "trainingsession", "examquestion", "sessionenrollment"]
+        formateurs_group.permissions.set(
+            Permission.objects.filter(
+                content_type__app_label="certification", content_type__model__in=training_models,
+            )
+        )
+
+        formateur_email = "formateur@xporadia.ci"
+        if not User.objects.filter(email=formateur_email).exists():
+            formateur = User.objects.create_user(
+                email=formateur_email, password=DEMO_PASSWORD, first_name="Solange", last_name="Yao",
+                primary_role=UserRole.ADMIN, is_staff=True, is_superuser=False,
+                is_verified=True, is_documents_validated=True,
+            )
+            formateur.groups.add(formateurs_group)
+
+        self.stdout.write(
+            self.style.SUCCESS(
+                "Comptes admin de démo : admin1@xporadia.ci, admin2@xporadia.ci (accès total), "
+                "formateur@xporadia.ci (accès Django Admin limité à la formation) — "
+                f"mot de passe commun {DEMO_PASSWORD}"
+            )
+        )

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 1.1cm; }
+  * { box-sizing: border-box; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 8.6pt; color: #141414; }
+
+  /* En-tête officiel — cellules bien séparées (bordures colorées, pas un
+     <table> HTML) : République/Ministère + logo, coordonnées de
+     l'établissement, code/statut, et l'espace photo de l'élève. Une seule
+     couleur de bordure (navy de la marque) plutôt que du noir administratif
+     plat, pour que le document reste identifiable comme un document
+     Xporadia même dans ce format très officiel. */
+  :root { --header-border: #1E3A5F; }
+  .masthead { display: flex; margin-bottom: 8px; }
+  .masthead .cell {
+    border: 1.4px solid var(--header-border); border-right: none;
+    padding: 6px 10px; font-size: 7.6pt; line-height: 1.35;
+  }
+  .masthead .cell:last-child { border-right: 1.4px solid var(--header-border); }
+  .masthead .col-republic { flex: 0 0 37%; display: flex; gap: 8px; align-items: flex-start; }
+  /* Un <img> flottant en enfant direct d'un flex-container n'est pas
+     dimensionné dans la mise en page par WeasyPrint (il se peint par-dessus
+     le texte voisin sans réserver sa place) — l'envelopper dans un <div>
+     de taille fixe contourne ce bug de mise en page. */
+  .masthead .logo-wrap { width: 38px; height: 38px; flex-shrink: 0; margin-top: 1px; }
+  .masthead .logo-img { width: 100%; height: 100%; object-fit: contain; }
+  .masthead .col-contact { flex: 0 0 27%; }
+  .masthead .col-code { flex: 0 0 16%; }
+  .masthead .col-photo { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .masthead .line1 { font-weight: bold; text-transform: uppercase; }
+  .masthead .establishment-name { font-weight: bold; font-size: 9pt; margin-top: 4px; text-transform: uppercase; }
+  .masthead .kv { margin-top: 1px; }
+  .masthead .kv b { font-weight: bold; }
+  .student-photo-wrap { width: 48px; height: 58px; flex-shrink: 0; }
+  .student-photo-img { width: 100%; height: 100%; object-fit: cover; border: 1px solid var(--header-border); }
+  .student-photo-placeholder {
+    width: 48px; height: 58px; border: 1.2px dashed var(--header-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13pt; font-weight: bold; color: var(--header-border);
+  }
+
+  h1.title {
+    text-align: center; font-size: 14.5pt; font-weight: bold; margin: 10px 0 2px;
+    text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  h1.title .term { font-style: italic; font-weight: bold; }
+  .school-year { text-align: center; font-style: italic; font-size: 9pt; margin-bottom: 10px; }
+
+  /* Fiche élève */
+  table.student-info { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.student-info td { border: 1.4px solid var(--header-border); padding: 5px 10px; font-size: 8.2pt; }
+  .student-name-row td { font-size: 11pt; font-weight: bold; }
+  .student-name-row .matricule { text-align: right; font-size: 9pt; font-weight: bold; }
+  .field-label { font-size: 7pt; text-transform: uppercase; color: #4B5563; display: block; }
+  .field-value { font-weight: bold; }
+
+  /* Tableau des matières */
+  table.subjects { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  table.subjects th {
+    border: 1.4px solid #141414; background: #E8E8E8; padding: 5px 6px;
+    font-size: 7.6pt; text-align: left; text-transform: uppercase;
+  }
+  table.subjects td { border: 1px solid #141414; padding: 4px 6px; font-size: 8.2pt; }
+  table.subjects .num { text-align: center; }
+  .row-bilan td {
+    background: #F2F2F2; font-weight: bold; font-style: italic; font-size: 7.8pt;
+  }
+  .row-totaux td {
+    background: #141414; color: #fff; font-weight: bold; font-size: 8.4pt;
+  }
+  .not-graded { color: #9CA3AF; font-style: italic; }
+
+  /* Absences */
+  .absences-row { display: flex; gap: 0; margin-bottom: 8px; }
+  .absences-row .cell {
+    flex: 1; border: 1.4px solid #141414; border-right: none; padding: 5px 10px; font-size: 8pt;
+  }
+  .absences-row .cell:last-child { border-right: 1.4px solid #141414; }
+  .absences-row b { font-weight: bold; }
+
+  /* Trois blocs : Résultat trimestriel / Distinctions / Sanctions */
+  .boxes-row { display: flex; gap: 0; margin-bottom: 8px; }
+  .boxes-row .box {
+    flex: 1; border: 1.4px solid #141414; border-right: none; padding: 7px 10px;
+  }
+  .boxes-row .box:last-child { border-right: 1.4px solid #141414; }
+  .box-title {
+    text-align: center; font-weight: bold; font-size: 8pt; text-transform: uppercase;
+    border-bottom: 1px solid #141414; padding-bottom: 4px; margin-bottom: 6px;
+  }
+  .stat-line { display: flex; justify-content: space-between; font-size: 7.8pt; margin-bottom: 4px; }
+  .stat-line b { font-weight: bold; }
+  .check-line { display: flex; align-items: center; gap: 5px; font-size: 7.6pt; margin-bottom: 4px; }
+  .check-box {
+    display: inline-block; width: 8px; height: 8px; border: 1.2px solid #141414; flex-shrink: 0;
+  }
+  .check-box.checked { background: #141414; }
+
+  /* Rappel / Appréciation / Visa */
+  .footer-row { display: flex; gap: 0; }
+  .footer-row .box {
+    border: 1.4px solid #141414; border-right: none; padding: 8px 10px;
+  }
+  .footer-row .box:last-child { border-right: 1.4px solid #141414; }
+  .footer-row .box-rappel { flex: 0 0 20%; }
+  .footer-row .box-appreciation { flex: 0 0 42%; text-align: center; }
+  .footer-row .box-visa { flex: 0 0 38%; text-align: center; }
+  .appreciation-text { font-style: italic; font-weight: bold; font-size: 8.4pt; margin: 8px 0 18px; }
+  .signature-label { font-size: 7.6pt; }
+  .signature-name { font-size: 7.8pt; font-weight: bold; margin-top: 20px; }
+  .visa-place { font-size: 7.6pt; margin-bottom: 22px; }
+
+  .doc-footer { text-align: center; font-size: 6.6pt; color: #9CA3AF; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <div class="masthead">
+    <div class="cell col-republic">
+      {% if establishment_logo_uri %}<div class="logo-wrap"><img class="logo-img" src="{{ establishment_logo_uri }}" alt=""></div>{% endif %}
+      <div>
+        <div class="line1">République de Côte d'Ivoire</div>
+        <div>Ministère de l'Éducation Nationale et de l'Enseignement Technique</div>
+        <div class="establishment-name">{{ establishment_name }}</div>
+      </div>
+    </div>
+    <div class="cell col-contact">
+      {% if establishment_address %}<div class="kv"><b>Adresse :</b> {{ establishment_address }}</div>{% endif %}
+      {% if establishment_phone %}<div class="kv"><b>Téléphone :</b> {{ establishment_phone }}</div>{% endif %}
+      {% if establishment_email %}<div class="kv"><b>E-mail :</b> {{ establishment_email }}</div>{% endif %}
+    </div>
+    <div class="cell col-code">
+      {% if establishment_code %}<div class="kv"><b>Code :</b> {{ establishment_code }}</div>{% endif %}
+      <div class="kv"><b>Statut :</b> {{ establishment_status_label }}</div>
+    </div>
+    <div class="cell col-photo">
+      {% if student_photo_uri %}
+        <div class="student-photo-wrap"><img class="student-photo-img" src="{{ student_photo_uri }}" alt=""></div>
+      {% else %}
+        <div class="student-photo-placeholder">{{ student_initials }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <h1 class="title">Bulletin de notes <span class="term">{{ term_label }}</span> — Année scolaire {{ school_year }}</h1>
+
+  <table class="student-info">
+    <tr class="student-name-row">
+      <td style="width:70%">{{ student_name }}</td>
+      <td class="matricule" style="width:30%">Matricule : {{ matricule|default:"—" }}</td>
+    </tr>
+    <tr>
+      <td><span class="field-label">Classe</span><span class="field-value">{{ class_name }}</span></td>
+      <td><span class="field-label">Effectif</span><span class="field-value">{{ class_size }}</span></td>
+    </tr>
+    <tr>
+      <td>
+        <span class="field-label">Sexe</span><span class="field-value">{{ sex_label|default:"—" }}</span>
+      </td>
+      <td>
+        <span class="field-label">Redoublant(e)</span>
+        <span class="field-value">{% if is_repeating %}Oui{% else %}Non{% endif %}</span>
+      </td>
+    </tr>
+    <tr>
+      <td><span class="field-label">Nationalité</span><span class="field-value">{{ nationality|default:"—" }}</span></td>
+      <td><span class="field-label">Régime</span><span class="field-value">{{ regime_label|default:"—" }}</span></td>
+    </tr>
+    <tr>
+      <td colspan="2">
+        <span class="field-label">Né(e) le</span>
+        <span class="field-value">{{ birth_date|default:"—" }}{% if birth_place %} à {{ birth_place }}{% endif %}</span>
+        &nbsp;&nbsp;&nbsp;
+        <span class="field-label" style="display:inline">Affecté(e)</span>
+        <span class="field-value">{{ is_assigned_label }}</span>
+      </td>
+    </tr>
+  </table>
+
+  <table class="subjects">
+    <tr>
+      <th style="width:24%">Matière</th>
+      <th class="num" style="width:8%">Moy</th>
+      <th class="num" style="width:8%">Coeff</th>
+      <th class="num" style="width:10%">M.Coeff</th>
+      <th class="num" style="width:8%">Rang</th>
+      <th style="width:16%">Prof(s)</th>
+      <th style="width:26%">Appréciation</th>
+    </tr>
+    {% for group in category_groups %}
+      {% for row in group.rows %}
+      <tr>
+        <td>{{ row.subject_name }}</td>
+        <td class="num">
+          {% if row.average != None %}{{ row.average }}{% else %}<span class="not-graded">Non noté</span>{% endif %}
+        </td>
+        <td class="num">{{ row.coefficient }}</td>
+        <td class="num">{% if row.m_coeff != None %}{{ row.m_coeff }}{% else %}—{% endif %}</td>
+        <td class="num">{{ row.rank_label }}</td>
+        <td>{{ row.teacher_name|default:"—" }}</td>
+        <td>{{ row.appreciation }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="row-bilan">
+        <td>Bilan {{ group.label }}</td>
+        <td class="num">{% if group.bilan.average != None %}{{ group.bilan.average }}{% else %}—{% endif %}</td>
+        <td class="num">{{ group.bilan.coefficient }}</td>
+        <td class="num">{% if group.bilan.m_coeff != None %}{{ group.bilan.m_coeff }}{% else %}—{% endif %}</td>
+        <td class="num">{{ group.bilan.rank_label }}</td>
+        <td></td>
+        <td></td>
+      </tr>
+    {% endfor %}
+    <tr class="row-totaux">
+      <td>TOTAUX</td>
+      <td></td>
+      <td class="num">{{ coefficient_grand_total }}</td>
+      <td class="num">{{ m_coeff_grand_total }}</td>
+      <td colspan="3">MOY. TRIM. : {{ general_average }}/20 &nbsp;&nbsp; RANG : {{ rank_label }}/{{ class_size }}</td>
+    </tr>
+  </table>
+
+  <div class="absences-row">
+    <div class="cell"><b>Absences justifiées :</b> {{ justified_absence_hours }} Heure(s)</div>
+    <div class="cell"><b>Absences non justifiées :</b> {{ unjustified_absence_hours }} Heure(s)</div>
+  </div>
+
+  <div class="boxes-row">
+    <div class="box">
+      <div class="box-title">Résultat trimestriel</div>
+      <div class="stat-line"><span>Plus forte moyenne</span><b>{% if highest_average != None %}{{ highest_average }}/20{% else %}—{% endif %}</b></div>
+      <div class="stat-line"><span>Plus faible moyenne</span><b>{% if lowest_average != None %}{{ lowest_average }}/20{% else %}—{% endif %}</b></div>
+      <div class="stat-line"><span>Moyenne de classe</span><b>{{ class_average }}/20</b></div>
+    </div>
+    <div class="box">
+      <div class="box-title">Distinctions</div>
+      <div class="check-line"><span class="check-box {% if check_honor_roll %}checked{% endif %}"></span> Tableau d'honneur</div>
+      <div class="check-line"><span class="check-box {% if check_refused %}checked{% endif %}"></span> Refusé(e)</div>
+      <div class="check-line"><span class="check-box {% if check_honor_roll_encouragement %}checked{% endif %}"></span> Tableau d'honneur + Encouragements</div>
+      <div class="check-line"><span class="check-box {% if check_honor_roll_congratulations %}checked{% endif %}"></span> Tableau d'honneur + Félicitations</div>
+    </div>
+    <div class="box">
+      <div class="box-title">Sanctions</div>
+      <div class="check-line"><span class="check-box {% if check_work_warning %}checked{% endif %}"></span> Avertissement travail insuffisant</div>
+      <div class="check-line"><span class="check-box {% if check_work_reprimand %}checked{% endif %}"></span> Blâme travail insuffisant</div>
+      <div class="check-line"><span class="check-box {% if check_conduct_warning %}checked{% endif %}"></span> Avertissement mauvaise conduite</div>
+      <div class="check-line"><span class="check-box {% if check_conduct_reprimand %}checked{% endif %}"></span> Blâme mauvaise conduite</div>
+    </div>
+  </div>
+
+  <div class="footer-row">
+    <div class="box box-rappel">
+      <div class="box-title">Rappel</div>
+      {% if previous_report_card %}
+        <div class="stat-line"><span>Moy. précédente</span><b>{{ previous_report_card.general_average }}/20</b></div>
+        <div class="stat-line"><span>Rang</span><b>{{ previous_rank_label }}/{{ previous_report_card.class_size }}</b></div>
+      {% else %}
+        <div class="stat-line"><span>—</span></div>
+      {% endif %}
+    </div>
+    <div class="box box-appreciation">
+      <div class="box-title">Appréciation du conseil de classe</div>
+      <div class="appreciation-text">{{ homeroom_comment|default:"—" }}</div>
+      <div class="signature-label">Le Professeur Principal</div>
+    </div>
+    <div class="box box-visa">
+      <div class="box-title">Visa du chef d'établissement</div>
+      <div class="visa-place">Fait le {{ published_at }}</div>
+      <div class="signature-name">{{ establishment_name }}</div>
+    </div>
+  </div>
+
+  <div class="doc-footer">Bulletin généré via Xporadia, le {{ published_at }}</div>
+</body>
+</html>

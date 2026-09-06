@@ -5,11 +5,13 @@ from apps.notifications.services import notify_user
 
 from .models import (
     Child,
+    ChildClaimRequest,
     CompanyProfile,
     DirectorProfile,
     OTPCode,
     ParentProfile,
     PreRegistrationCode,
+    StudentActivationInvite,
     TeacherComment,
     TeacherDiploma,
     TeacherProfile,
@@ -116,3 +118,32 @@ class TeacherCommentAdmin(admin.ModelAdmin):
     def unhide_selected_comments(self, request, queryset):
         updated = queryset.update(is_hidden=False)
         self.message_user(request, f"{updated} commentaire(s) réaffiché(s).")
+
+
+@admin.register(Child)
+class ChildAdmin(admin.ModelAdmin):
+    """Enregistrement autonome, en plus de l'inline sous ParentProfile —
+    sans ça, un enfant auto-inscrit sans parent (Child.parent nul, voir
+    apps.grading) serait invisible nulle part dans l'administration."""
+
+    list_display = ["first_name", "last_name", "class_level", "parent", "user"]
+    list_filter = ["class_level"]
+    search_fields = ["first_name", "last_name", "user__email", "parent__user__email"]
+
+
+@admin.register(ChildClaimRequest)
+class ChildClaimRequestAdmin(admin.ModelAdmin):
+    """Surveillance des demandes de rattachement parent-enfant — utile
+    pour repérer un volume anormal de demandes rejetées depuis un même
+    compte parent."""
+
+    list_display = ["parent", "child", "status", "created_at", "reviewed_at"]
+    list_filter = ["status"]
+    search_fields = ["parent__user__email", "child__first_name", "child__last_name"]
+
+
+@admin.register(StudentActivationInvite)
+class StudentActivationInviteAdmin(admin.ModelAdmin):
+    list_display = ["email", "child", "is_accepted", "created_at"]
+    list_filter = ["is_accepted"]
+    search_fields = ["email", "child__first_name"]

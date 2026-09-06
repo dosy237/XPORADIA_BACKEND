@@ -5,6 +5,7 @@ Commun à tous les environnements (dev, staging, prod)
 import os
 from pathlib import Path
 import environ
+from celery.schedules import crontab
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -37,6 +38,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
     "drf_spectacular",
@@ -52,11 +54,18 @@ LOCAL_APPS = [
     "apps.certification",
     "apps.employment",
     "apps.internships",
-    "apps.tutoring",
     "apps.virtual_classes",
     "apps.library",
     "apps.payments",
     "apps.notifications",
+    "apps.feed",
+    "apps.messaging",
+    "apps.student_life",
+    "apps.grading",
+    "apps.admin_panel",
+    "apps.tuition",
+    "apps.documents",
+    "apps.discipline",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -123,6 +132,33 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "Africa/Abidjan"
+
+# Nudges quotidiens d'engagement (voir apps.notifications.tasks) — ne se
+# déclenche que si un beat Celery tourne réellement :
+# `celery -A config beat` en plus du worker `celery -A config worker`.
+CELERY_BEAT_SCHEDULE = {
+    "send-daily-engagement-nudges": {
+        "task": "apps.notifications.tasks.send_daily_engagement_nudges",
+        "schedule": crontab(hour=8, minute=0),
+    },
+    # La commande existait déjà mais n'était jamais déclenchée par rien
+    # (voir apps/virtual_classes/tasks.py) : sans cette entrée, aucun
+    # rappel d'échéance de devoir n'était jamais envoyé.
+    "remind-exercise-deadlines": {
+        "task": "apps.virtual_classes.tasks.remind_exercise_deadlines",
+        "schedule": crontab(minute="*/30"),
+    },
+    # Rappel des cours du lendemain, la veille au soir.
+    "remind-timetable-revisions": {
+        "task": "apps.academics.tasks.remind_timetable_revisions",
+        "schedule": crontab(hour=19, minute=0),
+    },
+    # Rappel progressif des créneaux personnels de révision du soir même.
+    "remind-personal-revisions": {
+        "task": "apps.academics.tasks.remind_personal_revisions",
+        "schedule": crontab(minute="*/15"),
+    },
+}
 
 # Auth
 AUTH_USER_MODEL = "users.User"
@@ -194,3 +230,18 @@ MEDIA_ROOT = BASE_DIR / "media"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Logging — fontTools (dépendance de weasyprint pour le subsetting de
+# police) émet des centaines de lignes DEBUG par PDF généré ("Reading
+# 'maxp' table"...), inutilisables en pratique et bruyantes en prod.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "fontTools": {"level": "WARNING", "propagate": True},
+        "weasyprint": {"level": "WARNING", "propagate": True},
+        "django.utils.autoreload": {"level": "WARNING", "propagate": True},
+    },
+}

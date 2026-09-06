@@ -16,7 +16,8 @@ import logging
 
 import requests
 
-from .models import Notification
+from .constants import CATEGORY_BY_NOTIF_TYPE
+from .models import Notification, NotificationPreference
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,16 @@ EXPO_PUSH_TIMEOUT_SECONDS = 5
 
 
 def notify_user(user, notif_type, title, body, data=None, send_push=True):
-    """Crée la notification in-app et tente l'envoi push. Retourne la
-    Notification créée."""
+    """Crée la notification in-app et tente l'envoi push. Ne fait rien
+    (renvoie None) si l'utilisateur a désactivé la catégorie de ce
+    notif_type — seul point de tout le projet qui consulte cette
+    préférence, aucune autre logique d'envoi à dupliquer. Retourne la
+    Notification créée sinon."""
+    category = CATEGORY_BY_NOTIF_TYPE.get(notif_type)
+    if category and NotificationPreference.objects.filter(
+        user=user, category=category, enabled=False
+    ).exists():
+        return None
     notification = Notification.objects.create(
         user=user,
         notif_type=notif_type,

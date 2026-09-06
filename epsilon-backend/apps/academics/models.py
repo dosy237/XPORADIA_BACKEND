@@ -7,7 +7,8 @@ classe et un enseignant dédié par matière.
 
 Stories 1, 2 et 5 du chantier "Classes" (structure, matières, effectifs).
 Le contenu pédagogique (Story 3) et la bibliothèque (Story 4) vivent dans
-d'autres apps ; l'espace élève (Story 6) n'est pas encore construit.
+d'autres apps ; l'espace élève (Story 6) est construit — voir apps.users
+(Child.user, StudentActivationInvite) et apps.messaging.
 """
 import secrets
 
@@ -15,6 +16,39 @@ from django.conf import settings
 from django.db import models
 
 from apps.users.models import Child, DirectorProfile
+
+
+class DelegatedTask(models.TextChoices):
+    """Tâches que le directeur peut confier à un enseignant de confiance,
+    à l'échelle de TOUT l'établissement — pas une par classe/filière comme
+    Department.track_delegates ou Track.class_delegates, qui restent
+    scopées à un objet précis. Pense "censeur" dans une école réelle :
+    souvent un enseignant ordinaire, chargé en plus de la gestion des
+    emplois du temps pour toute l'école, sans que ça en fasse un rôle de
+    compte à part — juste une capacité en plus, révocable à tout moment.
+    Cette liste est volontairement extensible : d'autres tâches
+    (surveillance, discipline, etc.) pourront s'y ajouter sans toucher au
+    mécanisme lui-même."""
+
+    TIMETABLE = "timetable", "Gestion des emplois du temps"
+    JOIN_REQUESTS = "join_requests", "Gestion des demandes de rattachement"
+
+
+class TaskDelegation(models.Model):
+    establishment = models.ForeignKey(DirectorProfile, on_delete=models.CASCADE, related_name="task_delegations")
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_delegations_received"
+    )
+    task = models.CharField(max_length=20, choices=DelegatedTask.choices)
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Délégation de tâche"
+        verbose_name_plural = "Délégations de tâches"
+        unique_together = ("establishment", "teacher", "task")
+
+    def __str__(self):
+        return f"{self.teacher.get_full_name()} — {self.get_task_display()} ({self.establishment.school_name})"
 
 
 class Department(models.Model):
@@ -27,6 +61,13 @@ class Department(models.Model):
     )
     name = models.CharField(max_length=200, verbose_name="Nom du département")
     description = models.TextField(blank=True)
+    # La création d'un DÉPARTEMENT reste exclusivement du ressort du
+    # directeur, jamais délégable — seule la création des FILIÈRES en
+    # dessous peut être confiée à un enseignant de confiance.
+    track_delegates = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name="delegated_departments",
+        verbose_name="Enseignants autorisés à créer des filières ici",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -47,6 +88,12 @@ class Track(models.Model):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name="tracks")
     name = models.CharField(max_length=200, verbose_name="Nom de la filière")
     description = models.TextField(blank=True)
+    # Symétrique à Department.track_delegates, un niveau plus bas — délègue
+    # la création des CLASSES de cette filière.
+    class_delegates = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name="delegated_tracks",
+        verbose_name="Enseignants autorisés à créer des classes ici",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -94,6 +141,18 @@ class SchoolClass(models.Model):
         return f"{self.name} — {self.school_year} ({self.track.name})"
 
 
+class SubjectCategory(models.TextChoices):
+    """Regroupement d'une matière pour les sous-totaux ("Bilan LETTRES",
+    "Bilan SCIENCES", "Bilan AUTRES") du bulletin officiel — classé par
+    l'enseignant titulaire de la classe (comme le reste de la gestion des
+    matières), jamais par l'enseignant dédié à la matière ni le directeur.
+    "Autres" par défaut pour toute matière non encore classée."""
+
+    LETTERS = "letters", "Lettres"
+    SCIENCES = "sciences", "Sciences"
+    OTHER = "other", "Autres"
+
+
 class Subject(models.Model):
     """Matière enseignée au sein d'une classe — ex: "Mathématiques",
     "Physique-Chimie". Créée par l'enseignant titulaire de la classe, qui
@@ -103,6 +162,17 @@ class Subject(models.Model):
 
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="subjects")
     name = models.CharField(max_length=150, verbose_name="Nom de la matière")
+    category = models.CharField(
+        max_length=10, choices=SubjectCategory.choices, default=SubjectCategory.OTHER,
+        verbose_name="Groupe (bulletin)",
+    )
+    # Poids de cette matière dans la moyenne générale de CETTE classe —
+    # fixé par le directeur, jamais par l'enseignant lui-même (qui ne doit
+    # pas pouvoir gonfler l'importance de sa propre matière). Une même
+    # matière peut peser différemment d'une classe à l'autre (Terminale D
+    # vs 6ème), d'où le rattachement au Subject plutôt qu'à un référentiel
+    # global de matières.
+    coefficient = models.PositiveSmallIntegerField(default=1, verbose_name="Coefficient")
     teacher = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -122,6 +192,225 @@ class Subject(models.Model):
 
     def __str__(self):
         return f"{self.name} — {self.school_class}"
+
+
+class Weekday(models.IntegerChoices):
+    MONDAY = 0, "Lundi"
+    TUESDAY = 1, "Mardi"
+    WEDNESDAY = 2, "Mercredi"
+    THURSDAY = 3, "Jeudi"
+    FRIDAY = 4, "Vendredi"
+    SATURDAY = 5, "Samedi"
+
+
+class TimetableSlot(models.Model):
+    """Créneau d'emploi du temps — toute la classe partage le même
+    planning (cohérent avec le fait qu'une Subject n'a qu'un seul
+    enseignant dédié pour toute la classe). Alimente le rappel de révision
+    envoyé la veille de chaque cours (voir apps.academics management
+    command remind_timetable_revisions).
+
+    `term` est nul par défaut : le créneau vaut alors pour toute l'année
+    scolaire — ce qui ne veut jamais dire "tous les jours du calendrier",
+    seulement les jours qui tombent dans un Term existant (voir
+    apps.academics.services.term_for_date, qui déduit les vacances des
+    trous entre trimestres plutôt que de les stocker séparément). Si
+    `term` est renseigné, le créneau n'est actif que pendant ce trimestre
+    précis (ex: option ne durant qu'un trimestre)."""
+
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="timetable_slots")
+    subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="timetable_slots")
+    term = models.ForeignKey(
+        "grading.Term", on_delete=models.SET_NULL, null=True, blank=True, related_name="timetable_slots",
+        verbose_name="Trimestre (vide = toute l'année)",
+    )
+    weekday = models.IntegerField(choices=Weekday.choices)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    room = models.CharField(max_length=50, blank=True, verbose_name="Salle")
+
+    class Meta:
+        verbose_name = "Créneau d'emploi du temps"
+        verbose_name_plural = "Créneaux d'emploi du temps"
+        ordering = ["weekday", "start_time"]
+
+    def __str__(self):
+        return f"{self.subject.name} — {self.get_weekday_display()} {self.start_time.strftime('%H:%M')}"
+
+
+class WeekdayFull(models.IntegerChoices):
+    """Comme Weekday, mais avec le dimanche — les cours officiels n'ont
+    jamais lieu le dimanche (voir Weekday), mais un élève peut tout à fait
+    vouloir y planifier un créneau personnel."""
+
+    MONDAY = 0, "Lundi"
+    TUESDAY = 1, "Mardi"
+    WEDNESDAY = 2, "Mercredi"
+    THURSDAY = 3, "Jeudi"
+    FRIDAY = 4, "Vendredi"
+    SATURDAY = 5, "Samedi"
+    SUNDAY = 6, "Dimanche"
+
+
+class PersonalScheduleBlock(models.Model):
+    """Créneau personnel qu'un élève ajoute lui-même dans les parties
+    vides de sa journée (hors cours officiels) — révision ou autre.
+    Récurrent par défaut, avec un mécanisme d'exception au jour le jour
+    exactement comme un événement récurrent d'agenda grand public (Google
+    Calendar) :
+      - modifier UNE occurrence précise crée une PersonalScheduleException
+        liée à cette date, sans toucher à la règle qui continue normalement
+        pour les autres dates ;
+      - modifier "cette date et les suivantes" clôt cette règle
+        (valid_until = veille de la date) et en ouvre une nouvelle à partir
+        de cette date avec les nouvelles valeurs (voir
+        apps.academics.views.PersonalScheduleBlockOccurrenceView)."""
+
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="personal_schedule_blocks")
+    weekday = models.IntegerField(choices=WeekdayFull.choices)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    title = models.CharField(max_length=200)
+    subject = models.ForeignKey(
+        Subject, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name="Matière (optionnel)",
+    )
+    valid_from = models.DateField(verbose_name="Valide à partir du")
+    valid_until = models.DateField(null=True, blank=True, verbose_name="Valide jusqu'au (vide = indéfini)")
+
+    class Meta:
+        verbose_name = "Créneau personnel"
+        verbose_name_plural = "Créneaux personnels"
+        ordering = ["weekday", "start_time"]
+
+    def __str__(self):
+        return f"{self.title} — {self.get_weekday_display()} {self.start_time.strftime('%H:%M')}"
+
+
+class PersonalScheduleException(models.Model):
+    """Exception ponctuelle à un PersonalScheduleBlock pour une date
+    précise — nouvel horaire/titre ce jour-là, ou annulation pure et
+    simple — sans jamais modifier la règle récurrente elle-même."""
+
+    block = models.ForeignKey(PersonalScheduleBlock, on_delete=models.CASCADE, related_name="exceptions")
+    date = models.DateField()
+    is_cancelled = models.BooleanField(default=False, verbose_name="Occurrence annulée")
+    title = models.CharField(max_length=200, blank=True)
+    subject = models.ForeignKey(Subject, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Exception de créneau personnel"
+        verbose_name_plural = "Exceptions de créneau personnel"
+        unique_together = ("block", "date")
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"Exception {self.date} — bloc {self.block_id}"
+
+
+class TimetableReminderLog(models.Model):
+    """Trace qu'un rappel des cours du lendemain a déjà été envoyé pour
+    cette classe à cette date précise. TimetableSlot étant récurrent (pas
+    une instance par date), l'idempotence ne peut pas reposer sur un champ
+    horodaté directement sur le créneau comme pour Exercise
+    (due_soon_notified_at) — on journalise donc par (classe, date)."""
+
+    school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="+")
+    date = models.DateField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Journal de rappel d'emploi du temps"
+        verbose_name_plural = "Journaux de rappel d'emploi du temps"
+        unique_together = ("school_class", "date")
+
+
+class PersonalBlockReminderLog(models.Model):
+    """Même rôle que TimetableReminderLog, pour le rappel progressif de
+    révision personnelle — PersonalScheduleBlock étant lui aussi récurrent,
+    on journalise par (créneau, date)."""
+
+    block = models.ForeignKey(PersonalScheduleBlock, on_delete=models.CASCADE, related_name="reminder_logs")
+    date = models.DateField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Journal de rappel de révision personnelle"
+        verbose_name_plural = "Journaux de rappel de révision personnelle"
+        unique_together = ("block", "date")
+
+
+class EventType(models.TextChoices):
+    REPORT_CARD_DISTRIBUTION = "report_card_distribution", "Remise de bulletins"
+    MEETING = "meeting", "Réunion"
+    HOLIDAY = "holiday", "Jour férié"
+    CANCELLED_CLASS = "cancelled_class", "Cours annulé"
+    OTHER = "other", "Autre"
+
+
+class EventAudience(models.TextChoices):
+    STUDENTS = "students", "Élèves"
+    PARENTS = "parents", "Parents"
+    TEACHERS = "teachers", "Équipe enseignante"
+
+
+class EstablishmentEvent(models.Model):
+    """Événement ponctuel posé par un enseignant ou l'établissement — ni un
+    cours officiel récurrent (TimetableSlot) ni un bloc personnel d'élève
+    (PersonalScheduleBlock) : remise de bulletins, réunion, jour férié...
+    `school_class` nul = concerne tout l'établissement. `audience` est une
+    liste explicite de EventAudience — jamais déduite automatiquement du
+    type, toujours fixée par le créateur (voir apps.academics.views,
+    ClassEventListCreateView)."""
+
+    establishment = models.ForeignKey(DirectorProfile, on_delete=models.CASCADE, related_name="events")
+    school_class = models.ForeignKey(
+        SchoolClass, on_delete=models.CASCADE, null=True, blank=True, related_name="events",
+        verbose_name="Classe concernée (vide = tout l'établissement)",
+    )
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    date = models.DateField()
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+    audience = models.JSONField(default=list, verbose_name="Public cible")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Événement d'établissement"
+        verbose_name_plural = "Événements d'établissement"
+        ordering = ["date", "start_time"]
+
+    def __str__(self):
+        return f"{self.title} ({self.date})"
+
+
+class TeacherAbsence(models.Model):
+    """Déclaration par l'enseignant dédié qu'il ne tiendra pas un créneau
+    précis de son emploi du temps à une date donnée. Génère un
+    EstablishmentEvent (cours annulé) sur l'agenda de la classe plutôt
+    qu'un système d'affichage séparé — voir
+    apps.academics.views.TeacherAbsenceDeclarationView. Supprimer l'event
+    lié annule la déclaration (cascade)."""
+
+    timetable_slot = models.ForeignKey(TimetableSlot, on_delete=models.CASCADE, related_name="absences")
+    date = models.DateField()
+    reason = models.CharField(max_length=200, blank=True)
+    declared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    event = models.OneToOneField(EstablishmentEvent, on_delete=models.CASCADE, related_name="teacher_absence")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Absence enseignant"
+        verbose_name_plural = "Absences enseignant"
+        unique_together = ("timetable_slot", "date")
+
+    def __str__(self):
+        return f"Absence {self.timetable_slot} ({self.date})"
 
 
 class TeacherInvitation(models.Model):
@@ -182,6 +471,14 @@ class Enrollment(models.Model):
     child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="enrollments")
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="enrollments")
     status = models.CharField(max_length=15, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE)
+    # Régime et affectation ministérielle — mentions administratives du
+    # bulletin officiel, souvent laissées vides même sur un vrai bulletin
+    # papier (d'où `null=True` sur le régime : "non précisé" est une valeur
+    # légitime, distincte d'"externe"). Pas d'écran de saisie dédié pour
+    # l'instant (réglable via l'admin Django), au même titre que
+    # Subject.category.
+    is_boarder = models.BooleanField(null=True, blank=True, verbose_name="Interne (régime)")
+    is_ministry_assigned = models.BooleanField(default=True, verbose_name="Affecté(e) par le ministère")
     enrolled_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
@@ -193,3 +490,66 @@ class Enrollment(models.Model):
 
     def __str__(self):
         return f"{self.child.first_name} — {self.school_class} ({self.status})"
+
+
+class AttendanceStatus(models.TextChoices):
+    """Un élève sans ligne d'exception pour un créneau donné est présent
+    par défaut — jamais l'inverse. Ces statuts ne couvrent donc QUE les
+    exceptions à saisir, ce qui rend l'appel d'une classe de 40 élèves
+    rapide : on ne touche que les quelques élèves concernés, jamais toute
+    la liste."""
+
+    ABSENT = "absent", "Absent"
+    LATE = "late", "En retard"
+    EXCUSED = "excused", "Absence justifiée"
+
+
+class AttendanceSession(models.Model):
+    """Marque qu'un appel a été fait pour CE créneau à CETTE date précise
+    — sans cette ligne, impossible de distinguer "personne n'a encore
+    fait l'appel" de "appel fait, tout le monde était présent" (les deux
+    cas laissent AttendanceException entièrement vide). Une classe peut
+    avoir plusieurs enseignants au fil de la journée : l'appel reste par
+    créneau, jamais par classe entière."""
+
+    timetable_slot = models.ForeignKey(TimetableSlot, on_delete=models.CASCADE, related_name="attendance_sessions")
+    date = models.DateField()
+    # Traçabilité minimale (Point 8) : `taken_by` + `updated_at` reflètent
+    # déjà qui a modifié l'appel en dernier et quand (réassignés à chaque
+    # POST, voir SlotAttendanceView) — `created_by` conserve en plus
+    # l'auteur du tout premier appel, jamais écrasé ensuite.
+    taken_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="attendance_sessions_taken"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Appel"
+        verbose_name_plural = "Appels"
+        unique_together = ("timetable_slot", "date")
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"Appel {self.timetable_slot} — {self.date}"
+
+
+class AttendanceException(models.Model):
+    """Un élève NON présent (absent, en retard, excusé) sur l'appel d'un
+    créneau — jamais une ligne par élève présent, voir AttendanceStatus."""
+
+    session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name="exceptions")
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="attendance_exceptions")
+    status = models.CharField(max_length=10, choices=AttendanceStatus.choices)
+    reason = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "Exception d'appel"
+        verbose_name_plural = "Exceptions d'appel"
+        unique_together = ("session", "child")
+
+    def __str__(self):
+        return f"{self.child.first_name} {self.child.last_name} — {self.get_status_display()}"

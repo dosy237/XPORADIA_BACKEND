@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  body { font-family: "DejaVu Sans", sans-serif; margin: 0; padding: 0; }
+  .frame { width: 100%; height: 100%; padding: 2.5cm; box-sizing: border-box; border: 3px solid #0F172A; }
+  .inner-frame { border: 1px solid #FB5406; padding: 1.5cm; height: 100%; box-sizing: border-box;
+                 display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .brand { font-size: 20pt; font-weight: bold; color: #0F172A; letter-spacing: 2px; margin-bottom: 4px; }
+  .tagline { font-size: 8pt; color: #6b7280; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 28px; }
+  .title { font-size: 13pt; color: #6b7280; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
+  .teacher-name { font-size: 26pt; font-weight: bold; color: #0F172A; margin-bottom: 18px; }
+  .statement { font-size: 11pt; color: #1a1a1a; line-height: 1.6; max-width: 15cm; margin-bottom: 20px; }
+  .level-badge { display: inline-block; background: #FB5406; color: #fff; font-size: 12pt; font-weight: bold;
+                 padding: 8px 28px; border-radius: 999px; margin-bottom: 22px; letter-spacing: 1px; }
+  .module { font-size: 12pt; color: #0F172A; font-weight: bold; margin-bottom: 4px; }
+  .score { font-size: 9.5pt; color: #6b7280; margin-bottom: 28px; }
+  .footer-row { display: flex; justify-content: space-between; align-items: flex-end; width: 100%; margin-top: auto; }
+  .footer-block { text-align: left; font-size: 8.5pt; color: #6b7280; }
+  .footer-block b { color: #1a1a1a; }
+  .qr { width: 2.4cm; height: 2.4cm; }
+  .qr-caption { font-size: 7pt; color: #9ca3af; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <div class="inner-frame">
+      <div class="brand">XPORADIA</div>
+      <div class="tagline">Plateforme de certification des enseignants du privé</div>
+
+      <div class="title">Certificat de compétence pédagogique</div>
+      <div class="teacher-name">{{ teacher_name }}</div>
+
+      <div class="statement">
+        a suivi avec succès la formation « {{ module_title }} » et a validé les compétences
+        associées, dans le cadre du programme de certification professionnelle Xporadia.
+      </div>
+
+      <div class="level-badge">Niveau {{ level_label }}</div>
+
+      <div class="module">Score obtenu : {{ score }}%</div>
+      <div class="score">Points de progression acquis : {{ points }}</div>
+
+      <div class="footer-row">
+        <div class="footer-block">
+          <div><b>Date d'obtention</b></div>
+          <div>{{ issued_at }}</div>
+        </div>
+        <div style="text-align:center">
+          <img class="qr" src="data:image/png;base64,{{ qr_image_base64 }}" />
+          <div class="qr-caption">{{ qr_code }}</div>
+        </div>
+        <div class="footer-block" style="text-align:right">
+          <div><b>Certificat n°</b></div>
+          <div>{{ qr_code }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

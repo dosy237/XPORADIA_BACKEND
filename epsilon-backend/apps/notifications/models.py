@@ -15,15 +15,27 @@ class NotificationType(models.TextChoices):
     SESSION_CONFIRMED  = "session_confirmed",  "Séance confirmée"
     SESSION_CANCELLED  = "session_cancelled",  "Séance annulée"
     PAYMENT_RECEIVED   = "payment_received",   "Paiement reçu"
+    INVOICE_READY      = "invoice_ready",      "Facture disponible"
     CERT_EXPIRY        = "cert_expiry",        "Alerte expiration certification"
     NEW_MESSAGE        = "new_message",        "Nouveau message"
     EXERCISE_PUBLISHED = "exercise_published", "Devoir publié"
     EXERCISE_SUBMITTED = "exercise_submitted", "Copie soumise"
+    EXERCISE_DUE_SOON   = "exercise_due_soon",   "Devoir bientôt à rendre"
+    EXERCISE_OVERDUE    = "exercise_overdue",    "Devoir non rendu à échéance"
     CORRECTION_READY   = "correction_ready",   "Correction disponible"
     RECRUITMENT        = "recruitment",        "Recrutement confirmé"
     STAGE_UPDATE       = "stage_update",       "Mise à jour stage"
     CLASS_ASSIGNMENT   = "class_assignment",   "Affectation à une matière"
     ENROLLMENT_UPDATE  = "enrollment_update",  "Mise à jour de scolarité"
+    CERT_LEVEL_CHANGED = "cert_level_changed", "Changement de niveau de certification"
+    REPORT_CARD_PUBLISHED = "report_card_published", "Bulletin publié"
+    TIMETABLE_REMINDER  = "timetable_reminder",  "Rappel des cours du lendemain"
+    REVISION_REMINDER   = "revision_reminder",   "Rappel de révision personnelle"
+    HOLIDAY_DECLARED    = "holiday_declared",    "Jour férié déclaré"
+    CLAIM_REQUEST_REVIEWED = "claim_request_reviewed", "Réponse à une demande de rattachement"
+    NEW_CERT_MODULE    = "new_cert_module",    "Nouveau module de certification"
+    FOLLOWED_USER_POST = "followed_user_post", "Publication d'un profil suivi"
+    ENGAGEMENT_TIP     = "engagement_tip",     "Conseil de visibilité"
     SYSTEM             = "system",             "Système"
 
 
@@ -32,6 +44,17 @@ class NotificationChannel(models.TextChoices):
     SMS   = "sms",   "SMS"
     EMAIL = "email", "Email"
     INAPP = "inapp", "In-app"
+
+
+class NotificationCategory(models.TextChoices):
+    """Grand domaine auquel appartient un NotificationType (voir
+    apps.notifications.constants.CATEGORY_BY_NOTIF_TYPE) — jamais par
+    type unitaire, trop fin pour un réglage utilisateur."""
+
+    SCHOOL_LIFE = "school_life", "Scolarité"
+    EMPLOYMENT = "employment", "Emploi"
+    MESSAGING = "messaging", "Messagerie"
+    ADMINISTRATIVE = "administrative", "Administratif"
 
 
 class Notification(models.Model):
@@ -105,3 +128,27 @@ class DeviceToken(models.Model):
 
     def __str__(self):
         return f"{self.token[:24]}... — {self.user.get_full_name()}"
+
+
+class NotificationPreference(models.Model):
+    """Préférence d'un utilisateur pour une grande catégorie de
+    notification. Activée par défaut : l'absence de ligne pour une
+    catégorie signifie qu'elle est activée, une ligne n'est créée que
+    lorsque l'utilisateur la désactive explicitement (même principe que
+    PersonalScheduleException — exceptions seules, jamais l'état par
+    défaut). Seul apps.notifications.services.notify_user consulte cette
+    préférence avant d'envoyer, aucune autre logique d'envoi à dupliquer."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notification_preferences"
+    )
+    category = models.CharField(max_length=20, choices=NotificationCategory.choices)
+    enabled = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Préférence de notification"
+        verbose_name_plural = "Préférences de notification"
+        unique_together = ("user", "category")
+
+    def __str__(self):
+        return f"{self.user.get_full_name()} — {self.category} ({'activé' if self.enabled else 'désactivé'})"

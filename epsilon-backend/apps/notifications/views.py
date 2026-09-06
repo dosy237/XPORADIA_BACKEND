@@ -3,8 +3,14 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import DeviceToken, Notification
-from .serializers import NotificationSerializer, RegisterDeviceTokenSerializer, UnregisterDeviceTokenSerializer
+from .models import DeviceToken, Notification, NotificationCategory, NotificationPreference
+from .serializers import (
+    NotificationPreferenceEntrySerializer,
+    NotificationSerializer,
+    RegisterDeviceTokenSerializer,
+    UnregisterDeviceTokenSerializer,
+    UpdateNotificationPreferenceSerializer,
+)
 
 
 class NotificationListView(generics.ListAPIView):
@@ -43,6 +49,40 @@ class RegisterDeviceTokenView(APIView):
             defaults={"user": request.user, "platform": serializer.validated_data["platform"]},
         )
         return Response({"detail": "Appareil enregistré pour les notifications push."})
+
+
+class MyNotificationPreferencesView(APIView):
+    """État (activé/désactivé) des 4 grandes catégories de notification
+    pour l'utilisateur connecté, et modification d'une catégorie. Une
+    catégorie sans ligne en base est activée par défaut — voir
+    NotificationPreference."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        disabled = set(
+            NotificationPreference.objects.filter(user=request.user, enabled=False).values_list(
+                "category", flat=True
+            )
+        )
+        data = [
+            {"category": category, "category_label": label, "enabled": category not in disabled}
+            for category, label in NotificationCategory.choices
+        ]
+        return Response(NotificationPreferenceEntrySerializer(data, many=True).data)
+
+    def post(self, request):
+        serializer = UpdateNotificationPreferenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        category = serializer.validated_data["category"]
+        enabled = serializer.validated_data["enabled"]
+        if enabled:
+            NotificationPreference.objects.filter(user=request.user, category=category).delete()
+        else:
+            NotificationPreference.objects.update_or_create(
+                user=request.user, category=category, defaults={"enabled": False}
+            )
+        return self.get(request)
 
 
 class UnregisterDeviceTokenView(APIView):

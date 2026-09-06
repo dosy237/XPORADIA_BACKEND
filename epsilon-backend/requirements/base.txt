@@ -1,5 +1,6 @@
 # Core
 Django==5.0.6
+python-dateutil==2.9.0.post0
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 django-cors-headers==4.4.0
@@ -18,6 +19,7 @@ django-celery-beat==2.6.0
 
 # WebSocket
 channels==4.1.0
+channels-redis==4.2.1
 daphne==4.1.2
 
 # Storage & Media
@@ -27,6 +29,12 @@ django-storages==1.14.4
 
 # PDF Generation
 weasyprint==62.3
+# Épinglé explicitement : weasyprint==62.3 casse au rendu (AttributeError sur
+# pydyf.Stream.transform) avec pydyf>=0.12, que pip installe par défaut comme
+# dépendance transitive. Bug constaté et corrigé le 10/08/2026.
+pydyf==0.11.0
+qrcode==7.4.2
+pypdf==5.1.0
 
 # Security & Audit
 django-auditlog==3.0.0
