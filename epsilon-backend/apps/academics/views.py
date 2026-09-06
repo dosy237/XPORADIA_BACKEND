@@ -2029,3 +2029,96 @@ class TeachingStaffOverviewView(generics.ListAPIView):
 
         data.sort(key=lambda t: (t["last_name"], t["first_name"]))
         return Response(data)
+
+
+def _student_avatar_url(request, child):
+    """Même convention que apps.grading (roster/bulletins) : la photo
+    n'existe que si l'élève a activé son propre compte, jamais stockée
+    directement sur Child."""
+    if child.user_id and child.user.avatar:
+        return request.build_absolute_uri(child.user.avatar.url)
+    return None
+
+
+class EstablishmentStudentsView(generics.ListAPIView):
+    """Vue d'ensemble et recherche des élèves de l'établissement, toutes
+    classes confondues — jamais paginée (convention déjà suivie par
+    toutes les listes de cette app), avec recherche par nom ou
+    matricule via ?q=. Sert de point d'entrée pour joindre directement
+    un élève sans passer par les effectifs d'une classe (seul chemin
+    existant jusqu'ici vers les fiches frais/documents/discipline)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        _require_director(request.user)
+        establishment = _director_establishment(request.user)
+
+        enrollments = Enrollment.objects.filter(
+            school_class__track__department__establishment=establishment,
+            status=EnrollmentStatus.ACTIVE,
+        ).select_related("child", "child__user", "school_class")
+
+        query = request.query_params.get("q", "").strip()
+        if query:
+            enrollments = enrollments.filter(
+                Q(child__first_name__icontains=query)
+                | Q(child__last_name__icontains=query)
+                | Q(child__matricule__icontains=query)
+            )
+
+        data = [
+            {
+                "id": enrollment.child.id,
+                "first_name": enrollment.child.first_name,
+                "last_name": enrollment.child.last_name,
+                "avatar": _student_avatar_url(request, enrollment.child),
+                "matricule": enrollment.child.matricule,
+                "class_name": str(enrollment.school_class),
+                "school_year": enrollment.school_class.school_year,
+            }
+            for enrollment in enrollments
+        ]
+        data.sort(key=lambda s: (s["last_name"], s["first_name"]))
+        return Response(data)
+
+
+class StudentOverviewView(APIView):
+    """Fiche d'ensemble d'un élève de l'établissement : identité,
+    inscription courante, contact du parent — réservé au directeur de
+    l'établissement où l'élève est inscrit."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, child_id):
+        _require_director(request.user)
+        establishment = _director_establishment(request.user)
+
+        enrollment = Enrollment.objects.filter(
+            child_id=child_id,
+            status=EnrollmentStatus.ACTIVE,
+            school_class__track__department__establishment=establishment,
+        ).select_related("child__user", "child__parent__user", "school_class").first()
+        if not enrollment:
+            raise Http404
+
+        child = enrollment.child
+        parent = child.parent
+
+        return Response({
+            "id": child.id,
+            "first_name": child.first_name,
+            "last_name": child.last_name,
+            "avatar": _student_avatar_url(request, child),
+            "matricule": child.matricule,
+            "birth_date": child.birth_date,
+            "birth_place": child.birth_place,
+            "sex_label": child.get_sex_display(),
+            "nationality": child.nationality,
+            "class_name": str(enrollment.school_class),
+            "school_year": enrollment.school_class.school_year,
+            "parent_name": parent.user.get_full_name() if parent else "",
+            "parent_phone": parent.user.phone if parent else "",
+            "parent_email": parent.user.email if parent else "",
+        })

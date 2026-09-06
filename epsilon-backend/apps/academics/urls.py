@@ -105,5 +105,7 @@ urlpatterns = [
         name="roster-transition",
     ),
     path("teaching-staff/", views.TeachingStaffOverviewView.as_view(), name="teaching-staff-overview"),
+    path("students/", views.EstablishmentStudentsView.as_view(), name="establishment-students"),
+    path("students/<int:child_id>/overview/", views.StudentOverviewView.as_view(), name="student-overview"),
     path("", include(router.urls)),
 ]
