@@ -34,6 +34,7 @@ urlpatterns = [
     path("api/v1/student-life/", include("apps.student_life.urls")),
     path("api/v1/tuition/", include("apps.tuition.urls")),
     path("api/v1/documents/", include("apps.documents.urls")),
+    path("api/v1/discipline/", include("apps.discipline.urls")),
 ]
 
 if settings.DEBUG:
