@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/v1/admin-panel/", include("apps.admin_panel.urls")),
     path("api/v1/student-life/", include("apps.student_life.urls")),
     path("api/v1/tuition/", include("apps.tuition.urls")),
+    path("api/v1/documents/", include("apps.documents.urls")),
 ]
 
 if settings.DEBUG:
