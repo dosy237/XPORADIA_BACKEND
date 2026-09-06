@@ -9,6 +9,8 @@ from .models import (
     DirectorProfile,
     ParentProfile,
     PreRegistrationCode,
+    SchoolGroup,
+    SchoolGroupInvitation,
     TeacherComment,
     TeacherProfile,
     User,
@@ -241,6 +243,54 @@ class DirectorProfileSerializer(serializers.ModelSerializer):
             "phone", "contact_email", "establishment_code", "is_public", "logo",
         ]
         read_only_fields = ["is_partner", "logo"]
+
+
+class SchoolGroupEstablishmentSerializer(serializers.ModelSerializer):
+    """Un établissement membre, tel qu'affiché dans une carte du tableau
+    de bord de groupe — chiffres réels calculés à la volée (voir
+    apps.users.services.establishment_summary), jamais stockés."""
+
+    director_id = serializers.IntegerField(source="user_id", read_only=True)
+    student_count = serializers.SerializerMethodField()
+    pending_join_requests = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DirectorProfile
+        fields = ["id", "director_id", "school_name", "logo", "student_count", "pending_join_requests"]
+        read_only_fields = fields
+
+    def get_student_count(self, obj):
+        from .services import establishment_summary
+
+        return establishment_summary(obj)["student_count"]
+
+    def get_pending_join_requests(self, obj):
+        from .services import establishment_summary
+
+        return establishment_summary(obj)["pending_join_requests"]
+
+
+class SchoolGroupSerializer(serializers.ModelSerializer):
+    established_by = serializers.CharField(source="created_by.get_full_name", read_only=True)
+    establishments = SchoolGroupEstablishmentSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SchoolGroup
+        fields = ["id", "name", "created_by", "established_by", "establishments", "created_at"]
+        read_only_fields = fields
+
+
+class SchoolGroupInvitationSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(source="group.name", read_only=True)
+    invited_director_name = serializers.CharField(source="invited_director.get_full_name", read_only=True)
+
+    class Meta:
+        model = SchoolGroupInvitation
+        fields = [
+            "id", "group", "group_name", "invited_director", "invited_director_name",
+            "status", "created_at", "responded_at",
+        ]
+        read_only_fields = ["id", "group_name", "invited_director_name", "status", "created_at", "responded_at"]
 
 
 class CompanyProfileSerializer(serializers.ModelSerializer):

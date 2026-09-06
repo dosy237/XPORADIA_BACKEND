@@ -212,11 +212,67 @@ class TeacherDiploma(models.Model):
         return f"{self.title} — {self.teacher.user.get_full_name()}"
 
 
+class SchoolGroup(models.Model):
+    """Groupe scolaire — rattachement optionnel de plusieurs établissements
+    entre eux (ex. un même fondateur qui possède plusieurs écoles). Jamais
+    une fusion forcée : chaque établissement reste indépendant par défaut,
+    l'appartenance à un groupe se fait uniquement par invitation acceptée
+    (voir SchoolGroupInvitation)."""
+
+    name = models.CharField(max_length=200, verbose_name="Nom du groupe")
+    created_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="founded_school_groups"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Groupe scolaire"
+        verbose_name_plural = "Groupes scolaires"
+
+    def __str__(self):
+        return self.name
+
+
+class SchoolGroupInvitationStatus(models.TextChoices):
+    PENDING = "pending", "En attente"
+    ACCEPTED = "accepted", "Acceptée"
+    REJECTED = "rejected", "Rejetée"
+
+
+class SchoolGroupInvitation(models.Model):
+    """Invitation d'un directeur déjà inscrit à rejoindre un groupe avec
+    son établissement existant — jamais une fusion automatique, toujours
+    une décision du directeur invité (voir vue de réponse)."""
+
+    group = models.ForeignKey(SchoolGroup, on_delete=models.CASCADE, related_name="invitations")
+    invited_director = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="school_group_invitations"
+    )
+    status = models.CharField(
+        max_length=10, choices=SchoolGroupInvitationStatus.choices, default=SchoolGroupInvitationStatus.PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Invitation de groupe scolaire"
+        verbose_name_plural = "Invitations de groupe scolaire"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.invited_director.get_full_name()} → {self.group.name} ({self.status})"
+
+
 class DirectorProfile(models.Model):
     """PROFIL_DIRECTEUR — étend User quand primary_role = director."""
 
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="director_profile"
+    )
+    # Nullable — un établissement reste indépendant par défaut, rattaché à
+    # un groupe uniquement en acceptant une SchoolGroupInvitation.
+    school_group = models.ForeignKey(
+        SchoolGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="establishments"
     )
     school_name = models.CharField(max_length=255, verbose_name="Nom de l'école")
     address = models.CharField(max_length=255, verbose_name="Adresse")

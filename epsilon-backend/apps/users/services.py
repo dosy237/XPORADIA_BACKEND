@@ -19,6 +19,26 @@ logger = logging.getLogger(__name__)
 OTP_VALIDITY_MINUTES = 15
 
 
+def establishment_summary(director_profile):
+    """Chiffres réels d'un établissement — effectif actif et demandes de
+    rattachement en attente — jamais un champ stocké séparément qui
+    pourrait diverger (voir DirectorProfile.student_count, un simple
+    effectif déclaré à l'inscription, jamais utilisé ici). Imports
+    différés : apps.academics et apps.grading importent déjà apps.users
+    au niveau module, un import direct ici créerait un cycle."""
+    from apps.academics.models import Enrollment, EnrollmentStatus
+    from apps.grading.models import EstablishmentJoinRequest, JoinRequestStatus
+
+    student_count = Enrollment.objects.filter(
+        school_class__track__department__establishment=director_profile,
+        status=EnrollmentStatus.ACTIVE,
+    ).count()
+    pending_join_requests = EstablishmentJoinRequest.objects.filter(
+        establishment=director_profile, status=JoinRequestStatus.PENDING
+    ).count()
+    return {"student_count": student_count, "pending_join_requests": pending_join_requests}
+
+
 def generate_otp(user, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> OTPCode:
     code = f"{random.randint(0, 999999):06d}"
     otp = OTPCode.objects.create(

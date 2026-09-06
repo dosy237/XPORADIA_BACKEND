@@ -18,6 +18,9 @@ from .models import (
     DirectorProfile,
     OTPPurpose,
     ParentProfile,
+    SchoolGroup,
+    SchoolGroupInvitation,
+    SchoolGroupInvitationStatus,
     StudentActivationInvite,
     TeacherComment,
     TeacherProfile,
@@ -43,6 +46,8 @@ from .serializers import (
     RegisterParentSerializer,
     RegisterStudentSerializer,
     RegisterTeacherSerializer,
+    SchoolGroupInvitationSerializer,
+    SchoolGroupSerializer,
     StudentActivationPreviewSerializer,
     StudentActivationSerializer,
     SubmitPreRegistrationCodeSerializer,
@@ -796,6 +801,143 @@ class DirectorLogoView(APIView):
         profile.logo = None
         profile.save(update_fields=["logo"])
         return Response(DirectorProfileSerializer(profile, context={"request": request}).data)
+
+
+def _get_director_profile(user):
+    if not user.has_role(UserRole.DIRECTOR):
+        raise PermissionDenied("Réservé aux directeurs d'établissement.")
+    return get_object_or_404(DirectorProfile, user=user)
+
+
+class CreateSchoolGroupView(APIView):
+    """Création d'un groupe scolaire — le directeur qui crée devient
+    fondateur et membre immédiatement, sans invitation à se faire
+    accepter à lui-même. Réservé à un directeur pas déjà membre d'un
+    autre groupe (jamais deux groupes en même temps pour un même
+    établissement)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        profile = _get_director_profile(request.user)
+        if profile.school_group_id:
+            raise ValidationError("Votre établissement appartient déjà à un groupe scolaire.")
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            raise ValidationError({"name": "Le nom du groupe est obligatoire."})
+        group = SchoolGroup.objects.create(name=name, created_by=request.user)
+        profile.school_group = group
+        profile.save(update_fields=["school_group"])
+        return Response(
+            SchoolGroupSerializer(group, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MySchoolGroupView(APIView):
+    """Groupe scolaire de l'établissement du directeur connecté, avec le
+    tableau de bord consolidé — accessible à TOUT membre en lecture, pas
+    seulement au fondateur (voir spécification : "vue consolidée en
+    lecture" pour un membre)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        profile = _get_director_profile(request.user)
+        if not profile.school_group_id:
+            return Response(None)
+        group = SchoolGroup.objects.select_related("created_by").prefetch_related("establishments").get(
+            id=profile.school_group_id
+        )
+        return Response(SchoolGroupSerializer(group, context={"request": request}).data)
+
+
+class InviteToSchoolGroupView(APIView):
+    """Invitation d'un directeur déjà inscrit à rejoindre le groupe —
+    réservée au fondateur (created_by), jamais un simple membre : c'est
+    lui qui porte la responsabilité de qui rejoint son groupe."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from apps.notifications.models import NotificationType
+        from apps.notifications.services import notify_user
+
+        profile = _get_director_profile(request.user)
+        if not profile.school_group_id:
+            raise ValidationError("Votre établissement n'appartient à aucun groupe scolaire.")
+        group = get_object_or_404(SchoolGroup, id=profile.school_group_id)
+        if group.created_by_id != request.user.id:
+            raise PermissionDenied("Seul le fondateur du groupe peut inviter un établissement.")
+
+        email = (request.data.get("email") or "").strip().lower()
+        try:
+            invited_user = User.objects.get(email=email, is_active=True)
+        except User.DoesNotExist:
+            raise ValidationError({"email": "Aucun compte directeur actif ne correspond à cet email."})
+        if not invited_user.has_role(UserRole.DIRECTOR):
+            raise ValidationError({"email": "Ce compte n'est pas un compte directeur."})
+        invited_profile = get_object_or_404(DirectorProfile, user=invited_user)
+        if invited_profile.school_group_id:
+            raise ValidationError({"email": "Cet établissement appartient déjà à un groupe scolaire."})
+        if SchoolGroupInvitation.objects.filter(
+            group=group, invited_director=invited_user, status=SchoolGroupInvitationStatus.PENDING
+        ).exists():
+            raise ValidationError({"email": "Une invitation est déjà en attente pour ce directeur."})
+
+        invitation = SchoolGroupInvitation.objects.create(group=group, invited_director=invited_user)
+        notify_user(
+            invited_user,
+            NotificationType.SYSTEM,
+            title="Invitation à un groupe scolaire",
+            body=f"{request.user.get_full_name()} vous invite à rejoindre le groupe « {group.name} ».",
+        )
+        return Response(
+            SchoolGroupInvitationSerializer(invitation, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MySchoolGroupInvitationsView(generics.ListAPIView):
+    """Invitations de groupe scolaire en attente pour le directeur
+    connecté."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SchoolGroupInvitationSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        _get_director_profile(self.request.user)
+        return SchoolGroupInvitation.objects.filter(
+            invited_director=self.request.user, status=SchoolGroupInvitationStatus.PENDING
+        ).select_related("group", "invited_director")
+
+
+class RespondSchoolGroupInvitationView(APIView):
+    """Le directeur invité accepte ou rejette — jamais de rattachement
+    automatique avant ce geste humain (même principe que
+    ReviewJoinRequestView côté élève/établissement)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        profile = _get_director_profile(request.user)
+        invitation = get_object_or_404(SchoolGroupInvitation, pk=pk, invited_director=request.user)
+        if invitation.status != SchoolGroupInvitationStatus.PENDING:
+            raise ValidationError("Cette invitation a déjà été traitée.")
+
+        accept = request.data.get("accept", True)
+        if accept:
+            if profile.school_group_id:
+                raise ValidationError("Votre établissement appartient déjà à un groupe scolaire.")
+            invitation.status = SchoolGroupInvitationStatus.ACCEPTED
+            profile.school_group_id = invitation.group_id
+            profile.save(update_fields=["school_group"])
+        else:
+            invitation.status = SchoolGroupInvitationStatus.REJECTED
+        invitation.responded_at = timezone.now()
+        invitation.save(update_fields=["status", "responded_at"])
+        return Response(SchoolGroupInvitationSerializer(invitation, context={"request": request}).data)
 
 
 class CompanyProfileView(generics.RetrieveUpdateAPIView):
