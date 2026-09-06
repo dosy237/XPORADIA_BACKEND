@@ -104,5 +104,6 @@ urlpatterns = [
         views.RosterEnrollmentTransitionView.as_view(),
         name="roster-transition",
     ),
+    path("teaching-staff/", views.TeachingStaffOverviewView.as_view(), name="teaching-staff-overview"),
     path("", include(router.urls)),
 ]

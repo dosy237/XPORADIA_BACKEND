@@ -1960,3 +1960,72 @@ class CorrectEnrollmentClassView(APIView):
             body=f"{enrollment.child.first_name} a été réaffecté(e) de {old_class} à {new_class}.",
         )
         return Response(EnrollmentSerializer(enrollment).data)
+
+
+class TeachingStaffOverviewView(generics.ListAPIView):
+    """Vue d'ensemble de l'équipe enseignante de l'établissement : tout
+    enseignant titulaire d'au moins une classe ou dédié à au moins une
+    matière de cet établissement (jamais l'annuaire public des
+    enseignants Xporadia — TeacherDirectoryViewSet — qui ne donne accès
+    ni aux coordonnées ni au rattachement réel à un établissement).
+    Chaque contrat (apps.employment.Recruitment) éventuellement associé
+    est ajouté à titre indicatif, sans jamais en dépendre : un
+    enseignant affecté à une classe reste dans la liste même sans
+    contrat enregistré."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        _require_director(request.user)
+        establishment = _director_establishment(request.user)
+
+        teachers = User.objects.filter(
+            Q(homeroom_classes__track__department__establishment=establishment)
+            | Q(dedicated_subjects__school_class__track__department__establishment=establishment)
+        ).distinct().select_related("teacher_profile")
+
+        from apps.certification.constants import badge_for_points
+        from apps.certification.models import CertificationLevel
+        from apps.certification.services import teacher_total_points
+        from apps.employment.models import Recruitment
+
+        recruitments = {
+            r.teacher_id: r
+            for r in Recruitment.objects.filter(school=request.user, teacher__in=teachers)
+        }
+
+        data = []
+        for teacher in teachers:
+            homeroom_classes = SchoolClass.objects.filter(
+                homeroom_teacher=teacher, track__department__establishment=establishment
+            )
+            subjects = Subject.objects.filter(
+                teacher=teacher, school_class__track__department__establishment=establishment
+            ).select_related("school_class")
+
+            level = badge_for_points(teacher_total_points(teacher))
+            recruitment = recruitments.get(teacher.id)
+
+            data.append({
+                "id": teacher.id,
+                "first_name": teacher.first_name,
+                "last_name": teacher.last_name,
+                "avatar": request.build_absolute_uri(teacher.avatar.url) if teacher.avatar else None,
+                "phone": teacher.phone,
+                "email": teacher.email,
+                "certification_level": level,
+                "certification_level_label": CertificationLevel(level).label,
+                "homeroom_classes": [str(c) for c in homeroom_classes],
+                "subjects": [
+                    {"name": s.name, "class_name": str(s.school_class)} for s in subjects
+                ],
+                "recruitment": {
+                    "contract_type": recruitment.contract_type,
+                    "contract_type_label": recruitment.get_contract_type_display(),
+                    "hourly_rate_teacher": recruitment.hourly_rate_teacher,
+                } if recruitment else None,
+            })
+
+        data.sort(key=lambda t: (t["last_name"], t["first_name"]))
+        return Response(data)
