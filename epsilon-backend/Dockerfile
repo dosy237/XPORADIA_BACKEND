@@ -33,7 +33,11 @@ CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 FROM base AS prod
 RUN pip install --no-cache-dir -r requirements/prod.txt
 COPY . .
-RUN python manage.py collectstatic --noinput
+RUN chmod +x entry.sh
 ENV DJANGO_SETTINGS_MODULE=config.settings.prod
-EXPOSE 8000
-CMD ["gunicorn", "config.asgi:application", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+EXPOSE 9110
+ENTRYPOINT ["./entry.sh"]
+# Daphne (déjà utilisé pour les WebSockets Channels) plutôt que
+# gunicorn+uvicorn : uvicorn n'est pas dans requirements/, et daphne
+# est le serveur ASGI de référence du projet — pas de dépendance en plus.
+CMD ["daphne", "-b", "0.0.0.0", "-p", "9110", "config.asgi:application"]

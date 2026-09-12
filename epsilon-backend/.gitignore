@@ -32,6 +32,7 @@ db.sqlite3-journal
 media/
 staticfiles/
 .env
+.env.*
 !.env.example
 
 # Testing
