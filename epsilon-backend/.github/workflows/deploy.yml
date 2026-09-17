@@ -29,6 +29,22 @@ jobs:
             git pull origin develop
             source venv/bin/activate
             pip install -r requirements/prod.txt
+
+            # Synchronise .env avec le secret GitHub (si configuré) sans
+            # jamais l'écraser par du vide : le pipeline ne connaissait
+            # jusqu'ici que les identifiants SSH, aucune variable d'app
+            # n'atteignait réellement le serveur — d'où l'email de
+            # vérification qui ne partait jamais malgré une clé "configurée"
+            # côté GitHub.
+            SENDGRID_KEY="${{ secrets.SENDGRID_API_KEY }}"
+            if [ -n "$SENDGRID_KEY" ]; then
+              if grep -q "^SENDGRID_API_KEY=" .env; then
+                sed -i "s|^SENDGRID_API_KEY=.*|SENDGRID_API_KEY=$SENDGRID_KEY|" .env
+              else
+                echo "SENDGRID_API_KEY=$SENDGRID_KEY" >> .env
+              fi
+            fi
+
             python manage.py migrate --noinput
             python manage.py collectstatic --noinput
             sudo systemctl restart xporadia-api
@@ -54,6 +70,22 @@ jobs:
             git pull origin main
             source venv/bin/activate
             pip install -r requirements/prod.txt
+
+            # Synchronise .env avec le secret GitHub (si configuré) sans
+            # jamais l'écraser par du vide : le pipeline ne connaissait
+            # jusqu'ici que les identifiants SSH, aucune variable d'app
+            # n'atteignait réellement le serveur — d'où l'email de
+            # vérification qui ne partait jamais malgré une clé "configurée"
+            # côté GitHub.
+            SENDGRID_KEY="${{ secrets.SENDGRID_API_KEY }}"
+            if [ -n "$SENDGRID_KEY" ]; then
+              if grep -q "^SENDGRID_API_KEY=" .env; then
+                sed -i "s|^SENDGRID_API_KEY=.*|SENDGRID_API_KEY=$SENDGRID_KEY|" .env
+              else
+                echo "SENDGRID_API_KEY=$SENDGRID_KEY" >> .env
+              fi
+            fi
+
             python manage.py migrate --noinput
             python manage.py collectstatic --noinput
             sudo systemctl restart xporadia-api
