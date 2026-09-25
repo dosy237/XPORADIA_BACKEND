@@ -227,6 +227,16 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Django rejette par défaut toute requête au-delà de 2,5 Mo
+# (DATA_UPLOAD_MAX_MEMORY_SIZE / FILE_UPLOAD_MAX_MEMORY_SIZE), bien avant
+# d'atteindre le moindre code applicatif — c'était la cause réelle des
+# refus d'upload dans la bibliothèque pour des fichiers pourtant valides.
+# Relevé à 12 Mo pour laisser de la marge au-dessus des 10 Mo annoncés aux
+# utilisateurs (métadonnées multipart, marge d'erreur).
+UPLOAD_SIZE_LIMIT = 12 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = UPLOAD_SIZE_LIMIT
+FILE_UPLOAD_MAX_MEMORY_SIZE = UPLOAD_SIZE_LIMIT
+
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

@@ -20,14 +20,14 @@ sentry_sdk.init(
     traces_sample_rate=0.1,
 )
 
-# Email via SendGrid
+# Email — relais SMTP générique (voir prod.py pour le détail).
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.sendgrid.net"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "apikey"
-EMAIL_HOST_PASSWORD = env("SENDGRID_API_KEY", default="")
-DEFAULT_FROM_EMAIL = "noreply@xporadia.ci"
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.sendgrid.net")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="apikey")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default=env("SENDGRID_API_KEY", default=""))
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@xporadia.ci")
 
 # Storage S3
 DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
