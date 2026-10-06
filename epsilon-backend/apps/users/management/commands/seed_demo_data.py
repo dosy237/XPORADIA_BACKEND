@@ -1507,15 +1507,13 @@ class Command(BaseCommand):
     # Expansion massive — bien plus de comptes, classes, publications,
     # ressources et candidatures pour que l'app soit dense et crédible en
     # démonstration plutôt que peuplée du strict minimum fonctionnel.
-    # Idempotent : ne s'exécute qu'une fois (marqueur ci-dessous).
+    # Pas de garde d'idempotence ici : la commande entière repart toujours
+    # de zéro (voir handle()), donc cette méthode ne s'exécute jamais deux
+    # fois sur les mêmes données.
     # ------------------------------------------------------------------
     def _seed_bulk_expansion(self, establishments, users, modules):
         modules_list = list(modules.values())
         import random
-
-        if User.objects.filter(email="bulk.seed.marker@xporadia.ci").exists():
-            self.stdout.write("Expansion massive déjà présente, ignorée (idempotence).")
-            return
 
         rng = random.Random(42)
 
@@ -1913,17 +1911,6 @@ class Command(BaseCommand):
             )
             if i == 0:
                 _attach_demo_image(bulk_offer, "cover_image", "stagiaire_abidjan_tech_hub.jpg", self._images_dir)
-
-        # --- Marqueur d'idempotence ---
-        User.objects.create_user(
-            email="bulk.seed.marker@xporadia.ci",
-            password=DEMO_PASSWORD,
-            first_name="Marqueur",
-            last_name="Seed",
-            primary_role=UserRole.ADMIN,
-            is_verified=True,
-            is_active=False,
-        )
 
         self.stdout.write(
             self.style.SUCCESS(

@@ -39,6 +39,7 @@ class UserSerializer(serializers.ModelSerializer):
             "all_roles",
             "child_id",
             "admin_scope",
+            "is_active",
             "is_verified",
             "is_documents_validated",
             "two_fa_enabled",

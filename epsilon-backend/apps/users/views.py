@@ -1070,14 +1070,7 @@ class AccountDeletionRequestView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user = request.user
-        user.email = f"compte-supprime-{user.id}@xporadia.invalid"
-        user.first_name = "Compte"
-        user.last_name = "Supprimé"
-        user.phone = ""
-        user.avatar = None
-        user.is_active = False
-        user.deletion_requested_at = timezone.now()
-        user.set_unusable_password()
+        user.anonymize()
         user.save()
         return Response({"detail": "Compte anonymisé et désactivé."})
 
@@ -1372,4 +1365,52 @@ class AdminListView(generics.ListAPIView):
 
     def get_queryset(self):
         require_admin_scope(self.request.user)
-        return User.objects.filter(primary_role=UserRole.ADMIN, is_active=True).order_by("first_name")
+        return User.objects.filter(primary_role=UserRole.ADMIN).order_by("first_name")
+
+
+class SuspendAdminView(APIView):
+    """Suspension réversible d'un administrateur — réservée au périmètre
+    FULL (contrairement à la suspension d'un utilisateur ordinaire, qui ne
+    demande que le périmètre ACCOUNTS), puisqu'un admin peut en suspendre
+    un autre. Un admin ne peut pas se suspendre lui-même."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        require_admin_scope(request.user)
+        if request.user.id == user_id:
+            raise ValidationError({"detail": "Vous ne pouvez pas suspendre votre propre compte."})
+        target = get_object_or_404(User, pk=user_id, primary_role=UserRole.ADMIN, is_active=True)
+        target.is_active = False
+        target.save(update_fields=["is_active"])
+        return Response({"id": target.id, "is_active": False})
+
+
+class ReactivateAdminView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        require_admin_scope(request.user)
+        target = get_object_or_404(User, pk=user_id, primary_role=UserRole.ADMIN, is_active=False)
+        target.is_active = True
+        target.save(update_fields=["is_active"])
+        return Response({"id": target.id, "is_active": True})
+
+
+class DeleteAdminView(APIView):
+    """Suppression d'un administrateur — anonymisation, pas suppression
+    SQL (voir User.anonymize), pour préserver l'intégrité des données liées.
+    Réservée au périmètre FULL. Un admin ne peut pas se supprimer
+    lui-même : il doit se faire retirer par un autre administrateur
+    complet, pour qu'il reste toujours au moins quelqu'un aux commandes."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        require_admin_scope(request.user)
+        if request.user.id == user_id:
+            raise ValidationError({"detail": "Vous ne pouvez pas supprimer votre propre compte administrateur."})
+        target = get_object_or_404(User, pk=user_id, primary_role=UserRole.ADMIN)
+        target.anonymize()
+        target.save()
+        return Response({"id": target.id, "detail": "Compte administrateur supprimé."})

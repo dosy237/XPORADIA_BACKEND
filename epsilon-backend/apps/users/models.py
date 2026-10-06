@@ -6,6 +6,7 @@ Le modèle User est la fondation de toute la plateforme.
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 hex_color_validator = RegexValidator(
     regex=r"^#[0-9A-Fa-f]{6}$", message="Couleur invalide — format attendu : #RRGGBB."
@@ -136,6 +137,22 @@ class User(AbstractBaseUser, PermissionsMixin):
         if not self.has_role(UserRole.ADMIN):
             return False
         return self.admin_scope == AdminScope.FULL or self.admin_scope in scopes
+
+    def anonymize(self):
+        """Même logique que le droit à l'effacement RGPD (voir
+        AccountDeletionRequestView) : on anonymise et on désactive plutôt
+        que de supprimer la ligne, pour préserver l'intégrité des données
+        non-personnelles liées (certifications, recrutements, paiements...).
+        Appelant responsable d'appeler .save() ensuite."""
+        self.email = f"compte-supprime-{self.id}@xporadia.invalid"
+        self.first_name = "Compte"
+        self.last_name = "Supprimé"
+        self.phone = ""
+        self.avatar = None
+        self.is_active = False
+        self.is_staff = False
+        self.deletion_requested_at = timezone.now()
+        self.set_unusable_password()
 
 
 def _generate_code():

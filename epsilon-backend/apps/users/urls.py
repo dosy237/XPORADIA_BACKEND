@@ -104,4 +104,7 @@ urlpatterns = [
     path("admin/create/", views.CreateAdminView.as_view(), name="create-admin"),
     path("admin/create-user/", views.AdminCreateUserView.as_view(), name="admin-create-user"),
     path("admin/list/", views.AdminListView.as_view(), name="admin-list"),
+    path("admin/<int:user_id>/suspend/", views.SuspendAdminView.as_view(), name="suspend-admin"),
+    path("admin/<int:user_id>/reactivate/", views.ReactivateAdminView.as_view(), name="reactivate-admin"),
+    path("admin/<int:user_id>/delete/", views.DeleteAdminView.as_view(), name="delete-admin"),
 ]
