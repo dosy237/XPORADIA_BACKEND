@@ -11,6 +11,12 @@ urlpatterns = [
         name="validate-accreditation",
     ),
     path("pending-library/", views.PendingLibraryResourcesView.as_view(), name="admin-pending-library"),
+    path("library/", views.AdminLibraryResourcesView.as_view(), name="admin-library-list"),
+    path(
+        "library-establishments/",
+        views.AdminLibraryEstablishmentsView.as_view(),
+        name="admin-library-establishments",
+    ),
     path(
         "library/<uuid:resource_id>/moderate/",
         views.ModerateLibraryResourceView.as_view(),

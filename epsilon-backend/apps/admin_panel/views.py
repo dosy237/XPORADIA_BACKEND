@@ -155,6 +155,53 @@ class ModerateLibraryResourceView(APIView):
         return Response({"id": resource.id, "moderation_status": resource.moderation_status})
 
 
+class AdminLibraryResourcesView(generics.ListAPIView):
+    """Catalogue complet de la bibliothèque numérique, tous établissements
+    confondus — contrairement à PendingLibraryResourcesView (file de
+    modération, pending uniquement), celle-ci liste tout ce qui est publié
+    pour que l'administrateur puisse gérer le fonds (ajout/retrait), pas
+    seulement statuer sur les contributions en attente."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        require_admin_scope(request.user, AdminScope.MODERATION)
+
+        from apps.library.models import LibraryResource
+        from apps.library.serializers import LibraryResourceSerializer
+
+        qs = (
+            LibraryResource.objects.filter(is_archived=False)
+            .select_related("author", "establishment")
+            .order_by("-created_at")
+        )
+        data = LibraryResourceSerializer(qs, many=True, context={"request": request}).data
+        for item, resource in zip(data, qs):
+            item["establishment_name"] = resource.establishment.school_name
+            item["establishment_id"] = resource.establishment_id
+        return Response(data)
+
+
+class AdminLibraryEstablishmentsView(APIView):
+    """Établissements disponibles pour publier une ressource de
+    bibliothèque au nom de l'un d'eux. Expose l'id propre de
+    DirectorProfile (celui qu'attend LibraryResourceListCreateView via
+    establishment_id dans l'URL) — et non l'id du compte User comme le
+    fait l'annuaire public (/auth/establishments/), qui désignerait un
+    établissement différent une fois réinjecté ici."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        require_admin_scope(request.user, AdminScope.MODERATION)
+
+        from apps.users.models import DirectorProfile
+
+        establishments = DirectorProfile.objects.order_by("school_name").values("id", "school_name")
+        return Response(list(establishments))
+
+
 class TogglePartnerStatusView(APIView):
     """Statut "Partenaire" d'un établissement ou d'une entreprise —
     aujourd'hui un simple bouton administrateur (le calcul automatique du

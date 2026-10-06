@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
-from apps.users.models import DirectorProfile, UserRole
+from apps.users.models import AdminScope, DirectorProfile, UserRole
 
 from .models import LibraryResource, ModerationStatus, ResourceDownload, ResourceFavorite, ResourceRating
 from .serializers import LibraryResourceSerializer, ResourceRatingSerializer
@@ -54,6 +54,11 @@ def _get_establishment(establishment_id):
 
 
 def _require_establishment_access(establishment, user):
+    # Un administrateur de périmètre MODERATION (ou FULL) gère la
+    # bibliothèque de n'importe quel établissement sans y être affilié —
+    # même principe que pour les offres d'emploi/stage.
+    if user.admin_has_scope(AdminScope.MODERATION):
+        return
     if establishment.id not in _affiliated_establishment_ids(user):
         raise PermissionDenied("Vous n'avez pas accès à la bibliothèque de cet établissement.")
 
@@ -114,8 +119,9 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
         establishment = self.get_establishment()
         user = self.request.user
         is_director = user.has_role(UserRole.DIRECTOR)
+        is_admin = user.admin_has_scope(AdminScope.MODERATION)
 
-        if not is_director:
+        if not is_director and not is_admin:
             if not user.has_role(UserRole.TEACHER):
                 raise PermissionDenied("Seuls les enseignants et directeurs peuvent publier une ressource.")
             from apps.certification.constants import is_gold_or_above
@@ -134,14 +140,17 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
         if file_url and LibraryResource.objects.filter(establishment=establishment, file_url=file_url).exists():
             raise ValidationError("Une ressource avec ce lien existe déjà dans cette bibliothèque.")
 
-        # Le catalogue officiel du directeur reste publié immédiatement ;
-        # une contribution d'enseignant passe par une modération (CDC
-        # US-10-04 : soumission → revue admin → publication ou rejet).
-        moderation_status = ModerationStatus.APPROVED if is_director else ModerationStatus.PENDING
+        # Le catalogue officiel du directeur (ou d'un administrateur, qui
+        # publie au nom de n'importe quel établissement) reste publié
+        # immédiatement ; une contribution d'enseignant passe par une
+        # modération (CDC US-10-04 : soumission → revue admin → publication
+        # ou rejet).
+        is_official = is_director or is_admin
+        moderation_status = ModerationStatus.APPROVED if is_official else ModerationStatus.PENDING
         instance = serializer.save(
             establishment=establishment,
             author=user,
-            is_contributed=not is_director,
+            is_contributed=not is_official,
             moderation_status=moderation_status,
         )
         _update_file_size_kb(instance)
@@ -169,8 +178,9 @@ class LibraryResourceDetailView(generics.RetrieveUpdateAPIView):
         resource = serializer.instance
         user = self.request.user
         is_director = user.has_role(UserRole.DIRECTOR) and resource.establishment.user_id == user.id
-        if resource.author_id != user.id and not is_director:
-            raise PermissionDenied("Réservé à l'auteur ou au directeur de l'établissement.")
+        is_admin = user.admin_has_scope(AdminScope.MODERATION)
+        if resource.author_id != user.id and not is_director and not is_admin:
+            raise PermissionDenied("Réservé à l'auteur, au directeur de l'établissement, ou à un administrateur.")
         instance = serializer.save()
         _update_file_size_kb(instance)
 
