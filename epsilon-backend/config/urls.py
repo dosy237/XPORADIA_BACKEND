@@ -37,20 +37,19 @@ urlpatterns = [
     path("api/v1/discipline/", include("apps.discipline.urls")),
 ]
 
-if settings.DEBUG:
-    # En production les PDFs hébergés sont servis depuis S3/CloudFront (voir
-    # prod.py), qui n'ajoute pas X-Frame-Options par défaut : la visionneuse
-    # web (iframe) et le WebView natif les affichent donc directement. En
-    # DEBUG, Django sert les médias lui-même et hérite du X-Frame-Options
-    # global (DENY) — on l'exempte pour chaque dossier de PDFs affiché dans
-    # cette même visionneuse (bibliothèque, bulletins) afin que le
-    # comportement local corresponde à celui de production.
-    for pdf_subdir in ("library_pdfs", "report_cards"):
-        urlpatterns += [
-            re_path(
-                rf"^media/{pdf_subdir}/(?P<path>.*)$",
-                xframe_options_exempt(serve_static),
-                {"document_root": settings.MEDIA_ROOT / pdf_subdir},
-            ),
-        ]
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# En production sans S3, Django sert les médias lui-même.
+# On exempte de X-Frame-Options chaque dossier de PDFs affiché dans
+# la visionneuse pour le web (iframe) et le WebView natif.
+for pdf_subdir in ("library_pdfs", "report_cards"):
+    urlpatterns += [
+        re_path(
+            rf"^media/{pdf_subdir}/(?P<path>.*)$",
+            xframe_options_exempt(serve_static),
+            {"document_root": settings.MEDIA_ROOT / pdf_subdir},
+        ),
+    ]
+
+# Servir le reste des fichiers media statiquement (remplace static() qui ne marche qu'en DEBUG)
+urlpatterns += [
+    re_path(r'^media/(?P<path>.*)$', serve_static, {'document_root': settings.MEDIA_ROOT}),
+]
