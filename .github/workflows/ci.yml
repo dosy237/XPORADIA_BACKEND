@@ -14,6 +14,13 @@ env:
   PYTHON_VERSION: "3.12"
   DJANGO_SETTINGS_MODULE: config.settings.dev
 
+defaults:
+  run:
+    # Le projet Django réel vit dans epsilon-backend/, pas à la racine du
+    # dépôt (qui ne contient que ce sous-dossier) — sans ça, chaque "run:"
+    # échouerait sur manage.py/requirements introuvables.
+    working-directory: epsilon-backend
+
 jobs:
   quality:
     name: Code quality
@@ -26,6 +33,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: epsilon-backend/requirements/*.txt
 
       - name: Install dependencies
         run: |
@@ -56,6 +64,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: epsilon-backend/requirements/*.txt
 
       - name: Install dependencies
         run: |
@@ -71,7 +80,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          file: ./coverage.xml
+          file: epsilon-backend/coverage.xml
           fail_ci_if_error: false
 
   django-check:
@@ -86,6 +95,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: epsilon-backend/requirements/*.txt
 
       - name: Install dependencies
         run: |
