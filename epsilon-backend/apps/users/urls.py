@@ -102,5 +102,6 @@ urlpatterns = [
         name="review-child-claim",
     ),
     path("admin/create/", views.CreateAdminView.as_view(), name="create-admin"),
+    path("admin/create-user/", views.AdminCreateUserView.as_view(), name="admin-create-user"),
     path("admin/list/", views.AdminListView.as_view(), name="admin-list"),
 ]

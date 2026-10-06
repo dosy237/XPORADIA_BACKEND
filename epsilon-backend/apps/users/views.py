@@ -1277,6 +1277,76 @@ class CreateAdminView(APIView):
         )
 
 
+class AdminCreateUserView(APIView):
+    """Création d'un compte, pour n'importe quel rôle, par un administrateur
+    — un filet de secours pour quelqu'un qui ne peut pas s'inscrire
+    lui-même (ex. demande par téléphone au support), jamais un remplacement
+    de l'auto-inscription normale qui reste ouverte à tous. Réutilise les
+    mêmes serializers que l'inscription publique (mêmes règles de
+    validation, mêmes profils créés) ; seul le mot de passe change de
+    mécanisme : généré et envoyé par email, jamais choisi par l'admin ni
+    renvoyé dans la réponse. Le compte est vérifié d'office — la personne
+    n'a par définition pas pu recevoir/traiter le code OTP d'inscription,
+    c'est précisément pour ce cas que ce chemin existe."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    SERIALIZERS = {
+        UserRole.TEACHER: RegisterTeacherSerializer,
+        UserRole.DIRECTOR: RegisterDirectorSerializer,
+        UserRole.PARENT: RegisterParentSerializer,
+        UserRole.COMPANY: RegisterCompanySerializer,
+        UserRole.STUDENT: RegisterStudentSerializer,
+    }
+
+    def post(self, request):
+        if not request.user.has_role(UserRole.ADMIN):
+            raise PermissionDenied("Réservé aux administrateurs.")
+
+        role = request.data.get("role")
+        serializer_class = self.SERIALIZERS.get(role)
+        if not serializer_class:
+            raise ValidationError(
+                {"role": f"Rôle invalide. Valeurs acceptées : {', '.join(self.SERIALIZERS)}."}
+            )
+
+        import secrets
+        import string
+
+        temp_password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(14))
+        data = request.data.copy()
+        data["password"] = temp_password
+
+        serializer = serializer_class(data=data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            result = serializer.create()
+        user = result[0] if isinstance(result, tuple) else result
+        user.is_verified = True
+        user.save(update_fields=["is_verified"])
+
+        from django.core.mail import send_mail
+
+        send_mail(
+            subject="Votre accès Xporadia",
+            message=(
+                f"Bonjour {user.first_name},\n\n"
+                f"{request.user.get_full_name()} vous a créé un accès Xporadia.\n\n"
+                f"Email : {user.email}\n"
+                f"Mot de passe temporaire : {temp_password}\n\n"
+                "Connectez-vous puis changez ce mot de passe dès que possible."
+            ),
+            from_email=None,
+            recipient_list=[user.email],
+            fail_silently=True,
+        )
+
+        return Response(
+            {"id": user.id, "email": user.email, "detail": "Compte créé, identifiants envoyés par email."},
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class AdminListView(generics.ListAPIView):
     """Liste des administrateurs existants — pour qu'un admin sache qui
     d'autre a accès, avant d'en créer un nouveau."""
