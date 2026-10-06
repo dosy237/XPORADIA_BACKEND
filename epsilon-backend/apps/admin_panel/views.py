@@ -269,10 +269,31 @@ class AdminUserDetailView(APIView):
             ]
         elif user.has_role(UserRole.DIRECTOR):
             profile = getattr(user, "director_profile", None)
-            data["role_detail"] = {
+            role_detail = {
                 "school_name": profile.school_name if profile else None,
                 "is_partner": profile.is_partner if profile else None,
             }
+            if profile:
+                from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Track
+
+                classes_qs = SchoolClass.objects.filter(track__department__establishment=profile)
+                role_detail.update({
+                    "address": profile.address,
+                    "phone": profile.phone,
+                    "contact_email": profile.contact_email,
+                    "establishment_code": profile.establishment_code,
+                    "is_public": profile.is_public,
+                    "departments_count": profile.departments.count(),
+                    "tracks_count": Track.objects.filter(department__establishment=profile).count(),
+                    "classes_count": classes_qs.count(),
+                    "active_students_count": Enrollment.objects.filter(
+                        school_class__track__department__establishment=profile,
+                        status=EnrollmentStatus.ACTIVE,
+                    ).count(),
+                    "teachers_count": classes_qs.filter(homeroom_teacher__isnull=False)
+                    .values("homeroom_teacher").distinct().count(),
+                })
+            data["role_detail"] = role_detail
         elif user.has_role(UserRole.COMPANY):
             profile = getattr(user, "company_profile", None)
             data["role_detail"] = {
@@ -299,6 +320,27 @@ class SuspendUserView(APIView):
         target.is_active = False
         target.save(update_fields=["is_active"])
         return Response({"id": target.id, "is_active": False})
+
+
+class AdminEstablishmentDetailView(generics.RetrieveUpdateAPIView):
+    """Édition des informations d'un établissement par l'administrateur,
+    ciblée par id de directeur plutôt que request.user (contrairement à
+    DirectorProfileView). Mêmes champs que ce que le directeur peut éditer
+    lui-même : la structure académique (départements, filières, classes)
+    n'est volontairement pas couverte ici, chantier séparé plus lourd."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        from apps.users.serializers import DirectorProfileSerializer
+
+        return DirectorProfileSerializer
+
+    def get_object(self):
+        _require_admin(self.request.user)
+        from apps.users.models import DirectorProfile
+
+        return get_object_or_404(DirectorProfile, user_id=self.kwargs["user_id"])
 
 
 class ReactivateUserView(APIView):

@@ -24,6 +24,11 @@ urlpatterns = [
     ),
     path("users/", views.AdminUserListView.as_view(), name="admin-user-list"),
     path("users/<int:user_id>/", views.AdminUserDetailView.as_view(), name="admin-user-detail"),
+    path(
+        "establishments/<int:user_id>/",
+        views.AdminEstablishmentDetailView.as_view(),
+        name="admin-establishment-detail",
+    ),
     path("users/<int:user_id>/suspend/", views.SuspendUserView.as_view(), name="suspend-user"),
     path("users/<int:user_id>/reactivate/", views.ReactivateUserView.as_view(), name="reactivate-user"),
     path(
