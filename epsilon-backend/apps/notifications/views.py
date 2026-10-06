@@ -1,4 +1,5 @@
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,9 +27,7 @@ class MarkNotificationReadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        notification = generics.get_object_or_404(
-            Notification, pk=pk, user=request.user
-        )
+        notification = generics.get_object_or_404(Notification, pk=pk, user=request.user)
         if not notification.is_read:
             notification.is_read = True
             notification.read_at = timezone.now()
@@ -61,9 +60,7 @@ class MyNotificationPreferencesView(APIView):
 
     def get(self, request):
         disabled = set(
-            NotificationPreference.objects.filter(user=request.user, enabled=False).values_list(
-                "category", flat=True
-            )
+            NotificationPreference.objects.filter(user=request.user, enabled=False).values_list("category", flat=True)
         )
         data = [
             {"category": category, "category_label": label, "enabled": category not in disabled}
@@ -94,7 +91,5 @@ class UnregisterDeviceTokenView(APIView):
     def post(self, request):
         serializer = UnregisterDeviceTokenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        DeviceToken.objects.filter(
-            token=serializer.validated_data["token"], user=request.user
-        ).delete()
+        DeviceToken.objects.filter(token=serializer.validated_data["token"], user=request.user).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

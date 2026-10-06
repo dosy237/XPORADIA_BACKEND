@@ -5,6 +5,7 @@ from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -77,36 +78,36 @@ def _rank_for_feed(qs, viewer_id=None):
         .values("c")
     )
 
-    return (
-        qs.annotate(
-            _like_count=Count("likes", distinct=True),
-            _comment_count=Count("comments", distinct=True),
-            _author_posts=Coalesce(Subquery(author_posts, output_field=IntegerField()), Value(0)),
-            _author_likes_given=Coalesce(Subquery(author_likes_given, output_field=IntegerField()), Value(0)),
-            _author_comments_given=Coalesce(
-                Subquery(author_comments_given, output_field=IntegerField()), Value(0)
-            ),
-            _recent_bucket=Case(
-                When(created_at__gte=ranking_cutoff, then=Value(1)), default=Value(0), output_field=IntegerField()
-            ),
-            _own_recent_bucket=Case(
+    return qs.annotate(
+        _like_count=Count("likes", distinct=True),
+        _comment_count=Count("comments", distinct=True),
+        _author_posts=Coalesce(Subquery(author_posts, output_field=IntegerField()), Value(0)),
+        _author_likes_given=Coalesce(Subquery(author_likes_given, output_field=IntegerField()), Value(0)),
+        _author_comments_given=Coalesce(Subquery(author_comments_given, output_field=IntegerField()), Value(0)),
+        _recent_bucket=Case(
+            When(created_at__gte=ranking_cutoff, then=Value(1)), default=Value(0), output_field=IntegerField()
+        ),
+        _own_recent_bucket=(
+            Case(
                 When(
-                    author_id=viewer_id, created_at__gte=own_post_pin_cutoff,
+                    author_id=viewer_id,
+                    created_at__gte=own_post_pin_cutoff,
                     then=Value(1),
                 ),
                 default=Value(0),
                 output_field=IntegerField(),
-            ) if viewer_id else Value(0, output_field=IntegerField()),
-            _score=(
-                F("_comment_count") * 3
-                + F("_like_count") * 2
-                + F("_author_posts")
-                + F("_author_likes_given")
-                + F("_author_comments_given")
-            ),
-        )
-        .order_by("-_own_recent_bucket", "-_recent_bucket", "-_score", "-created_at")
-    )
+            )
+            if viewer_id
+            else Value(0, output_field=IntegerField())
+        ),
+        _score=(
+            F("_comment_count") * 3
+            + F("_like_count") * 2
+            + F("_author_posts")
+            + F("_author_likes_given")
+            + F("_author_comments_given")
+        ),
+    ).order_by("-_own_recent_bucket", "-_recent_bucket", "-_score", "-created_at")
 
 
 class IsVerifiedToPublish(permissions.BasePermission):
@@ -207,9 +208,7 @@ class PostViewSet(viewsets.ModelViewSet):
         if len(images) > MAX_IMAGES_PER_POST:
             post.delete()
             raise ValidationError({"images": f"{MAX_IMAGES_PER_POST} photos maximum par publication."})
-        PostImage.objects.bulk_create(
-            [PostImage(post=post, image=image, order=i) for i, image in enumerate(images)]
-        )
+        PostImage.objects.bulk_create([PostImage(post=post, image=image, order=i) for i, image in enumerate(images)])
 
         self._attach_my_following_ids(request)
         post_data = PostSerializer(post, context={"request": request}).data
@@ -381,7 +380,5 @@ class ToggleCommentLikeView(APIView):
         else:
             liked = True
         like_count = comment.likes.count()
-        broadcast_to_post(
-            post_id, "comment_like_updated", {"comment_id": comment.id, "like_count": like_count}
-        )
+        broadcast_to_post(post_id, "comment_like_updated", {"comment_id": comment.id, "like_count": like_count})
         return Response({"liked": liked, "like_count": like_count})

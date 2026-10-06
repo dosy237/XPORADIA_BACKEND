@@ -1,10 +1,6 @@
 from django.urls import path
 
-from .views import (
-    ChildIncidentListCreateView,
-    EstablishmentIncidentsDashboardView,
-    NotifyParentAboutIncidentView,
-)
+from .views import ChildIncidentListCreateView, EstablishmentIncidentsDashboardView, NotifyParentAboutIncidentView
 
 urlpatterns = [
     path("incidents/", ChildIncidentListCreateView.as_view(), name="incidents"),

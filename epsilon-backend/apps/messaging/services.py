@@ -6,6 +6,7 @@ ici plutôt que dispersée dans des signaux Django — plus facile à tester et
 à raisonner pour un système aussi sensible (élèves mineurs, messageries
 privées) qu'une messagerie.
 """
+
 from .models import Channel, ChannelMembership, ChannelType
 
 
@@ -59,9 +60,7 @@ def _active_enrolled_student_users(school_class):
 def create_subject_channel(subject, creator):
     """Action explicite de l'enseignant dédié — jamais automatique. Peuple
     immédiatement avec les élèves actuellement inscrits dans la classe."""
-    channel = Channel.objects.create(
-        channel_type=ChannelType.SUBJECT, subject=subject, created_by=creator
-    )
+    channel = Channel.objects.create(channel_type=ChannelType.SUBJECT, subject=subject, created_by=creator)
     ChannelMembership.objects.get_or_create(channel=channel, user=creator, defaults={"is_admin": True})
     for student_user in _active_enrolled_student_users(subject.school_class):
         ChannelMembership.objects.get_or_create(channel=channel, user=student_user)
@@ -88,18 +87,14 @@ def ensure_student_messaging(child):
     if not child.user_id:
         return
 
-    enrollments = Enrollment.objects.filter(
-        child=child, status=EnrollmentStatus.ACTIVE
-    ).select_related("school_class")
+    enrollments = Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE).select_related("school_class")
 
     for enrollment in enrollments:
         school_class = enrollment.school_class
         class_channel = get_or_create_class_channel(school_class)
         ChannelMembership.objects.get_or_create(channel=class_channel, user=child.user)
 
-        subject_channels = Channel.objects.filter(
-            channel_type=ChannelType.SUBJECT, subject__school_class=school_class
-        )
+        subject_channels = Channel.objects.filter(channel_type=ChannelType.SUBJECT, subject__school_class=school_class)
         for channel in subject_channels:
             ChannelMembership.objects.get_or_create(channel=channel, user=child.user)
 
@@ -141,11 +136,13 @@ def save_uploaded_attachments(files, request, upload_to="message_attachments"):
     for f in files:
         path = default_storage.save(f"{upload_to}/{f.name}", f)
         url = default_storage.url(path)
-        attachments.append({
-            "name": f.name,
-            "url": request.build_absolute_uri(url) if request else url,
-            "type": f.content_type or "",
-        })
+        attachments.append(
+            {
+                "name": f.name,
+                "url": request.build_absolute_uri(url) if request else url,
+                "type": f.content_type or "",
+            }
+        )
     return attachments
 
 
@@ -159,9 +156,7 @@ def notify_channel_members(channel, message, request, preview_override=None):
 
     from .serializers import ChannelSerializer
 
-    recipients = ChannelMembership.objects.filter(channel=channel).exclude(
-        user=message.author
-    ).select_related("user")
+    recipients = ChannelMembership.objects.filter(channel=channel).exclude(user=message.author).select_related("user")
     preview = preview_override or (message.body[:80] if message.body else "Pièce jointe envoyée")
     author_name = message.author.get_full_name()
     # Pour un canal collectif, on précise lequel dans le titre ; pour un

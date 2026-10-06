@@ -1,5 +1,6 @@
 """Xporadia — apps/documents/pdf.py — même principe que apps.grading.pdf :
 HTML -> PDF via WeasyPrint."""
+
 from django.template.loader import render_to_string
 
 from apps.users.models import ChildSex
@@ -26,8 +27,7 @@ def _body_paragraphs(document, child, establishment, enrollment) -> list[str]:
             f"l'année scolaire {document.school_year}.",
             f"Le/La susnommé(e) a quitté l'établissement le {left_on} et n'y est plus inscrit(e) "
             f"depuis cette date.",
-            "En foi de quoi, la présente attestation lui est délivrée pour servir et valoir ce que "
-            "de droit.",
+            "En foi de quoi, la présente attestation lui est délivrée pour servir et valoir ce que " "de droit.",
         ]
 
     verb = "atteste" if document.document_type == AdministrativeDocumentType.ATTESTATION_SCOLARITE else "certifie"
@@ -36,8 +36,7 @@ def _body_paragraphs(document, child, establishment, enrollment) -> list[str]:
         f"{civility.lower()} {child.first_name} {child.last_name}{born}, immatriculé(e) sous le "
         f"numéro {child.matricule or '—'}, est régulièrement inscrit(e) en classe de {class_name} "
         f"au titre de l'année scolaire {document.school_year}.",
-        "En foi de quoi, la présente attestation lui est délivrée pour servir et valoir ce que de "
-        "droit.",
+        "En foi de quoi, la présente attestation lui est délivrée pour servir et valoir ce que de " "droit.",
     ]
 
 

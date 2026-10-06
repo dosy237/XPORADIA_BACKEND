@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import F
 from django.http import Http404
+
 from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -25,9 +26,7 @@ def _affiliated_establishment_ids(user):
     except DirectorProfile.DoesNotExist:
         pass
     ids.update(
-        SchoolClass.objects.filter(homeroom_teacher=user).values_list(
-            "track__department__establishment_id", flat=True
-        )
+        SchoolClass.objects.filter(homeroom_teacher=user).values_list("track__department__establishment_id", flat=True)
     )
     ids.update(
         Subject.objects.filter(teacher=user).values_list(
@@ -89,9 +88,7 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         establishment = self.get_establishment()
         user = self.request.user
-        qs = LibraryResource.objects.filter(
-            establishment=establishment, is_archived=False
-        ).select_related("author")
+        qs = LibraryResource.objects.filter(establishment=establishment, is_archived=False).select_related("author")
 
         # Le grand public de l'établissement ne voit que les ressources
         # approuvées ; l'auteur d'une contribution voit en plus la sienne
@@ -142,7 +139,9 @@ class LibraryResourceListCreateView(generics.ListCreateAPIView):
         # US-10-04 : soumission → revue admin → publication ou rejet).
         moderation_status = ModerationStatus.APPROVED if is_director else ModerationStatus.PENDING
         instance = serializer.save(
-            establishment=establishment, author=user, is_contributed=not is_director,
+            establishment=establishment,
+            author=user,
+            is_contributed=not is_director,
             moderation_status=moderation_status,
         )
         _update_file_size_kb(instance)
@@ -242,7 +241,9 @@ class RateResourceView(APIView):
             raise ValidationError({"score": "La note doit être comprise entre 1 et 5."})
 
         rating, _ = ResourceRating.objects.update_or_create(
-            resource=resource, user=request.user, defaults={"score": score},
+            resource=resource,
+            user=request.user,
+            defaults={"score": score},
         )
         return Response(ResourceRatingSerializer(rating).data, status=200)
 
@@ -253,9 +254,9 @@ class MyLibraryFavoritesView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        return LibraryResource.objects.filter(
-            favorited_by__user=self.request.user, is_archived=False
-        ).select_related("author")
+        return LibraryResource.objects.filter(favorited_by__user=self.request.user, is_archived=False).select_related(
+            "author"
+        )
 
     def get_serializer_context(self):
         return {"request": self.request}

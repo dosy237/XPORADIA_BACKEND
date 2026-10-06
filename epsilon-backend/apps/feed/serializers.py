@@ -18,8 +18,14 @@ class PostAuthorSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "full_name", "avatar", "primary_role", "role_label", "is_followed_by_me",
-            "followers_count", "certification_level",
+            "id",
+            "full_name",
+            "avatar",
+            "primary_role",
+            "role_label",
+            "is_followed_by_me",
+            "followers_count",
+            "certification_level",
         ]
         read_only_fields = fields
 
@@ -93,12 +99,28 @@ class PostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
         fields = [
-            "id", "author", "title", "body", "hashtags", "images", "video",
-            "video_duration_seconds", "visibility", "like_count", "comment_count",
-            "is_liked_by_me", "created_at",
+            "id",
+            "author",
+            "title",
+            "body",
+            "hashtags",
+            "images",
+            "video",
+            "video_duration_seconds",
+            "visibility",
+            "like_count",
+            "comment_count",
+            "is_liked_by_me",
+            "created_at",
         ]
         read_only_fields = [
-            "id", "author", "hashtags", "images", "video", "video_duration_seconds", "created_at",
+            "id",
+            "author",
+            "hashtags",
+            "images",
+            "video",
+            "video_duration_seconds",
+            "created_at",
         ]
 
     def get_is_liked_by_me(self, obj):

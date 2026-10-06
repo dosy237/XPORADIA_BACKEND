@@ -2,6 +2,7 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -57,7 +58,8 @@ def _require_director(user):
 
 def _require_director_owns_child(child, director):
     exists = Enrollment.objects.filter(
-        child=child, status=EnrollmentStatus.ACTIVE,
+        child=child,
+        status=EnrollmentStatus.ACTIVE,
         school_class__track__department__establishment__user=director,
     ).exists()
     if not exists:
@@ -94,7 +96,11 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
         # Seul un administrateur peut mettre en avant (is_premium) une
         # offre — voir AdminInternshipOfferSerializer.
         user = self.request.user
-        if self.action in ("update", "partial_update") and user.is_authenticated and user.admin_has_scope(AdminScope.CATALOG):
+        if (
+            self.action in ("update", "partial_update")
+            and user.is_authenticated
+            and user.admin_has_scope(AdminScope.CATALOG)
+        ):
             return AdminInternshipOfferSerializer
         return InternshipOfferSerializer
 
@@ -255,7 +261,7 @@ class OfferApplicationsView(generics.ListCreateAPIView):
             offer.company,
             NotificationType.STAGE_UPDATE,
             title="Nouvelle candidature de stage",
-            body=f"{school_user.get_full_name()} candidate pour {child.first_name} à \"{offer.title}\".",
+            body=f'{school_user.get_full_name()} candidate pour {child.first_name} à "{offer.title}".',
             data={"application_id": str(application.id)},
         )
 
@@ -290,9 +296,7 @@ class InternshipApplicationDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = InternshipApplicationSerializer
 
     def get_queryset(self):
-        return InternshipApplication.objects.select_related(
-            "offer", "offer__company", "student", "school"
-        )
+        return InternshipApplication.objects.select_related("offer", "offer__company", "student", "school")
 
     def get_object(self):
         application = generics.get_object_or_404(self.get_queryset(), pk=self.kwargs["pk"])
@@ -324,7 +328,7 @@ class InternshipApplicationDetailView(generics.RetrieveUpdateAPIView):
                 title="Stage confirmé !",
                 body=(
                     f"{application.offer.company.get_full_name()} a accepté {application.student.first_name} "
-                    f"pour \"{application.offer.title}\"."
+                    f'pour "{application.offer.title}".'
                 ),
                 data={"convention_id": str(convention.id)},
             )
@@ -333,7 +337,7 @@ class InternshipApplicationDetailView(generics.RetrieveUpdateAPIView):
                 application.school,
                 NotificationType.STAGE_UPDATE,
                 title="Candidature de stage refusée",
-                body=f"\"{application.offer.title}\" : {application.offer.company.get_full_name()}.",
+                body=f'"{application.offer.title}" : {application.offer.company.get_full_name()}.',
                 data={"application_id": str(application.id)},
             )
 
@@ -351,8 +355,11 @@ class MyConventionsView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user
         qs = InternshipConvention.objects.select_related(
-            "application", "application__student", "application__offer",
-            "application__offer__company", "application__school",
+            "application",
+            "application__student",
+            "application__offer",
+            "application__offer__company",
+            "application__school",
         )
         if user.has_role(UserRole.DIRECTOR):
             return qs.filter(application__school=user)
@@ -367,7 +374,10 @@ class MyConventionsView(generics.ListAPIView):
 def _get_convention(convention_id):
     try:
         return InternshipConvention.objects.select_related(
-            "application", "application__school", "application__offer", "application__offer__company",
+            "application",
+            "application__school",
+            "application__offer",
+            "application__offer__company",
             "application__student",
         ).get(id=convention_id)
     except InternshipConvention.DoesNotExist:

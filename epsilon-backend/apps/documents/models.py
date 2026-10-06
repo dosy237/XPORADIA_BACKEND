@@ -25,9 +25,7 @@ class AdministrativeDocument(models.Model):
     establishment = models.ForeignKey(
         "users.DirectorProfile", on_delete=models.CASCADE, related_name="administrative_documents"
     )
-    child = models.ForeignKey(
-        "users.Child", on_delete=models.CASCADE, related_name="administrative_documents"
-    )
+    child = models.ForeignKey("users.Child", on_delete=models.CASCADE, related_name="administrative_documents")
     document_type = models.CharField(max_length=30, choices=AdministrativeDocumentType.choices)
     school_year = models.CharField(max_length=9)
     reference_number = models.CharField(max_length=40, unique=True)

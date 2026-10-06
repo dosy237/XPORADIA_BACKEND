@@ -8,6 +8,7 @@ Orange Money / Wave / MTN MoMo en production) et carte bancaire (à
 remplacer par une passerelle réelle — Stripe, CinetPay, etc. — le moment
 venu). Même logique que le simulateur OTP/SMS — voir apps/users/services.py.
 """
+
 import logging
 import secrets
 
@@ -18,8 +19,16 @@ from .models import Payment, PaymentMethod, PaymentStatus
 logger = logging.getLogger(__name__)
 
 
-def initiate_payment(user, amount, payment_type, operator=None, phone_number=None,
-                      card_last4=None, card_holder_name=None, content_object=None):
+def initiate_payment(
+    user,
+    amount,
+    payment_type,
+    operator=None,
+    phone_number=None,
+    card_last4=None,
+    card_holder_name=None,
+    content_object=None,
+):
     method = PaymentMethod.BANK_CARD if card_last4 else PaymentMethod.MOBILE_MONEY
     return Payment.objects.create(
         user=user,
@@ -38,7 +47,9 @@ def initiate_payment(user, amount, payment_type, operator=None, phone_number=Non
 def confirm_payment_to_escrow(payment):
     logger.info(
         "Paiement simulé (%s) : %s — %s FCFA séquestrés.",
-        payment.get_method_display(), payment.tx_ref, payment.amount,
+        payment.get_method_display(),
+        payment.tx_ref,
+        payment.amount,
     )
     payment.status = PaymentStatus.ESCROW
     payment.operator_tx_id = f"SIM-{secrets.token_hex(6).upper()}"
@@ -52,7 +63,9 @@ def confirm_payment_completed(payment):
     libération future."""
     logger.info(
         "Paiement simulé (%s) : %s — %s FCFA complété.",
-        payment.get_method_display(), payment.tx_ref, payment.amount,
+        payment.get_method_display(),
+        payment.tx_ref,
+        payment.amount,
     )
     payment.status = PaymentStatus.COMPLETED
     payment.operator_tx_id = f"SIM-{secrets.token_hex(6).upper()}"
@@ -65,10 +78,11 @@ def confirm_payment_completed(payment):
 
     for admin in User.objects.filter(primary_role=UserRole.ADMIN, is_active=True):
         notify_user(
-            admin, NotificationType.PAYMENT_RECEIVED,
+            admin,
+            NotificationType.PAYMENT_RECEIVED,
             title="Paiement reçu",
             body=f"{payment.amount} FCFA reçus de {payment.user.get_full_name()} "
-                 f"({payment.get_payment_type_display()}, {payment.get_method_display()}).",
+            f"({payment.get_payment_type_display()}, {payment.get_method_display()}).",
             data={"payment_id": str(payment.id)},
         )
     return payment

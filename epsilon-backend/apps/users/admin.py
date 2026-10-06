@@ -22,8 +22,13 @@ from .models import (
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     list_display = [
-        "email", "first_name", "last_name", "primary_role",
-        "is_verified", "is_documents_validated", "created_at",
+        "email",
+        "first_name",
+        "last_name",
+        "primary_role",
+        "is_verified",
+        "is_documents_validated",
+        "created_at",
     ]
     list_filter = ["primary_role", "is_verified", "is_documents_validated", "is_active"]
     search_fields = ["email", "first_name", "last_name", "phone"]
@@ -56,8 +61,11 @@ class TeacherDiplomaInline(admin.TabularInline):
 @admin.register(TeacherProfile)
 class TeacherProfileAdmin(admin.ModelAdmin):
     list_display = [
-        "user", "experience_years", "available_for_tutoring",
-        "available_for_employment", "preregistration_code",
+        "user",
+        "experience_years",
+        "available_for_tutoring",
+        "available_for_employment",
+        "preregistration_code",
     ]
     inlines = [TeacherDiplomaInline]
 

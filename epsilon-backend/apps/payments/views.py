@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -43,7 +44,8 @@ class OpenDisputeView(APIView):
         dispute = Dispute.objects.create(payment=payment, opened_by=request.user, reason=reason)
         for admin in User.objects.filter(primary_role=UserRole.ADMIN, is_active=True):
             notify_user(
-                admin, NotificationType.SYSTEM,
+                admin,
+                NotificationType.SYSTEM,
                 title="Nouveau litige de paiement",
                 body=f"{request.user.get_full_name()} conteste un paiement de {payment.amount} FCFA.",
                 data={"dispute_id": dispute.id},
@@ -90,9 +92,10 @@ class ResolveDisputeView(APIView):
         dispute.save(update_fields=["status", "resolution", "resolved_by", "resolved_at"])
 
         notify_user(
-            dispute.opened_by, NotificationType.SYSTEM,
+            dispute.opened_by,
+            NotificationType.SYSTEM,
             title="Votre litige a été traité",
             body=f"Statut : {dispute.get_status_display()}."
-                 + (f" {dispute.resolution}" if dispute.resolution else ""),
+            + (f" {dispute.resolution}" if dispute.resolution else ""),
         )
         return Response(DisputeSerializer(dispute).data)

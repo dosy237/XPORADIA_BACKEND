@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
+
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -15,10 +16,10 @@ from apps.users.models import UserRole
 
 from . import services
 from .models import (
+    EstablishmentJoinRequest,
     Evaluation,
     Grade,
     JoinRequestStatus,
-    EstablishmentJoinRequest,
     ReportCard,
     ReportCardSanction,
     SubjectAppreciation,
@@ -111,9 +112,11 @@ def _require_join_request_access(user):
 
     from apps.academics.models import DelegatedTask, TaskDelegation
 
-    delegation = TaskDelegation.objects.filter(
-        teacher=user, task=DelegatedTask.JOIN_REQUESTS
-    ).select_related("establishment").first()
+    delegation = (
+        TaskDelegation.objects.filter(teacher=user, task=DelegatedTask.JOIN_REQUESTS)
+        .select_related("establishment")
+        .first()
+    )
     if delegation:
         return delegation.establishment
 
@@ -165,9 +168,7 @@ class MyActiveTermView(APIView):
 
     def get(self, request, class_id):
         try:
-            school_class = SchoolClass.objects.select_related(
-                "track__department__establishment"
-            ).get(id=class_id)
+            school_class = SchoolClass.objects.select_related("track__department__establishment").get(id=class_id)
         except SchoolClass.DoesNotExist:
             raise Http404
         establishment = school_class.track.department.establishment
@@ -217,7 +218,8 @@ def _save_grade(evaluation, child_id, score, is_excused, user):
     point d'écriture de Grade, utilisé par les deux écrans de saisie
     (évaluation seule et grille multi-évaluations)."""
     grade, created = Grade.objects.get_or_create(
-        evaluation=evaluation, child_id=child_id,
+        evaluation=evaluation,
+        child_id=child_id,
         defaults={"score": score, "is_excused": is_excused, "created_by": user, "updated_by": user},
     )
     if not created:
@@ -244,19 +246,19 @@ class EvaluationGradesView(APIView):
     def get(self, request, evaluation_id):
         evaluation = self._get_evaluation(evaluation_id, request.user)
         enrollments = services.active_enrollments(evaluation.subject.school_class)
-        existing_grades = {
-            g.child_id: g for g in Grade.objects.filter(evaluation=evaluation)
-        }
+        existing_grades = {g.child_id: g for g in Grade.objects.filter(evaluation=evaluation)}
         roster = []
         for enrollment in enrollments:
             grade = existing_grades.get(enrollment.child_id)
-            roster.append({
-                "child": enrollment.child.id,
-                "child_first_name": enrollment.child.first_name,
-                "child_last_name": enrollment.child.last_name,
-                "score": grade.score if grade else None,
-                "is_excused": grade.is_excused if grade else False,
-            })
+            roster.append(
+                {
+                    "child": enrollment.child.id,
+                    "child_first_name": enrollment.child.first_name,
+                    "child_last_name": enrollment.child.last_name,
+                    "score": grade.score if grade else None,
+                    "is_excused": grade.is_excused if grade else False,
+                }
+            )
         return Response(roster)
 
     def post(self, request, evaluation_id):
@@ -272,9 +274,7 @@ class EvaluationGradesView(APIView):
         for entry in serializer.validated_data:
             score = entry.get("score")
             if score is not None and not (0 <= score <= evaluation.max_score):
-                raise ValidationError(
-                    {"score": f"La note doit être comprise entre 0 et {evaluation.max_score}."}
-                )
+                raise ValidationError({"score": f"La note doit être comprise entre 0 et {evaluation.max_score}."})
 
         valid_child_ids = set(
             Enrollment.objects.filter(
@@ -285,7 +285,9 @@ class EvaluationGradesView(APIView):
         for entry in serializer.validated_data:
             if entry["child"] not in valid_child_ids:
                 continue  # élève qui n'est plus inscrit dans cette classe — ignoré, pas d'erreur bloquante
-            grade = _save_grade(evaluation, entry["child"], entry.get("score"), entry.get("is_excused", False), request.user)
+            grade = _save_grade(
+                evaluation, entry["child"], entry.get("score"), entry.get("is_excused", False), request.user
+            )
             saved.append(grade)
         return Response(GradeSerializer(saved, many=True).data)
 
@@ -354,13 +356,9 @@ class SubjectGradeGridView(APIView):
 
         evaluations = list(Evaluation.objects.filter(subject=subject, term=term).order_by("date", "id"))
         enrollments = services.active_enrollments(subject.school_class)
-        grades_by_key = {
-            (g.evaluation_id, g.child_id): g
-            for g in Grade.objects.filter(evaluation__in=evaluations)
-        }
+        grades_by_key = {(g.evaluation_id, g.child_id): g for g in Grade.objects.filter(evaluation__in=evaluations)}
         appreciations_by_child = {
-            a.child_id: a.comment
-            for a in SubjectAppreciation.objects.filter(subject=subject, term=term)
+            a.child_id: a.comment for a in SubjectAppreciation.objects.filter(subject=subject, term=term)
         }
 
         students = []
@@ -380,32 +378,38 @@ class SubjectGradeGridView(APIView):
                         "updated_by_name": grade.updated_by.get_full_name() if grade.updated_by_id else None,
                         "updated_at": grade.graded_at.isoformat(),
                     }
-                    if grade else None
+                    if grade
+                    else None
                 )
-            students.append({
-                "child_id": child.id,
-                "first_name": child.first_name,
-                "last_name": child.last_name,
-                "avatar": (
-                    request.build_absolute_uri(child.user.avatar.url)
-                    if child.user_id and child.user.avatar else None
-                ),
-                "grades": grades,
-                # Moyenne de CETTE matière uniquement — jamais pondérée
-                # par Subject.coefficient, jamais la moyenne générale.
-                "subject_average": services.compute_subject_average(child, subject, term),
-                # Brouillon d'appréciation de matière — copié dans
-                # SubjectReportEntry.teacher_comment à la génération du
-                # bulletin, voir GenerateReportCardsView.
-                "appreciation": appreciations_by_child.get(child.id, ""),
-            })
+            students.append(
+                {
+                    "child_id": child.id,
+                    "first_name": child.first_name,
+                    "last_name": child.last_name,
+                    "avatar": (
+                        request.build_absolute_uri(child.user.avatar.url)
+                        if child.user_id and child.user.avatar
+                        else None
+                    ),
+                    "grades": grades,
+                    # Moyenne de CETTE matière uniquement — jamais pondérée
+                    # par Subject.coefficient, jamais la moyenne générale.
+                    "subject_average": services.compute_subject_average(child, subject, term),
+                    # Brouillon d'appréciation de matière — copié dans
+                    # SubjectReportEntry.teacher_comment à la génération du
+                    # bulletin, voir GenerateReportCardsView.
+                    "appreciation": appreciations_by_child.get(child.id, ""),
+                }
+            )
 
-        return Response({
-            "subject": subject.id,
-            "term": TermSerializer(term).data,
-            "evaluations": EvaluationSerializer(evaluations, many=True).data,
-            "students": students,
-        })
+        return Response(
+            {
+                "subject": subject.id,
+                "term": TermSerializer(term).data,
+                "evaluations": EvaluationSerializer(evaluations, many=True).data,
+                "students": students,
+            }
+        )
 
     def post(self, request, subject_id, term_id):
         subject = self._get_subject(subject_id, request.user)
@@ -420,9 +424,9 @@ class SubjectGradeGridView(APIView):
             e.id: e for e in Evaluation.objects.filter(subject=subject, term=term, id__in=evaluation_ids)
         }
         valid_child_ids = set(
-            Enrollment.objects.filter(
-                school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
-            ).values_list("child_id", flat=True)
+            Enrollment.objects.filter(school_class=subject.school_class, status=EnrollmentStatus.ACTIVE).values_list(
+                "child_id", flat=True
+            )
         )
 
         # Borne haute par évaluation, vérifiée intégralement AVANT toute
@@ -449,7 +453,9 @@ class SubjectGradeGridView(APIView):
                 continue  # évaluation hors matière/trimestre — ignorée, pas d'erreur bloquante
             if entry["child"] not in valid_child_ids:
                 continue  # élève qui n'est plus inscrit dans cette classe — ignoré
-            grade = _save_grade(evaluation, entry["child"], entry.get("score"), entry.get("is_excused", False), request.user)
+            grade = _save_grade(
+                evaluation, entry["child"], entry.get("score"), entry.get("is_excused", False), request.user
+            )
             saved.append(grade)
             touched_child_ids.add(entry["child"])
 
@@ -459,10 +465,12 @@ class SubjectGradeGridView(APIView):
             for child_id in touched_child_ids
         }
 
-        return Response({
-            "saved": GradeSerializer(saved, many=True).data,
-            "updated_averages": updated_averages,
-        })
+        return Response(
+            {
+                "saved": GradeSerializer(saved, many=True).data,
+                "updated_averages": updated_averages,
+            }
+        )
 
 
 class SubjectStudentAppreciationView(APIView):
@@ -506,25 +514,30 @@ class ClassReportPreviewView(APIView):
         _require_class_manage_access(school_class, request.user)
 
         result = services.compute_class_rankings(school_class, term)
-        return Response({
-            "class_average": result["class_average"],
-            "ranked": [
-                {
-                    "child": e["child"].id, "first_name": e["child"].first_name,
-                    "last_name": e["child"].last_name, "general_average": e["general_average"],
-                    "rank": e["rank"],
-                    "avatar": (
-                        request.build_absolute_uri(e["child"].user.avatar.url)
-                        if e["child"].user_id and e["child"].user.avatar else None
-                    ),
-                }
-                for e in result["ranked"]
-            ],
-            "without_average": [
-                {"child": c.id, "first_name": c.first_name, "last_name": c.last_name}
-                for c in result["without_average"]
-            ],
-        })
+        return Response(
+            {
+                "class_average": result["class_average"],
+                "ranked": [
+                    {
+                        "child": e["child"].id,
+                        "first_name": e["child"].first_name,
+                        "last_name": e["child"].last_name,
+                        "general_average": e["general_average"],
+                        "rank": e["rank"],
+                        "avatar": (
+                            request.build_absolute_uri(e["child"].user.avatar.url)
+                            if e["child"].user_id and e["child"].user.avatar
+                            else None
+                        ),
+                    }
+                    for e in result["ranked"]
+                ],
+                "without_average": [
+                    {"child": c.id, "first_name": c.first_name, "last_name": c.last_name}
+                    for c in result["without_average"]
+                ],
+            }
+        )
 
 
 class GenerateReportCardsView(APIView):
@@ -578,7 +591,8 @@ class GenerateReportCardsView(APIView):
             # s'appliquerait aussi bien à la création qu'à une
             # republication, ce qui perdrait l'auteur de la 1re publication.
             report_card, is_new = ReportCard.objects.update_or_create(
-                child=child, term=term,
+                child=child,
+                term=term,
                 defaults={
                     "school_class": school_class,
                     "general_average": entry["general_average"],
@@ -602,15 +616,16 @@ class GenerateReportCardsView(APIView):
             for subject in subjects:
                 subject_avg = services.compute_subject_average(child, subject, term)
                 teacher_name = (
-                    f"{subject.teacher.first_name} {subject.teacher.last_name}".strip()
-                    if subject.teacher_id
-                    else ""
+                    f"{subject.teacher.first_name} {subject.teacher.last_name}".strip() if subject.teacher_id else ""
                 )
                 SubjectReportEntry.objects.create(
-                    report_card=report_card, subject_name=subject.name,
-                    subject_average=subject_avg, coefficient=subject.coefficient,
+                    report_card=report_card,
+                    subject_name=subject.name,
+                    subject_average=subject_avg,
+                    coefficient=subject.coefficient,
                     teacher_comment=appreciations_by_key.get((subject.id, child.id), ""),
-                    teacher_name=teacher_name, category=subject.category,
+                    teacher_name=teacher_name,
+                    category=subject.category,
                 )
 
             from .pdf import generate_and_attach_report_card
@@ -620,13 +635,15 @@ class GenerateReportCardsView(APIView):
 
             if child.user_id:
                 notify_user(
-                    child.user, NotificationType.REPORT_CARD_PUBLISHED,
+                    child.user,
+                    NotificationType.REPORT_CARD_PUBLISHED,
                     title="Bulletin disponible",
                     body=f"Votre bulletin du {term} est disponible, moyenne générale : {entry['general_average']}/20.",
                 )
             if child.parent and child.parent.user_id:
                 notify_user(
-                    child.parent.user, NotificationType.REPORT_CARD_PUBLISHED,
+                    child.parent.user,
+                    NotificationType.REPORT_CARD_PUBLISHED,
                     title="Bulletin disponible",
                     body=f"Le bulletin de {child.first_name} pour le {term} est disponible.",
                 )
@@ -713,7 +730,10 @@ class ReportCardPdfView(APIView):
     def get(self, request, report_card_id):
         report_card = get_object_or_404(
             ReportCard.objects.select_related(
-                "child", "child__parent", "child__user", "term",
+                "child",
+                "child__parent",
+                "child__user",
+                "term",
                 "school_class__track__department__establishment",
             ).prefetch_related("subject_entries"),
             pk=report_card_id,
@@ -805,14 +825,16 @@ class JoinRequestCreateView(APIView):
             establishment = get_object_or_404(DirectorProfile, user_id=establishment_id)
 
         join_request = EstablishmentJoinRequest.objects.create(
-            child=child, establishment=establishment,
+            child=child,
+            establishment=establishment,
             other_establishment_name="" if establishment else other_name,
             declared_level=declared_level,
         )
 
         if establishment:
             notify_user(
-                establishment.user, NotificationType.ENROLLMENT_UPDATE,
+                establishment.user,
+                NotificationType.ENROLLMENT_UPDATE,
                 title="Nouvelle demande de rattachement",
                 body=f"{child.first_name} {child.last_name} demande à rejoindre votre établissement.",
                 data={"join_request_id": join_request.id},
@@ -831,9 +853,11 @@ class MyJoinRequestView(APIView):
         if not child:
             raise PermissionDenied("Réservé aux comptes élève.")
         join_request = EstablishmentJoinRequest.objects.filter(child=child).order_by("-created_at").first()
-        return Response({
-            "join_request": JoinRequestSerializer(join_request).data if join_request else None,
-        })
+        return Response(
+            {
+                "join_request": JoinRequestSerializer(join_request).data if join_request else None,
+            }
+        )
 
 
 class DirectorJoinRequestsView(generics.ListAPIView):
@@ -846,9 +870,11 @@ class DirectorJoinRequestsView(generics.ListAPIView):
 
     def get_queryset(self):
         establishment = _require_join_request_access(self.request.user)
-        return EstablishmentJoinRequest.objects.filter(
-            establishment=establishment
-        ).select_related("child").order_by("status", "-created_at")
+        return (
+            EstablishmentJoinRequest.objects.filter(establishment=establishment)
+            .select_related("child")
+            .order_by("status", "-created_at")
+        )
 
 
 class ReviewJoinRequestView(APIView):
@@ -884,7 +910,8 @@ class ReviewJoinRequestView(APIView):
             if school_class.track.department.establishment_id != establishment.id:
                 raise ValidationError({"class_id": "Cette classe n'appartient pas à votre établissement."})
             _, enrollment_created = Enrollment.objects.get_or_create(
-                child=join_request.child, school_class=school_class,
+                child=join_request.child,
+                school_class=school_class,
                 defaults={"status": EnrollmentStatus.ACTIVE},
             )
 
@@ -898,7 +925,8 @@ class ReviewJoinRequestView(APIView):
             if enrollment_created:
                 body += f" Vous êtes inscrit(e) en {school_class}."
             notify_user(
-                join_request.child.user, NotificationType.ENROLLMENT_UPDATE,
+                join_request.child.user,
+                NotificationType.ENROLLMENT_UPDATE,
                 title="Rattachement " + ("approuvé" if approve else "refusé"),
                 body=body,
             )
@@ -927,13 +955,15 @@ class ApprovedUnplacedChildrenView(generics.ListAPIView):
                 child=join_request.child, status=EnrollmentStatus.ACTIVE
             ).exists()
             if not has_active_enrollment:
-                unplaced.append({
-                    "child": join_request.child.id,
-                    "first_name": join_request.child.first_name,
-                    "last_name": join_request.child.last_name,
-                    "declared_level": join_request.declared_level,
-                    "approved_at": join_request.reviewed_at,
-                })
+                unplaced.append(
+                    {
+                        "child": join_request.child.id,
+                        "first_name": join_request.child.first_name,
+                        "last_name": join_request.child.last_name,
+                        "declared_level": join_request.declared_level,
+                        "approved_at": join_request.reviewed_at,
+                    }
+                )
         return Response(unplaced)
 
 
@@ -1003,19 +1033,21 @@ class ConfirmAdmissionReportView(APIView):
                 if approve and class_id:
                     from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass
 
-                    school_class = SchoolClass.objects.select_related(
-                        "track__department__establishment"
-                    ).get(pk=class_id)
+                    school_class = SchoolClass.objects.select_related("track__department__establishment").get(
+                        pk=class_id
+                    )
                     if school_class.track.department.establishment_id != establishment.id:
                         raise ValueError("Classe hors établissement.")
                     Enrollment.objects.get_or_create(
-                        child=join_request.child, school_class=school_class,
+                        child=join_request.child,
+                        school_class=school_class,
                         defaults={"status": EnrollmentStatus.ACTIVE},
                     )
 
                 if join_request.child.user_id:
                     notify_user(
-                        join_request.child.user, NotificationType.ENROLLMENT_UPDATE,
+                        join_request.child.user,
+                        NotificationType.ENROLLMENT_UPDATE,
                         title="Rattachement " + ("approuvé" if approve else "refusé"),
                         body=f"{establishment.school_name} a traité votre demande suite au rapport d'admission.",
                     )
@@ -1023,11 +1055,13 @@ class ConfirmAdmissionReportView(APIView):
             except (EstablishmentJoinRequest.DoesNotExist, ValueError) as exc:
                 results.append({"join_request_id": join_request_id, "success": False, "error": str(exc)})
 
-        return Response({
-            "processed": sum(1 for r in results if r["success"]),
-            "failed": sum(1 for r in results if not r["success"]),
-            "results": results,
-        })
+        return Response(
+            {
+                "processed": sum(1 for r in results if r["success"]),
+                "failed": sum(1 for r in results if not r["success"]),
+                "results": results,
+            }
+        )
 
 
 class ClassesForJoinRequestPlacementView(generics.ListAPIView):
@@ -1048,6 +1082,6 @@ class ClassesForJoinRequestPlacementView(generics.ListAPIView):
 
     def get_queryset(self):
         establishment = _require_join_request_access(self.request.user)
-        return SchoolClass.objects.filter(
-            track__department__establishment=establishment
-        ).select_related("track", "homeroom_teacher")
+        return SchoolClass.objects.filter(track__department__establishment=establishment).select_related(
+            "track", "homeroom_teacher"
+        )

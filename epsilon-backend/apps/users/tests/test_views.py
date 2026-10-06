@@ -1,5 +1,6 @@
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.users.models import DirectorProfile, OTPCode, PreRegistrationCode, TeacherProfile, User, UserRole
 
@@ -34,8 +35,10 @@ def test_register_teacher_creates_user_and_profile(api_client):
 
 def test_register_teacher_duplicate_email_rejected(api_client):
     payload = {
-        "email": "dup@example.ci", "password": "testpass123",
-        "first_name": "A", "last_name": "B",
+        "email": "dup@example.ci",
+        "password": "testpass123",
+        "first_name": "A",
+        "last_name": "B",
     }
     first = api_client.post("/api/v1/auth/register/teacher/", payload, format="json")
     assert first.status_code == 201
@@ -47,9 +50,12 @@ def test_register_director_creates_school_profile(api_client):
     response = api_client.post(
         "/api/v1/auth/register/director/",
         {
-            "email": "adjoua@example.ci", "password": "testpass123",
-            "first_name": "Adjoua", "last_name": "Kone",
-            "school_name": "Lycee Prive Cocody", "address": "Cocody, Abidjan",
+            "email": "adjoua@example.ci",
+            "password": "testpass123",
+            "first_name": "Adjoua",
+            "last_name": "Kone",
+            "school_name": "Lycee Prive Cocody",
+            "address": "Cocody, Abidjan",
         },
         format="json",
     )
@@ -62,9 +68,12 @@ def test_register_company_creates_company_profile(api_client):
     response = api_client.post(
         "/api/v1/auth/register/company/",
         {
-            "email": "acme@example.ci", "password": "testpass123",
-            "first_name": "Awa", "last_name": "Traore",
-            "company_name": "ACME Abidjan", "sector": "BTP",
+            "email": "acme@example.ci",
+            "password": "testpass123",
+            "first_name": "Awa",
+            "last_name": "Traore",
+            "company_name": "ACME Abidjan",
+            "sector": "BTP",
             "address": "Plateau, Abidjan",
         },
         format="json",
@@ -79,11 +88,11 @@ def test_register_parent_with_children(api_client):
     response = api_client.post(
         "/api/v1/auth/register/parent/",
         {
-            "email": "serge@example.ci", "password": "testpass123",
-            "first_name": "Serge", "last_name": "Kouassi",
-            "children": [
-                {"first_name": "Awa", "class_level": "3eme", "target_subjects": ["Maths"]}
-            ],
+            "email": "serge@example.ci",
+            "password": "testpass123",
+            "first_name": "Serge",
+            "last_name": "Kouassi",
+            "children": [{"first_name": "Awa", "class_level": "3eme", "target_subjects": ["Maths"]}],
         },
         format="json",
     )
@@ -97,8 +106,11 @@ def test_register_parent_rejects_more_than_five_children(api_client):
     response = api_client.post(
         "/api/v1/auth/register/parent/",
         {
-            "email": "manykids@example.ci", "password": "testpass123",
-            "first_name": "Serge", "last_name": "Kouassi", "children": children,
+            "email": "manykids@example.ci",
+            "password": "testpass123",
+            "first_name": "Serge",
+            "last_name": "Kouassi",
+            "children": children,
         },
         format="json",
     )
@@ -186,8 +198,12 @@ def test_teacher_profile_get_and_update(api_client):
     api_client.post(
         "/api/v1/auth/register/teacher/",
         {
-            "email": "profile@example.ci", "password": "testpass123",
-            "first_name": "P", "last_name": "R", "subjects": ["Maths"], "experience_years": 2,
+            "email": "profile@example.ci",
+            "password": "testpass123",
+            "first_name": "P",
+            "last_name": "R",
+            "subjects": ["Maths"],
+            "experience_years": 2,
         },
         format="json",
     )
@@ -220,9 +236,7 @@ def test_teacher_profile_cannot_enable_tutoring_before_accreditation(api_client)
     )
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
 
-    response = api_client.patch(
-        "/api/v1/auth/teacher-profile/", {"available_for_tutoring": True}, format="json"
-    )
+    response = api_client.patch("/api/v1/auth/teacher-profile/", {"available_for_tutoring": True}, format="json")
     assert response.status_code == 400
 
 
@@ -241,9 +255,7 @@ def test_teacher_profile_can_enable_tutoring_once_accredited(api_client):
     )
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
 
-    response = api_client.patch(
-        "/api/v1/auth/teacher-profile/", {"available_for_tutoring": True}, format="json"
-    )
+    response = api_client.patch("/api/v1/auth/teacher-profile/", {"available_for_tutoring": True}, format="json")
     assert response.status_code == 200
     assert response.data["available_for_tutoring"] is True
 
@@ -271,10 +283,14 @@ def test_director_profile_get_and_update(api_client):
     api_client.post(
         "/api/v1/auth/register/director/",
         {
-            "email": "directeur.profile@example.ci", "password": "testpass123",
-            "first_name": "D", "last_name": "R",
-            "school_name": "Ecole Test", "address": "Cocody, Abidjan",
-            "levels_taught": ["Primaire"], "student_count": 120,
+            "email": "directeur.profile@example.ci",
+            "password": "testpass123",
+            "first_name": "D",
+            "last_name": "R",
+            "school_name": "Ecole Test",
+            "address": "Cocody, Abidjan",
+            "levels_taught": ["Primaire"],
+            "student_count": 120,
         },
         format="json",
     )
@@ -307,9 +323,12 @@ def test_director_profile_is_partner_is_read_only(api_client):
     api_client.post(
         "/api/v1/auth/register/director/",
         {
-            "email": "directeur.ro@example.ci", "password": "testpass123",
-            "first_name": "D", "last_name": "R",
-            "school_name": "Ecole RO", "address": "Yopougon, Abidjan",
+            "email": "directeur.ro@example.ci",
+            "password": "testpass123",
+            "first_name": "D",
+            "last_name": "R",
+            "school_name": "Ecole RO",
+            "address": "Yopougon, Abidjan",
         },
         format="json",
     )
@@ -317,9 +336,7 @@ def test_director_profile_is_partner_is_read_only(api_client):
         "/api/v1/auth/token/", {"email": "directeur.ro@example.ci", "password": "testpass123"}, format="json"
     )
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
-    response = api_client.patch(
-        "/api/v1/auth/director-profile/", {"is_partner": True}, format="json"
-    )
+    response = api_client.patch("/api/v1/auth/director-profile/", {"is_partner": True}, format="json")
     assert response.status_code == 200
     assert response.data["is_partner"] is False
 
@@ -347,9 +364,13 @@ def test_company_profile_get_and_update(api_client):
     api_client.post(
         "/api/v1/auth/register/company/",
         {
-            "email": "entreprise.profile@example.ci", "password": "testpass123",
-            "first_name": "S", "last_name": "K",
-            "company_name": "Ivoire Digital", "sector": "EdTech", "address": "Plateau, Abidjan",
+            "email": "entreprise.profile@example.ci",
+            "password": "testpass123",
+            "first_name": "S",
+            "last_name": "K",
+            "company_name": "Ivoire Digital",
+            "sector": "EdTech",
+            "address": "Plateau, Abidjan",
         },
         format="json",
     )
@@ -374,9 +395,12 @@ def test_company_profile_is_partner_is_read_only(api_client):
     api_client.post(
         "/api/v1/auth/register/company/",
         {
-            "email": "entreprise.ro@example.ci", "password": "testpass123",
-            "first_name": "S", "last_name": "K",
-            "company_name": "RO Corp", "address": "Marcory, Abidjan",
+            "email": "entreprise.ro@example.ci",
+            "password": "testpass123",
+            "first_name": "S",
+            "last_name": "K",
+            "company_name": "RO Corp",
+            "address": "Marcory, Abidjan",
         },
         format="json",
     )
@@ -407,8 +431,11 @@ def _login_parent(api_client, email, children=None):
     api_client.post(
         "/api/v1/auth/register/parent/",
         {
-            "email": email, "password": "testpass123",
-            "first_name": "F", "last_name": "T", "location": "Marcory, Abidjan",
+            "email": email,
+            "password": "testpass123",
+            "first_name": "F",
+            "last_name": "T",
+            "location": "Marcory, Abidjan",
             "children": children or [],
         },
         format="json",
@@ -436,9 +463,7 @@ def test_parent_profile_get_includes_children_and_update_location(api_client):
     assert get_response.data["children"][0]["first_name"] == "Aïcha"
     assert get_response.data["subscription_active"] is False
 
-    patch_response = api_client.patch(
-        "/api/v1/auth/parent-profile/", {"location": "Cocody, Abidjan"}, format="json"
-    )
+    patch_response = api_client.patch("/api/v1/auth/parent-profile/", {"location": "Cocody, Abidjan"}, format="json")
     assert patch_response.status_code == 200
     assert patch_response.data["location"] == "Cocody, Abidjan"
 
@@ -477,9 +502,7 @@ def test_children_add_list_update_delete(api_client):
     assert list_response.status_code == 200
     assert len(list_response.data) == 1
 
-    update_response = api_client.patch(
-        f"/api/v1/auth/children/{child_id}/", {"class_level": "6ème"}, format="json"
-    )
+    update_response = api_client.patch(f"/api/v1/auth/children/{child_id}/", {"class_level": "6ème"}, format="json")
     assert update_response.status_code == 200
     assert update_response.data["class_level"] == "6ème"
 
@@ -494,10 +517,7 @@ def test_children_max_five_enforced_on_add_endpoint(api_client):
     _login_parent(
         api_client,
         "parent.maxchildren@example.ci",
-        children=[
-            {"first_name": f"Enfant{i}", "class_level": "CM2", "target_subjects": []}
-            for i in range(5)
-        ],
+        children=[{"first_name": f"Enfant{i}", "class_level": "CM2", "target_subjects": []} for i in range(5)],
     )
     response = api_client.post(
         "/api/v1/auth/children/",
@@ -572,8 +592,11 @@ def test_my_data_export_includes_account_and_role_profile(api_client):
     api_client.post(
         "/api/v1/auth/register/teacher/",
         {
-            "email": "export.teacher@example.ci", "password": "testpass123",
-            "first_name": "E", "last_name": "T", "subjects": ["Maths"],
+            "email": "export.teacher@example.ci",
+            "password": "testpass123",
+            "first_name": "E",
+            "last_name": "T",
+            "subjects": ["Maths"],
         },
         format="json",
     )
@@ -590,9 +613,7 @@ def test_my_data_export_includes_account_and_role_profile(api_client):
 
 def test_request_deletion_requires_correct_password(api_client):
     _login_teacher(api_client, "del.wrongpwd@example.ci")
-    response = api_client.post(
-        "/api/v1/auth/me/request-deletion/", {"password": "wrong"}, format="json"
-    )
+    response = api_client.post("/api/v1/auth/me/request-deletion/", {"password": "wrong"}, format="json")
     assert response.status_code == 400
     assert User.objects.get(email="del.wrongpwd@example.ci").is_active is True
 
@@ -601,9 +622,7 @@ def test_request_deletion_anonymizes_and_deactivates_account(api_client):
     _login_teacher(api_client, "del.ok@example.ci")
     user_id = User.objects.get(email="del.ok@example.ci").id
 
-    response = api_client.post(
-        "/api/v1/auth/me/request-deletion/", {"password": "testpass123"}, format="json"
-    )
+    response = api_client.post("/api/v1/auth/me/request-deletion/", {"password": "testpass123"}, format="json")
     assert response.status_code == 200
 
     user = User.objects.get(id=user_id)
@@ -627,8 +646,13 @@ def test_deactivated_account_cannot_login_again(api_client):
 
 def _create_teacher(email, subjects=None, visible=True, active=True, validated=True, **profile_kwargs):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="Prénom", last_name="Nom",
-        primary_role=UserRole.TEACHER, is_active=active, profile_visible=visible,
+        email=email,
+        password="testpass123",
+        first_name="Prénom",
+        last_name="Nom",
+        primary_role=UserRole.TEACHER,
+        is_active=active,
+        profile_visible=visible,
         is_documents_validated=validated,
     )
     TeacherProfile.objects.create(user=user, subjects=subjects or [], **profile_kwargs)
@@ -683,7 +707,9 @@ def test_teacher_directory_hides_hourly_rate_and_contact_info(api_client):
 
 
 def test_teacher_directory_reveals_hourly_rate_to_parent(api_client):
-    _create_teacher("colleague.forparent@example.ci", subjects=["Maths"], hourly_rate="7000", available_for_tutoring=True)
+    _create_teacher(
+        "colleague.forparent@example.ci", subjects=["Maths"], hourly_rate="7000", available_for_tutoring=True
+    )
     _login_parent(api_client, "parent.viewrate@example.ci")
 
     response = api_client.get("/api/v1/auth/teachers/")
@@ -780,9 +806,7 @@ def test_submit_preregistration_code_requires_authentication(api_client):
 
 def test_submit_preregistration_code_unknown_code_rejected(api_client):
     _login_teacher(api_client, "code.unknown@example.ci")
-    response = api_client.post(
-        "/api/v1/auth/me/submit-preregistration-code/", {"code": "NOPE1234"}, format="json"
-    )
+    response = api_client.post("/api/v1/auth/me/submit-preregistration-code/", {"code": "NOPE1234"}, format="json")
     assert response.status_code == 400
 
 
@@ -790,9 +814,7 @@ def test_submit_preregistration_code_success_does_not_auto_validate(api_client):
     code = PreRegistrationCode.objects.create(label="Session Cocody")
     _login_teacher(api_client, "code.ok@example.ci")
 
-    response = api_client.post(
-        "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
-    )
+    response = api_client.post("/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json")
     assert response.status_code == 200
 
     code.refresh_from_db()
@@ -809,8 +831,11 @@ def test_submit_preregistration_code_success_does_not_auto_validate(api_client):
 def test_submit_preregistration_code_already_used_rejected(api_client):
     code = PreRegistrationCode.objects.create(label="Session Yopougon")
     other = User.objects.create_user(
-        email="other.teacher@example.ci", password="testpass123",
-        first_name="O", last_name="T", primary_role=UserRole.TEACHER,
+        email="other.teacher@example.ci",
+        password="testpass123",
+        first_name="O",
+        last_name="T",
+        primary_role=UserRole.TEACHER,
     )
     TeacherProfile.objects.create(user=other)
     code.is_used = True
@@ -818,9 +843,7 @@ def test_submit_preregistration_code_already_used_rejected(api_client):
     code.save(update_fields=["is_used", "used_by"])
 
     _login_teacher(api_client, "code.taken@example.ci")
-    response = api_client.post(
-        "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
-    )
+    response = api_client.post("/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json")
     assert response.status_code == 400
 
 
@@ -835,16 +858,19 @@ def test_submit_preregistration_code_forbidden_for_other_roles(api_client):
     )
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     code = PreRegistrationCode.objects.create(label="Session Test")
-    response = api_client.post(
-        "/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json"
-    )
+    response = api_client.post("/api/v1/auth/me/submit-preregistration-code/", {"code": code.code}, format="json")
     assert response.status_code == 403
 
 
 def _create_establishment(email, school_name="École Test", visible=True, active=True, validated=True, **kwargs):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="D", last_name="R",
-        primary_role=UserRole.DIRECTOR, is_active=active, profile_visible=visible,
+        email=email,
+        password="testpass123",
+        first_name="D",
+        last_name="R",
+        primary_role=UserRole.DIRECTOR,
+        is_active=active,
+        profile_visible=visible,
         is_documents_validated=validated,
     )
     defaults = {"address": "Cocody, Abidjan"}
@@ -942,9 +968,7 @@ def test_teacher_comments_404_for_non_teacher_target(api_client):
 
 def test_teacher_comments_post_requires_authentication(api_client):
     teacher = _create_teacher("postauth.teacher@example.ci", subjects=["Maths"])
-    response = api_client.post(
-        f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "Super."}, format="json"
-    )
+    response = api_client.post(f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "Super."}, format="json")
     assert response.status_code == 401
 
 
@@ -969,9 +993,7 @@ def test_teacher_comments_post_rejects_empty_body(api_client):
     teacher = _create_teacher("postempty.teacher@example.ci", subjects=["Maths"])
     _login_teacher(api_client, "postempty.author@example.ci")
 
-    response = api_client.post(
-        f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "   "}, format="json"
-    )
+    response = api_client.post(f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "   "}, format="json")
     assert response.status_code == 400
 
 
@@ -979,7 +1001,5 @@ def test_teacher_comments_post_rejects_self_comment(api_client):
     _login_teacher(api_client, "selfcomment@example.ci")
     teacher = User.objects.get(email="selfcomment@example.ci")
 
-    response = api_client.post(
-        f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "Auto-éloge."}, format="json"
-    )
+    response = api_client.post(f"/api/v1/auth/teachers/{teacher.id}/comments/", {"body": "Auto-éloge."}, format="json")
     assert response.status_code == 400

@@ -5,6 +5,7 @@ Génération du certificat PDF, sur le même principe que le PDF de
 convention de stage (apps.internships.pdf) : HTML → PDF via WeasyPrint,
 avec un QR code intégré pointant vers la page de vérification publique.
 """
+
 import base64
 from io import BytesIO
 
@@ -25,6 +26,7 @@ def _qr_code_base64(data: str) -> str:
 
 def render_certificate_pdf(certification) -> bytes:
     from django.conf import settings
+
     from weasyprint import HTML
 
     verify_url = f"{settings.INVITE_LINK_BASE}/verify/{certification.qr_code}"

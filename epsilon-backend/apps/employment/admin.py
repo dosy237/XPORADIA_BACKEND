@@ -36,8 +36,14 @@ class JobApplicationAdmin(admin.ModelAdmin):
 @admin.register(Recruitment)
 class RecruitmentAdmin(admin.ModelAdmin):
     list_display = [
-        "teacher", "school", "contract_type", "salary_agreed",
-        "hourly_rate_teacher", "hourly_rate_billed", "payment_status", "confirmed_at",
+        "teacher",
+        "school",
+        "contract_type",
+        "salary_agreed",
+        "hourly_rate_teacher",
+        "hourly_rate_billed",
+        "payment_status",
+        "confirmed_at",
     ]
     list_filter = ["payment_status", "contract_type"]
     search_fields = ["teacher__email", "school__email"]
@@ -56,8 +62,13 @@ class EmployerReviewAdmin(admin.ModelAdmin):
     contrôle l'affichage public agrégé, voir EstablishmentDirectoryDetailSerializer."""
 
     list_display = [
-        "recruitment", "atmosphere", "contract_respect", "working_conditions",
-        "payment_timeliness", "is_moderated", "created_at",
+        "recruitment",
+        "atmosphere",
+        "contract_respect",
+        "working_conditions",
+        "payment_timeliness",
+        "is_moderated",
+        "created_at",
     ]
     list_filter = ["is_moderated"]
     actions = ["approve_selected"]
@@ -81,8 +92,14 @@ class PayrollEntryAdmin(admin.ModelAdmin):
     l'administrateur sur ce qui a réellement été versé et facturé."""
 
     list_display = [
-        "recruitment", "period_month", "period_year", "total_hours",
-        "gross_amount", "billed_amount", "xporadia_margin", "created_at",
+        "recruitment",
+        "period_month",
+        "period_year",
+        "total_hours",
+        "gross_amount",
+        "billed_amount",
+        "xporadia_margin",
+        "created_at",
     ]
     list_filter = ["period_year", "period_month"]
     search_fields = ["recruitment__teacher__email"]

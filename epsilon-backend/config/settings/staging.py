@@ -2,16 +2,16 @@
 Xporadia — Settings staging
 Usage : DJANGO_SETTINGS_MODULE=config.settings.staging
 """
-from .base import *
+
 import sentry_sdk
+
+from .base import *
 
 DEBUG = False
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["staging.xporadia.ci"])
 
 # PostgreSQL
-DATABASES = {
-    "default": env.db("DATABASE_URL")
-}
+DATABASES = {"default": env.db("DATABASE_URL")}
 
 # Sentry — erreurs uniquement (pas perf en staging)
 sentry_sdk.init(

@@ -37,18 +37,31 @@ class JobListingSerializer(serializers.ModelSerializer):
     school = SchoolBasicSerializer(read_only=True)
     # Le directeur connaît l'email des enseignants "open to work" qu'il veut
     # cibler — pas leur ID interne, même logique que partout ailleurs.
-    targeted_teacher_emails = serializers.ListField(
-        child=serializers.EmailField(), write_only=True, required=False
-    )
+    targeted_teacher_emails = serializers.ListField(child=serializers.EmailField(), write_only=True, required=False)
     application_count = serializers.SerializerMethodField()
 
     class Meta:
         model = JobListing
         fields = [
-            "id", "school", "title", "subject", "levels", "contract_type",
-            "salary_min", "salary_max", "cert_level_required", "description",
-            "city", "commune", "start_date", "status", "targeted_teacher_emails",
-            "application_count", "published_at", "expires_at", "created_at",
+            "id",
+            "school",
+            "title",
+            "subject",
+            "levels",
+            "contract_type",
+            "salary_min",
+            "salary_max",
+            "cert_level_required",
+            "description",
+            "city",
+            "commune",
+            "start_date",
+            "status",
+            "targeted_teacher_emails",
+            "application_count",
+            "published_at",
+            "expires_at",
+            "created_at",
         ]
         read_only_fields = ["id", "school", "status", "application_count", "published_at", "created_at"]
 
@@ -63,8 +76,14 @@ class JobApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobApplication
         fields = [
-            "id", "teacher", "listing", "cover_letter", "status",
-            "applied_at", "viewed_at", "rejection_reason",
+            "id",
+            "teacher",
+            "listing",
+            "cover_letter",
+            "status",
+            "applied_at",
+            "viewed_at",
+            "rejection_reason",
         ]
         read_only_fields = ["id", "teacher", "listing", "status", "applied_at", "viewed_at"]
 
@@ -77,10 +96,19 @@ class RecruitmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Recruitment
         fields = [
-            "id", "teacher", "contract_type", "salary_agreed",
-            "hourly_rate_teacher", "hourly_rate_billed", "requires_declared_hours",
-            "commission_rate", "commission_amount", "payment_status", "confirmed_at",
-            "can_review", "has_review",
+            "id",
+            "teacher",
+            "contract_type",
+            "salary_agreed",
+            "hourly_rate_teacher",
+            "hourly_rate_billed",
+            "requires_declared_hours",
+            "commission_rate",
+            "commission_amount",
+            "payment_status",
+            "confirmed_at",
+            "can_review",
+            "has_review",
         ]
         read_only_fields = fields
 
@@ -126,8 +154,15 @@ class WorkedHoursSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkedHours
         fields = [
-            "id", "recruitment", "date", "hours", "note", "status",
-            "declared_at", "reviewed_at", "rejection_reason",
+            "id",
+            "recruitment",
+            "date",
+            "hours",
+            "note",
+            "status",
+            "declared_at",
+            "reviewed_at",
+            "rejection_reason",
         ]
         read_only_fields = ["id", "recruitment", "status", "declared_at", "reviewed_at", "rejection_reason"]
 
@@ -148,8 +183,15 @@ class PayrollEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = PayrollEntry
         fields = [
-            "id", "recruitment", "school_name", "period_year", "period_month",
-            "total_hours", "hourly_rate_teacher", "gross_amount", "created_at",
+            "id",
+            "recruitment",
+            "school_name",
+            "period_year",
+            "period_month",
+            "total_hours",
+            "hourly_rate_teacher",
+            "gross_amount",
+            "created_at",
         ]
         read_only_fields = fields
 
@@ -176,7 +218,12 @@ class EstablishmentInvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = EstablishmentInvoice
         fields = [
-            "id", "period_year", "period_month", "total_amount", "status",
-            "created_at", "paid_at",
+            "id",
+            "period_year",
+            "period_month",
+            "total_amount",
+            "status",
+            "created_at",
+            "paid_at",
         ]
         read_only_fields = fields

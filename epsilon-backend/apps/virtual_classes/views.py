@@ -1,9 +1,10 @@
 from django.http import Http404
 from django.utils import timezone
+
 from rest_framework import filters, generics, permissions
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Subject
 from apps.grading.models import Evaluation, EvaluationType
@@ -27,9 +28,9 @@ from .services import notify_enrolled_parents as _notify_enrolled_parents
 
 def _get_subject(subject_id):
     try:
-        return Subject.objects.select_related(
-            "teacher", "school_class", "school_class__homeroom_teacher"
-        ).get(id=subject_id)
+        return Subject.objects.select_related("teacher", "school_class", "school_class__homeroom_teacher").get(
+            id=subject_id
+        )
     except Subject.DoesNotExist:
         raise Http404
 
@@ -247,9 +248,7 @@ class ExerciseSubmissionStatsView(APIView):
 
     def get(self, request, exercise_id):
         try:
-            exercise = Exercise.objects.select_related("virtual_class__subject__school_class").get(
-                id=exercise_id
-            )
+            exercise = Exercise.objects.select_related("virtual_class__subject__school_class").get(id=exercise_id)
         except Exercise.DoesNotExist:
             raise Http404
         subject = exercise.virtual_class.subject
@@ -289,18 +288,18 @@ class ExerciseStudentStatusView(APIView):
         from apps.messaging.models import Channel, ChannelType
 
         try:
-            exercise = Exercise.objects.select_related("virtual_class__subject__school_class").get(
-                id=exercise_id
-            )
+            exercise = Exercise.objects.select_related("virtual_class__subject__school_class").get(id=exercise_id)
         except Exercise.DoesNotExist:
             raise Http404
         subject = exercise.virtual_class.subject
         if not _can_view(subject, request.user):
             raise PermissionDenied("Réservé à l'enseignant dédié ou au titulaire de cette classe.")
 
-        enrollments = Enrollment.objects.filter(
-            school_class=subject.school_class, status=EnrollmentStatus.ACTIVE
-        ).select_related("child__user").order_by("child__first_name")
+        enrollments = (
+            Enrollment.objects.filter(school_class=subject.school_class, status=EnrollmentStatus.ACTIVE)
+            .select_related("child__user")
+            .order_by("child__first_name")
+        )
         submissions_by_child = {s.child_id: s for s in Submission.objects.filter(exercise=exercise)}
 
         results = []
@@ -309,23 +308,28 @@ class ExerciseStudentStatusView(APIView):
             submission = submissions_by_child.get(child.id)
             channel_id = None
             if child.user_id and subject.teacher_id:
-                channel = Channel.objects.filter(
-                    channel_type=ChannelType.DIRECT, memberships__user_id=subject.teacher_id
-                ).filter(memberships__user_id=child.user_id).first()
+                channel = (
+                    Channel.objects.filter(channel_type=ChannelType.DIRECT, memberships__user_id=subject.teacher_id)
+                    .filter(memberships__user_id=child.user_id)
+                    .first()
+                )
                 channel_id = channel.id if channel else None
-            results.append({
-                "child_id": child.id,
-                "first_name": child.first_name,
-                "last_name": child.last_name,
-                "avatar": (
-                    request.build_absolute_uri(child.user.avatar.url)
-                    if child.user_id and child.user.avatar else None
-                ),
-                "status": submission.status if submission else "not_submitted",
-                "submission_id": submission.id if submission else None,
-                "grade": str(submission.grade) if submission and submission.grade is not None else None,
-                "channel_id": channel_id,
-            })
+            results.append(
+                {
+                    "child_id": child.id,
+                    "first_name": child.first_name,
+                    "last_name": child.last_name,
+                    "avatar": (
+                        request.build_absolute_uri(child.user.avatar.url)
+                        if child.user_id and child.user.avatar
+                        else None
+                    ),
+                    "status": submission.status if submission else "not_submitted",
+                    "submission_id": submission.id if submission else None,
+                    "grade": str(submission.grade) if submission and submission.grade is not None else None,
+                    "channel_id": channel_id,
+                }
+            )
         return Response(results)
 
 
@@ -353,9 +357,7 @@ class HomeroomExercisesOverviewView(APIView):
         if not (is_homeroom or is_director):
             raise PermissionDenied("Réservé au titulaire de cette classe ou au directeur de l'établissement.")
 
-        total_enrolled = Enrollment.objects.filter(
-            school_class=school_class, status=EnrollmentStatus.ACTIVE
-        ).count()
+        total_enrolled = Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE).count()
 
         exercises = (
             Exercise.objects.filter(virtual_class__subject__school_class=school_class)
@@ -410,12 +412,14 @@ class MyGradingQueueView(APIView):
             pending = sum(1 for s in exercise.submissions.all() if s.status != SubmissionStatus.GRADED)
             if pending > 0:
                 total_pending += pending
-                queue.append({
-                    "exercise_id": str(exercise.id),
-                    "title": exercise.title,
-                    "subject_name": exercise.virtual_class.subject.name,
-                    "pending_count": pending,
-                })
+                queue.append(
+                    {
+                        "exercise_id": str(exercise.id),
+                        "title": exercise.title,
+                        "subject_name": exercise.virtual_class.subject.name,
+                        "pending_count": pending,
+                    }
+                )
 
         return Response({"total_pending": total_pending, "exercises": queue[:5]})
 
@@ -502,9 +506,7 @@ class SubmissionDetailView(generics.RetrieveUpdateAPIView):
 
         if not _can_manage(subject, user):
             raise PermissionDenied("Réservé à l'enseignant dédié de cette matière.")
-        submission = serializer.save(
-            status=SubmissionStatus.GRADED, graded_by=user, graded_at=timezone.now()
-        )
+        submission = serializer.save(status=SubmissionStatus.GRADED, graded_by=user, graded_at=timezone.now())
         _sync_grading_column(submission, user)
         notify_user(
             submission.submitted_by,
@@ -536,7 +538,8 @@ class SubmissionDetailView(generics.RetrieveUpdateAPIView):
             channel=channel, author=teacher, body=body, exercise_id=submission.exercise_id
         )
         broadcast_to_channel(
-            channel.id, "message_created",
+            channel.id,
+            "message_created",
             {"message": MessageSerializer(message, context={"request": self.request}).data},
         )
 
@@ -559,9 +562,7 @@ class MySubmissionsView(generics.ListAPIView):
                 .order_by("-submitted_at")
             )
         return (
-            Submission.objects.filter(submitted_by=user)
-            .select_related("exercise", "child")
-            .order_by("-submitted_at")
+            Submission.objects.filter(submitted_by=user).select_related("exercise", "child").order_by("-submitted_at")
         )
 
 

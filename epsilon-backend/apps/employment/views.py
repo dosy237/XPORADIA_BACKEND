@@ -2,6 +2,7 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -135,7 +136,7 @@ class JobListingViewSet(viewsets.ModelViewSet):
                 teacher,
                 NotificationType.NEW_JOB_OFFER,
                 title="Une offre pourrait vous intéresser",
-                body=f"{listing.school.get_full_name()} vous propose : \"{listing.title}\" ({listing.city}).",
+                body=f'{listing.school.get_full_name()} vous propose : "{listing.title}" ({listing.city}).',
                 data={"listing_id": str(listing.id)},
             )
 
@@ -195,7 +196,7 @@ class ListingApplicationsView(generics.ListCreateAPIView):
             listing.school,
             NotificationType.NEW_JOB_OFFER,
             title="Nouvelle candidature",
-            body=f"{application.teacher.get_full_name()} a postulé à \"{listing.title}\".",
+            body=f'{application.teacher.get_full_name()} a postulé à "{listing.title}".',
             data={"application_id": str(application.id)},
         )
 
@@ -260,14 +261,18 @@ class JobApplicationDetailView(generics.RetrieveUpdateAPIView):
                 hourly_rate_teacher = request.data.get("hourly_rate_teacher")
                 hourly_rate_billed = request.data.get("hourly_rate_billed")
                 if not hourly_rate_teacher or not hourly_rate_billed:
-                    raise ValidationError({
-                        "hourly_rate_teacher": "Requis pour un contrat CDD/Vacation/Intérim.",
-                        "hourly_rate_billed": "Requis pour un contrat CDD/Vacation/Intérim.",
-                    })
+                    raise ValidationError(
+                        {
+                            "hourly_rate_teacher": "Requis pour un contrat CDD/Vacation/Intérim.",
+                            "hourly_rate_billed": "Requis pour un contrat CDD/Vacation/Intérim.",
+                        }
+                    )
                 if int(hourly_rate_billed) < int(hourly_rate_teacher):
                     raise ValidationError(
-                        {"hourly_rate_billed": "Le tarif facturé à l'établissement ne peut pas être inférieur "
-                                                "au tarif versé à l'enseignant."}
+                        {
+                            "hourly_rate_billed": "Le tarif facturé à l'établissement ne peut pas être inférieur "
+                            "au tarif versé à l'enseignant."
+                        }
                     )
                 recruitment_kwargs["hourly_rate_teacher"] = hourly_rate_teacher
                 recruitment_kwargs["hourly_rate_billed"] = hourly_rate_billed
@@ -281,7 +286,7 @@ class JobApplicationDetailView(generics.RetrieveUpdateAPIView):
                 title="Recrutement confirmé !",
                 body=(
                     f"{application.listing.school.get_full_name()} vous a recruté(e) "
-                    f"pour \"{application.listing.title}\"."
+                    f'pour "{application.listing.title}".'
                 ),
                 data={"recruitment_id": str(recruitment.id)},
             )
@@ -301,7 +306,7 @@ class JobApplicationDetailView(generics.RetrieveUpdateAPIView):
                 application.teacher,
                 NotificationType.APPLICATION_VIEWED,
                 title=message,
-                body=f"\"{application.listing.title}\" : {application.listing.school.get_full_name()}.",
+                body=f'"{application.listing.title}" : {application.listing.school.get_full_name()}.',
                 data={"application_id": str(application.id)},
             )
 
@@ -353,14 +358,18 @@ class CreateEmployerReviewView(APIView):
         if recruitment.teacher_id != request.user.id:
             raise PermissionDenied("Réservé à l'enseignant concerné par ce recrutement.")
         if EmployerReview.objects.filter(recruitment=recruitment).exists():
-            return Response({"detail": "Un avis a déjà été déposé pour ce recrutement."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Un avis a déjà été déposé pour ce recrutement."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         from .constants import REVIEW_MIN_DAYS_AFTER_RECRUITMENT
 
         days_since = (timezone.now() - recruitment.confirmed_at).days
         if days_since < REVIEW_MIN_DAYS_AFTER_RECRUITMENT:
             return Response(
-                {"detail": f"L'avis n'est disponible que {REVIEW_MIN_DAYS_AFTER_RECRUITMENT} jours après le recrutement."},
+                {
+                    "detail": f"L'avis n'est disponible que {REVIEW_MIN_DAYS_AFTER_RECRUITMENT} jours après le recrutement."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -427,9 +436,15 @@ class MyJobSeekingRequestView(APIView):
 
     def get(self, request):
         request_obj = JobSeekingRequest.objects.filter(teacher=request.user, is_active=True).first()
-        return Response({
-            "request": JobSeekingRequestSerializer(request_obj, context={"request": request}).data if request_obj else None,
-        })
+        return Response(
+            {
+                "request": (
+                    JobSeekingRequestSerializer(request_obj, context={"request": request}).data
+                    if request_obj
+                    else None
+                ),
+            }
+        )
 
     def delete(self, request):
         JobSeekingRequest.objects.filter(teacher=request.user, is_active=True).update(is_active=False)
@@ -508,7 +523,9 @@ class ReviewWorkedHoursView(APIView):
         serializer = ReviewWorkedHoursSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        entry.status = WorkedHoursStatus.APPROVED if serializer.validated_data["approve"] else WorkedHoursStatus.REJECTED
+        entry.status = (
+            WorkedHoursStatus.APPROVED if serializer.validated_data["approve"] else WorkedHoursStatus.REJECTED
+        )
         entry.reviewed_by = request.user
         entry.reviewed_at = timezone.now()
         entry.rejection_reason = serializer.validated_data.get("rejection_reason", "")
@@ -545,16 +562,20 @@ class MySalaryBenchmarkView(APIView):
         current_income = None
         income_source = None
 
-        cdi_recruitment = Recruitment.objects.filter(
-            teacher=request.user, contract_type=ContractType.CDI
-        ).order_by("-confirmed_at").first()
+        cdi_recruitment = (
+            Recruitment.objects.filter(teacher=request.user, contract_type=ContractType.CDI)
+            .order_by("-confirmed_at")
+            .first()
+        )
         if cdi_recruitment and cdi_recruitment.salary_agreed:
             current_income = cdi_recruitment.salary_agreed
             income_source = "cdi"
         else:
-            last_payroll = PayrollEntry.objects.filter(
-                recruitment__teacher=request.user
-            ).order_by("-period_year", "-period_month").first()
+            last_payroll = (
+                PayrollEntry.objects.filter(recruitment__teacher=request.user)
+                .order_by("-period_year", "-period_month")
+                .first()
+            )
             if last_payroll:
                 current_income = last_payroll.gross_amount
                 income_source = "hourly_last_month"
@@ -569,14 +590,16 @@ class MySalaryBenchmarkView(APIView):
             else:
                 position = "within"
 
-        return Response({
-            "current_level": level,
-            "salary_range_min": salary_range[0] if salary_range else None,
-            "salary_range_max": salary_range[1] if salary_range else None,
-            "current_income": current_income,
-            "income_source": income_source,
-            "position": position,
-        })
+        return Response(
+            {
+                "current_level": level,
+                "salary_range_min": salary_range[0] if salary_range else None,
+                "salary_range_max": salary_range[1] if salary_range else None,
+                "current_income": current_income,
+                "income_source": income_source,
+                "position": position,
+            }
+        )
 
 
 class MyWalletView(APIView):
@@ -593,10 +616,12 @@ class MyWalletView(APIView):
             "payroll_entry__recruitment__school__director_profile"
         )
         balance = sum(t.amount for t in transactions)
-        return Response({
-            "balance": balance,
-            "transactions": WalletTransactionSerializer(transactions, many=True).data,
-        })
+        return Response(
+            {
+                "balance": balance,
+                "transactions": WalletTransactionSerializer(transactions, many=True).data,
+            }
+        )
 
 
 class MyInvoicesView(generics.ListAPIView):
@@ -609,9 +634,7 @@ class MyInvoicesView(generics.ListAPIView):
     def get_queryset(self):
         if not self.request.user.has_role(UserRole.DIRECTOR):
             raise PermissionDenied("Réservé aux établissements.")
-        return EstablishmentInvoice.objects.filter(
-            establishment__user=self.request.user
-        ).select_related("payment")
+        return EstablishmentInvoice.objects.filter(establishment__user=self.request.user).select_related("payment")
 
 
 class PayInvoiceView(APIView):
@@ -625,9 +648,7 @@ class PayInvoiceView(APIView):
         from apps.payments.models import MobileOperator, PaymentType
         from apps.payments.services import confirm_payment_completed, initiate_payment
 
-        invoice = get_object_or_404(
-            EstablishmentInvoice, pk=invoice_id, establishment__user=request.user
-        )
+        invoice = get_object_or_404(EstablishmentInvoice, pk=invoice_id, establishment__user=request.user)
         if invoice.status == EstablishmentInvoiceStatus.PAID:
             return Response({"detail": "Cette facture est déjà réglée."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -638,8 +659,11 @@ class PayInvoiceView(APIView):
             if not card_number or not card_holder_name:
                 raise ValidationError({"card_number": "Numéro de carte et titulaire requis."})
             payment = initiate_payment(
-                user=request.user, amount=invoice.total_amount, payment_type=PaymentType.PAYROLL_INVOICE,
-                card_last4=card_number[-4:], card_holder_name=card_holder_name,
+                user=request.user,
+                amount=invoice.total_amount,
+                payment_type=PaymentType.PAYROLL_INVOICE,
+                card_last4=card_number[-4:],
+                card_holder_name=card_holder_name,
                 content_object=invoice,
             )
         else:
@@ -648,8 +672,11 @@ class PayInvoiceView(APIView):
             if operator not in MobileOperator.values or not phone_number:
                 raise ValidationError({"operator": "Opérateur Mobile Money et numéro requis."})
             payment = initiate_payment(
-                user=request.user, amount=invoice.total_amount, payment_type=PaymentType.PAYROLL_INVOICE,
-                operator=operator, phone_number=phone_number,
+                user=request.user,
+                amount=invoice.total_amount,
+                payment_type=PaymentType.PAYROLL_INVOICE,
+                operator=operator,
+                phone_number=phone_number,
                 content_object=invoice,
             )
 

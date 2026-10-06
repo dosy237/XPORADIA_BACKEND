@@ -32,9 +32,17 @@ from apps.employment.models import (
     Recruitment,
 )
 from apps.feed.models import Follow, Post, PostComment, PostImage, PostLike
-from apps.messaging.models import Channel, ChannelType, Message
-from apps.messaging.services import create_subject_channel, ensure_student_messaging
-from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
+from apps.grading import services as grading_services
+from apps.grading.models import (
+    EstablishmentJoinRequest,
+    Evaluation,
+    EvaluationType,
+    Grade,
+    JoinRequestStatus,
+    ReportCard,
+    SubjectReportEntry,
+    Term,
+)
 from apps.internships.models import (
     ConventionStatus,
     InternshipApplication,
@@ -53,9 +61,12 @@ from apps.library.models import (
     ResourceType,
     SchoolLevel,
 )
-from apps.notifications.services import notify_user
+from apps.messaging.models import Channel, ChannelType, Message
+from apps.messaging.services import create_subject_channel, ensure_student_messaging
 from apps.notifications.models import NotificationType
+from apps.notifications.services import notify_user
 from apps.payments.models import MobileOperator, Payment, PaymentStatus, PaymentType
+from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
 from apps.users.models import (
     AdminScope,
     Child,
@@ -67,17 +78,6 @@ from apps.users.models import (
     UserRole,
 )
 from apps.virtual_classes.models import Exercise, ExerciseStatus, Submission, VirtualClass
-from apps.grading import services as grading_services
-from apps.grading.models import (
-    EstablishmentJoinRequest,
-    Evaluation,
-    EvaluationType,
-    Grade,
-    JoinRequestStatus,
-    ReportCard,
-    SubjectReportEntry,
-    Term,
-)
 
 DEMO_PASSWORD = "Xporadia2026!"
 TODAY = datetime.date.today
@@ -127,11 +127,17 @@ def _attach_demo_image(instance, field_name, filename, images_dir, save=True):
 # plusieurs comptes Faker, contrairement aux comptes nommés qui ont chacun
 # la leur (voir les appels _attach_demo_image individuels ci-dessous).
 _BULK_AVATARS_F = [
-    "avatar_awa_bamba.jpg", "avatar_aminata_diarra.jpg", "avatar_mariam_coulibaly.jpg",
-    "avatar_adjoua_kone.jpg", "avatar_fatou_traore.jpg", "avatar_nadege_yao.jpg",
+    "avatar_awa_bamba.jpg",
+    "avatar_aminata_diarra.jpg",
+    "avatar_mariam_coulibaly.jpg",
+    "avatar_adjoua_kone.jpg",
+    "avatar_fatou_traore.jpg",
+    "avatar_nadege_yao.jpg",
 ]
 _BULK_AVATARS_M = [
-    "avatar_yao_kouassi.jpg", "avatar_ibrahim_fofana.jpg", "avatar_kouassi_nguessan.jpg",
+    "avatar_yao_kouassi.jpg",
+    "avatar_ibrahim_fofana.jpg",
+    "avatar_kouassi_nguessan.jpg",
     "avatar_serge_kouadio.jpg",
 ]
 
@@ -247,10 +253,13 @@ class Command(BaseCommand):
         TeacherProfile.objects.get_or_create(
             user=awa,
             defaults=dict(
-                subjects=["Mathématiques", "Physique-Chimie"], experience_years=6, hourly_rate="6000",
+                subjects=["Mathématiques", "Physique-Chimie"],
+                experience_years=6,
+                hourly_rate="6000",
                 location="Yopougon, Abidjan",
                 bio="Enseignante de sciences passionnée, pédagogie active et suivi personnalisé.",
-                available_for_tutoring=True, available_for_employment=True,
+                available_for_tutoring=True,
+                available_for_employment=True,
             ),
         )
         _attach_demo_image(awa, "avatar", "avatar_awa_bamba.jpg", self._images_dir)
@@ -262,9 +271,13 @@ class Command(BaseCommand):
         TeacherProfile.objects.get_or_create(
             user=yao,
             defaults=dict(
-                subjects=["Anglais"], experience_years=9, hourly_rate="7000", location="Cocody, Abidjan",
+                subjects=["Anglais"],
+                experience_years=9,
+                hourly_rate="7000",
+                location="Cocody, Abidjan",
                 bio="Professeur d'anglais, titulaire de classe depuis 4 ans.",
-                available_for_tutoring=True, available_for_employment=False,
+                available_for_tutoring=True,
+                available_for_employment=False,
             ),
         )
 
@@ -274,9 +287,13 @@ class Command(BaseCommand):
         TeacherProfile.objects.get_or_create(
             user=aminata,
             defaults=dict(
-                subjects=["SVT", "Mathématiques"], experience_years=12, hourly_rate="8500",
-                location="Marcory, Abidjan", bio="Formatrice certifiée niveau Or, ouverte au recrutement.",
-                available_for_tutoring=True, available_for_employment=True,
+                subjects=["SVT", "Mathématiques"],
+                experience_years=12,
+                hourly_rate="8500",
+                location="Marcory, Abidjan",
+                bio="Formatrice certifiée niveau Or, ouverte au recrutement.",
+                available_for_tutoring=True,
+                available_for_employment=True,
             ),
         )
         _attach_demo_image(aminata, "avatar", "avatar_aminata_diarra.jpg", self._images_dir)
@@ -287,9 +304,12 @@ class Command(BaseCommand):
         TeacherProfile.objects.get_or_create(
             user=ibrahim,
             defaults=dict(
-                subjects=["Français"], experience_years=3, location="Abobo, Abidjan",
+                subjects=["Français"],
+                experience_years=3,
+                location="Abobo, Abidjan",
                 bio="Jeune enseignant de primaire, titulaire de classe.",
-                available_for_tutoring=False, available_for_employment=True,
+                available_for_tutoring=False,
+                available_for_employment=True,
             ),
         )
         _attach_demo_image(ibrahim, "avatar", "avatar_ibrahim_fofana.jpg", self._images_dir)
@@ -301,9 +321,12 @@ class Command(BaseCommand):
         TeacherProfile.objects.get_or_create(
             user=mariam,
             defaults=dict(
-                subjects=["Mathématiques"], experience_years=5, location="Cocody, Abidjan",
+                subjects=["Mathématiques"],
+                experience_years=5,
+                location="Cocody, Abidjan",
                 bio="Enseignante dédiée, corrections rapides et feedback détaillé.",
-                available_for_tutoring=False, available_for_employment=True,
+                available_for_tutoring=False,
+                available_for_employment=True,
             ),
         )
 
@@ -314,8 +337,11 @@ class Command(BaseCommand):
         DirectorProfile.objects.get_or_create(
             user=kouassi,
             defaults=dict(
-                school_name="Groupe Scolaire La Réussite", address="Cocody, Abidjan",
-                levels_taught=["Primaire", "Collège"], student_count=420, is_partner=True,
+                school_name="Groupe Scolaire La Réussite",
+                address="Cocody, Abidjan",
+                levels_taught=["Primaire", "Collège"],
+                student_count=420,
+                is_partner=True,
             ),
         )
         _attach_demo_image(kouassi, "avatar", "avatar_kouassi_nguessan.jpg", self._images_dir)
@@ -326,8 +352,11 @@ class Command(BaseCommand):
         DirectorProfile.objects.get_or_create(
             user=adjoua,
             defaults=dict(
-                school_name="Institution Sainte Marie", address="Yopougon, Abidjan",
-                levels_taught=["Collège", "Lycée"], student_count=610, is_partner=False,
+                school_name="Institution Sainte Marie",
+                address="Yopougon, Abidjan",
+                levels_taught=["Collège", "Lycée"],
+                student_count=610,
+                is_partner=False,
             ),
         )
         _attach_demo_image(adjoua, "avatar", "avatar_adjoua_kone.jpg", self._images_dir)
@@ -341,29 +370,36 @@ class Command(BaseCommand):
             user=fatou, defaults=dict(location="Marcory, Abidjan", subscription_active=True)
         )
         aicha, _ = Child.objects.get_or_create(
-            parent=fatou_profile, first_name="Aïcha",
+            parent=fatou_profile,
+            first_name="Aïcha",
             defaults=dict(
-                class_level="5ème", target_subjects=["Anglais", "Maths"], birth_date=datetime.date(2013, 11, 20),
+                class_level="5ème",
+                target_subjects=["Anglais", "Maths"],
+                birth_date=datetime.date(2013, 11, 20),
             ),
         )
         ibrahim_child, _ = Child.objects.get_or_create(
-            parent=fatou_profile, first_name="Ibrahim Jr",
+            parent=fatou_profile,
+            first_name="Ibrahim Jr",
             defaults=dict(
-                class_level="CM2", target_subjects=["Français"], birth_date=datetime.date(2015, 3, 10),
+                class_level="CM2",
+                target_subjects=["Français"],
+                birth_date=datetime.date(2015, 3, 10),
             ),
         )
 
-        aya, _ = self._get_or_create_user(
-            "aya.parent@xporadia.ci", UserRole.PARENT, "Aya", "Bamba", "+2250700000011"
-        )
+        aya, _ = self._get_or_create_user("aya.parent@xporadia.ci", UserRole.PARENT, "Aya", "Bamba", "+2250700000011")
         _attach_bulk_avatar(aya, is_female=True, index=1, images_dir=self._images_dir)
         aya_profile, _ = ParentProfile.objects.get_or_create(
             user=aya, defaults=dict(location="Cocody, Abidjan", subscription_active=False)
         )
         kouadio, _ = Child.objects.get_or_create(
-            parent=aya_profile, first_name="Kouadio",
+            parent=aya_profile,
+            first_name="Kouadio",
             defaults=dict(
-                class_level="6ème", target_subjects=["Mathématiques"], birth_date=datetime.date(2014, 6, 15),
+                class_level="6ème",
+                target_subjects=["Mathématiques"],
+                birth_date=datetime.date(2014, 6, 15),
             ),
         )
 
@@ -375,9 +411,12 @@ class Command(BaseCommand):
             user=bakary, defaults=dict(location="Yopougon, Abidjan", subscription_active=False)
         )
         mariam_child, _ = Child.objects.get_or_create(
-            parent=bakary_profile, first_name="Mariam Jr",
+            parent=bakary_profile,
+            first_name="Mariam Jr",
             defaults=dict(
-                class_level="5ème", target_subjects=["Anglais"], birth_date=datetime.date(2013, 9, 2),
+                class_level="5ème",
+                target_subjects=["Anglais"],
+                birth_date=datetime.date(2013, 9, 2),
             ),
         )
 
@@ -388,8 +427,10 @@ class Command(BaseCommand):
         CompanyProfile.objects.get_or_create(
             user=serge,
             defaults=dict(
-                company_name="Ivoire Digital Solutions", sector="Technologies de l'éducation",
-                address="Plateau, Abidjan", is_partner=False,
+                company_name="Ivoire Digital Solutions",
+                sector="Technologies de l'éducation",
+                address="Plateau, Abidjan",
+                is_partner=False,
             ),
         )
         _attach_demo_image(serge, "avatar", "avatar_serge_kouadio.jpg", self._images_dir)
@@ -400,7 +441,9 @@ class Command(BaseCommand):
         CompanyProfile.objects.get_or_create(
             user=nadege,
             defaults=dict(
-                company_name="Abidjan Tech Hub", sector="Numérique", address="Marcory, Abidjan",
+                company_name="Abidjan Tech Hub",
+                sector="Numérique",
+                address="Marcory, Abidjan",
                 is_partner=True,
             ),
         )
@@ -425,34 +468,49 @@ class Command(BaseCommand):
 
         module_defs = [
             dict(
-                title="Fondamentaux pédagogiques", category=ModuleCategory.PEDAGOGY,
+                title="Fondamentaux pédagogiques",
+                category=ModuleCategory.PEDAGOGY,
                 description="Bases de la pédagogie active et de la gestion d'une salle de classe.",
                 objectives=["Maîtriser les méthodes actives", "Structurer une séquence pédagogique"],
-                duration_hours=8, price=15000, target_level=CertificationLevel.BRONZE,
+                duration_hours=8,
+                price=15000,
+                target_level=CertificationLevel.BRONZE,
             ),
             dict(
-                title="Éthique professionnelle", category=ModuleCategory.ETHICS,
+                title="Éthique professionnelle",
+                category=ModuleCategory.ETHICS,
                 description="Déontologie de l'enseignant et relation avec les familles.",
                 objectives=["Connaître le cadre déontologique", "Gérer les situations sensibles"],
-                duration_hours=6, price=12000, target_level=CertificationLevel.BRONZE,
+                duration_hours=6,
+                price=12000,
+                target_level=CertificationLevel.BRONZE,
             ),
             dict(
-                title="Didactique disciplinaire", category=ModuleCategory.DIDACTICS,
+                title="Didactique disciplinaire",
+                category=ModuleCategory.DIDACTICS,
                 description="Approfondissement des méthodes d'enseignement par discipline.",
                 objectives=["Adapter sa didactique à la discipline", "Concevoir des évaluations pertinentes"],
-                duration_hours=12, price=25000, target_level=CertificationLevel.SILVER,
+                duration_hours=12,
+                price=25000,
+                target_level=CertificationLevel.SILVER,
             ),
             dict(
-                title="Gestion de classe avancée", category=ModuleCategory.MANAGEMENT,
+                title="Gestion de classe avancée",
+                category=ModuleCategory.MANAGEMENT,
                 description="Techniques avancées de gestion de groupe et de discipline positive.",
                 objectives=["Prévenir les conflits", "Animer une classe hétérogène"],
-                duration_hours=10, price=22000, target_level=CertificationLevel.SILVER,
+                duration_hours=10,
+                price=22000,
+                target_level=CertificationLevel.SILVER,
             ),
             dict(
-                title="Leadership pédagogique", category=ModuleCategory.LEADERSHIP,
+                title="Leadership pédagogique",
+                category=ModuleCategory.LEADERSHIP,
                 description="Devenir référent pédagogique au sein de son établissement.",
                 objectives=["Encadrer des pairs", "Piloter un projet pédagogique d'établissement"],
-                duration_hours=16, price=40000, target_level=CertificationLevel.GOLD,
+                duration_hours=16,
+                price=40000,
+                target_level=CertificationLevel.GOLD,
             ),
         ]
         modules = {}
@@ -480,16 +538,34 @@ class Command(BaseCommand):
         # Questions QCM/Vrai-Faux pour l'examen en ligne du module Bronze de base.
         bronze_module = modules["Fondamentaux pédagogiques"]
         exam_questions = [
-            dict(question_type=QuestionType.MCQ, text="Quelle méthode favorise l'apprentissage actif ?",
-                 options=["Le cours magistral seul", "La pédagogie de projet", "La copie de leçon"],
-                 correct_answer="La pédagogie de projet", points=2),
-            dict(question_type=QuestionType.MCQ, text="Combien de temps dure en moyenne une séquence pédagogique ?",
-                 options=["5 minutes", "45 à 60 minutes", "1 semaine"],
-                 correct_answer="45 à 60 minutes", points=1),
-            dict(question_type=QuestionType.TF, text="Un enseignant doit varier ses méthodes pédagogiques.",
-                 options=[], correct_answer="Vrai", points=1),
-            dict(question_type=QuestionType.TF, text="La gestion de classe ne concerne que la discipline.",
-                 options=[], correct_answer="Faux", points=1),
+            dict(
+                question_type=QuestionType.MCQ,
+                text="Quelle méthode favorise l'apprentissage actif ?",
+                options=["Le cours magistral seul", "La pédagogie de projet", "La copie de leçon"],
+                correct_answer="La pédagogie de projet",
+                points=2,
+            ),
+            dict(
+                question_type=QuestionType.MCQ,
+                text="Combien de temps dure en moyenne une séquence pédagogique ?",
+                options=["5 minutes", "45 à 60 minutes", "1 semaine"],
+                correct_answer="45 à 60 minutes",
+                points=1,
+            ),
+            dict(
+                question_type=QuestionType.TF,
+                text="Un enseignant doit varier ses méthodes pédagogiques.",
+                options=[],
+                correct_answer="Vrai",
+                points=1,
+            ),
+            dict(
+                question_type=QuestionType.TF,
+                text="La gestion de classe ne concerne que la discipline.",
+                options=[],
+                correct_answer="Faux",
+                points=1,
+            ),
         ]
         for q in exam_questions:
             ExamQuestion.objects.get_or_create(module=bronze_module, text=q["text"], defaults=q)
@@ -497,19 +573,30 @@ class Command(BaseCommand):
         upcoming_date = TODAY() + datetime.timedelta(days=14)
         for title, module in modules.items():
             TrainingSession.objects.get_or_create(
-                module=module, trainer=trainer, date=upcoming_date,
+                module=module,
+                trainer=trainer,
+                date=upcoming_date,
                 defaults=dict(
-                    city="Abidjan", location="Centre de formation Epsilon, Cocody",
-                    start_time="09:00", end_time="17:00", capacity=25, status=SessionStatus.PLANNED,
+                    city="Abidjan",
+                    location="Centre de formation Epsilon, Cocody",
+                    start_time="09:00",
+                    end_time="17:00",
+                    capacity=25,
+                    status=SessionStatus.PLANNED,
                 ),
             )
         # Une deuxième session, dans une autre ville, pour un module Silver.
         TrainingSession.objects.get_or_create(
-            module=modules["Didactique disciplinaire"], trainer=trainer,
+            module=modules["Didactique disciplinaire"],
+            trainer=trainer,
             date=TODAY() + datetime.timedelta(days=21),
             defaults=dict(
-                city="Bouaké", location="Antenne Epsilon Bouaké",
-                start_time="09:00", end_time="16:00", capacity=20, status=SessionStatus.PLANNED,
+                city="Bouaké",
+                location="Antenne Epsilon Bouaké",
+                start_time="09:00",
+                end_time="16:00",
+                capacity=20,
+                status=SessionStatus.PLANNED,
             ),
         )
         return modules
@@ -519,8 +606,12 @@ class Command(BaseCommand):
             return
         attempt = ExamAttempt.objects.create(teacher=teacher, score_total=score, status="graded")
         Certification.objects.create(
-            teacher=teacher, module=module, attempt=attempt, level=module.target_level,
-            points_awarded=module.points, score_total=score,
+            teacher=teacher,
+            module=module,
+            attempt=attempt,
+            level=module.target_level,
+            points_awarded=module.points,
+            score_total=score,
             qr_code=f"XPO-CERT-{teacher.id}-{module.target_level}-DEMO",
             expires_at=TODAY() + datetime.timedelta(days=CERT_VALIDITY_DAYS),
         )
@@ -556,11 +647,15 @@ class Command(BaseCommand):
         )
         track1, _ = Track.objects.get_or_create(department=dept1, name="Générale")
         cm2, _ = SchoolClass.objects.get_or_create(
-            track=track1, name="CM2 A", school_year=school_year,
+            track=track1,
+            name="CM2 A",
+            school_year=school_year,
             defaults=dict(homeroom_teacher=teachers["ibrahim"], capacity=35),
         )
         cinquieme, _ = SchoolClass.objects.get_or_create(
-            track=track1, name="5ème A", school_year=school_year,
+            track=track1,
+            name="5ème A",
+            school_year=school_year,
             defaults=dict(homeroom_teacher=teachers["yao"], capacity=40),
         )
         subj_francais, _ = Subject.objects.get_or_create(
@@ -583,12 +678,12 @@ class Command(BaseCommand):
         )
 
         # --- Établissement 2 : Institution Sainte Marie ---
-        dept2, _ = Department.objects.get_or_create(
-            establishment=directors["adjoua"].director_profile, name="Collège"
-        )
+        dept2, _ = Department.objects.get_or_create(establishment=directors["adjoua"].director_profile, name="Collège")
         track2, _ = Track.objects.get_or_create(department=dept2, name="Générale")
         sixieme, _ = SchoolClass.objects.get_or_create(
-            track=track2, name="6ème B", school_year=school_year,
+            track=track2,
+            name="6ème B",
+            school_year=school_year,
             defaults=dict(homeroom_teacher=teachers["aminata"], capacity=38),
         )
         subj_maths_6e, _ = Subject.objects.get_or_create(
@@ -596,18 +691,39 @@ class Command(BaseCommand):
         )
 
         # --- Inscriptions des enfants ---
-        Enrollment.objects.get_or_create(child=children["ibrahim_jr"], school_class=cm2, defaults=dict(status="active"))
-        Enrollment.objects.get_or_create(child=children["aicha"], school_class=cinquieme, defaults=dict(status="active"))
-        Enrollment.objects.get_or_create(child=children["kouadio"], school_class=sixieme, defaults=dict(status="active"))
-        Enrollment.objects.get_or_create(child=children["mariam_jr"], school_class=cinquieme, defaults=dict(status="active"))
+        Enrollment.objects.get_or_create(
+            child=children["ibrahim_jr"], school_class=cm2, defaults=dict(status="active")
+        )
+        Enrollment.objects.get_or_create(
+            child=children["aicha"], school_class=cinquieme, defaults=dict(status="active")
+        )
+        Enrollment.objects.get_or_create(
+            child=children["kouadio"], school_class=sixieme, defaults=dict(status="active")
+        )
+        Enrollment.objects.get_or_create(
+            child=children["mariam_jr"], school_class=cinquieme, defaults=dict(status="active")
+        )
 
         return {
-            "kouassi": {"profile": directors["kouassi"].director_profile, "department": dept1, "track": track1,
-                        "classes": {"cm2": cm2, "5eme": cinquieme},
-                        "subjects": {"francais": subj_francais, "maths_cm2": subj_maths_cm2,
-                                     "anglais": subj_anglais, "svt": subj_svt}},
-            "adjoua": {"profile": directors["adjoua"].director_profile, "department": dept2, "track": track2,
-                       "classes": {"6eme": sixieme}, "subjects": {"maths_6e": subj_maths_6e}},
+            "kouassi": {
+                "profile": directors["kouassi"].director_profile,
+                "department": dept1,
+                "track": track1,
+                "classes": {"cm2": cm2, "5eme": cinquieme},
+                "subjects": {
+                    "francais": subj_francais,
+                    "maths_cm2": subj_maths_cm2,
+                    "anglais": subj_anglais,
+                    "svt": subj_svt,
+                },
+            },
+            "adjoua": {
+                "profile": directors["adjoua"].director_profile,
+                "department": dept2,
+                "track": track2,
+                "classes": {"6eme": sixieme},
+                "subjects": {"maths_6e": subj_maths_6e},
+            },
         }
 
     # ------------------------------------------------------------------
@@ -666,15 +782,17 @@ class Command(BaseCommand):
             terms = []
             for number, start, end in TERM_DATES:
                 term, _ = Term.objects.get_or_create(
-                    establishment=establishment_profile, school_year=SCHOOL_YEAR, number=number,
+                    establishment=establishment_profile,
+                    school_year=SCHOOL_YEAR,
+                    number=number,
                     defaults=dict(name=f"Trimestre {number}", start_date=start, end_date=end, is_active=False),
                 )
                 terms.append(term)
 
             subjects = list(Subject.objects.filter(school_class=school_class))
             children_in_class = [
-                e.child for e in Enrollment.objects.filter(school_class=school_class, status="active")
-                .select_related("child")
+                e.child
+                for e in Enrollment.objects.filter(school_class=school_class, status="active").select_related("child")
             ]
             if not subjects or not children_in_class:
                 continue
@@ -688,26 +806,38 @@ class Command(BaseCommand):
                 for subject in subjects:
                     creator = subject.teacher or school_class.homeroom_teacher
                     homework, _ = Evaluation.objects.get_or_create(
-                        subject=subject, term=term, title=f"Devoir : {subject.name}",
+                        subject=subject,
+                        term=term,
+                        title=f"Devoir : {subject.name}",
                         defaults=dict(
-                            eval_type=EvaluationType.HOMEWORK, coefficient=1,
-                            date=term.start_date + datetime.timedelta(days=20), created_by=creator,
+                            eval_type=EvaluationType.HOMEWORK,
+                            coefficient=1,
+                            date=term.start_date + datetime.timedelta(days=20),
+                            created_by=creator,
                         ),
                     )
                     exam, _ = Evaluation.objects.get_or_create(
-                        subject=subject, term=term, title=f"Composition : {subject.name}",
+                        subject=subject,
+                        term=term,
+                        title=f"Composition : {subject.name}",
                         defaults=dict(
-                            eval_type=EvaluationType.EXAM, coefficient=3,
-                            date=term.end_date - datetime.timedelta(days=10), created_by=creator,
+                            eval_type=EvaluationType.EXAM,
+                            coefficient=3,
+                            date=term.end_date - datetime.timedelta(days=10),
+                            created_by=creator,
                         ),
                     )
                     for child in children_in_class:
                         base = base_ability[child.id]
                         Grade.objects.get_or_create(
-                            evaluation=homework, child=child, defaults=dict(score=score_for(base, term_index)),
+                            evaluation=homework,
+                            child=child,
+                            defaults=dict(score=score_for(base, term_index)),
                         )
                         Grade.objects.get_or_create(
-                            evaluation=exam, child=child, defaults=dict(score=score_for(base, term_index)),
+                            evaluation=exam,
+                            child=child,
+                            defaults=dict(score=score_for(base, term_index)),
                         )
 
                 # Publication du bulletin du trimestre pour toute la classe —
@@ -717,10 +847,13 @@ class Command(BaseCommand):
                 for entry in result["ranked"]:
                     child = entry["child"]
                     report_card, _ = ReportCard.objects.update_or_create(
-                        child=child, term=term,
+                        child=child,
+                        term=term,
                         defaults=dict(
-                            school_class=school_class, general_average=entry["general_average"],
-                            class_average=result["class_average"], rank=entry["rank"],
+                            school_class=school_class,
+                            general_average=entry["general_average"],
+                            class_average=result["class_average"],
+                            rank=entry["rank"],
                             class_size=entry["class_size"],
                             homeroom_comment=self._homeroom_comment(entry["general_average"]),
                         ),
@@ -729,8 +862,10 @@ class Command(BaseCommand):
                     for subject in subjects:
                         subject_avg = grading_services.compute_subject_average(child, subject, term)
                         SubjectReportEntry.objects.create(
-                            report_card=report_card, subject_name=subject.name,
-                            subject_average=subject_avg, coefficient=subject.coefficient,
+                            report_card=report_card,
+                            subject_name=subject.name,
+                            subject_average=subject_avg,
+                            coefficient=subject.coefficient,
                         )
 
         self.stdout.write(
@@ -748,17 +883,23 @@ class Command(BaseCommand):
             subject=subjects["maths_cm2"], defaults=dict(description="Espace de la classe de CM2 A : mathématiques.")
         )
         ex_fractions, _ = Exercise.objects.get_or_create(
-            virtual_class=vc_maths, title="Devoir sur les fractions",
+            virtual_class=vc_maths,
+            title="Devoir sur les fractions",
             defaults=dict(
                 instructions="Faire les exercices 1 à 5 page 42 sur les fractions.",
-                status=ExerciseStatus.PUBLISHED, published_at=timezone.now(),
+                status=ExerciseStatus.PUBLISHED,
+                published_at=timezone.now(),
             ),
         )
         submission, created = Submission.objects.get_or_create(
-            exercise=ex_fractions, child=children["ibrahim_jr"],
+            exercise=ex_fractions,
+            child=children["ibrahim_jr"],
             defaults=dict(
-                submitted_by=children["ibrahim_jr"].parent.user, content="Voici mes réponses aux 5 exercices.",
-                status="graded", grade=15.5, feedback="Bon travail, attention aux fractions équivalentes.",
+                submitted_by=children["ibrahim_jr"].parent.user,
+                content="Voici mes réponses aux 5 exercices.",
+                status="graded",
+                grade=15.5,
+                feedback="Bon travail, attention aux fractions équivalentes.",
                 graded_at=timezone.now(),
             ),
         )
@@ -767,23 +908,30 @@ class Command(BaseCommand):
             subject=subjects["anglais"], defaults=dict(description="Espace de la classe de 5ème A : anglais.")
         )
         ex_vocab, _ = Exercise.objects.get_or_create(
-            virtual_class=vc_anglais, title="Vocabulaire : la famille",
+            virtual_class=vc_anglais,
+            title="Vocabulaire : la famille",
             defaults=dict(
                 instructions="Apprendre le vocabulaire de la famille et faire l'exercice joint.",
-                status=ExerciseStatus.PUBLISHED, published_at=timezone.now(),
+                status=ExerciseStatus.PUBLISHED,
+                published_at=timezone.now(),
             ),
         )
         Submission.objects.get_or_create(
-            exercise=ex_vocab, child=children["aicha"],
+            exercise=ex_vocab,
+            child=children["aicha"],
             defaults=dict(
-                submitted_by=children["aicha"].parent.user, content="My family is composed of...",
+                submitted_by=children["aicha"].parent.user,
+                content="My family is composed of...",
                 status="submitted",
             ),
         )
         # Un devoir encore en brouillon pour illustrer le flux enseignant.
         Exercise.objects.get_or_create(
-            virtual_class=vc_anglais, title="Contrôle : temps du passé",
-            defaults=dict(instructions="Contrôle sur le prétérit, à publier la semaine prochaine.", status=ExerciseStatus.DRAFT),
+            virtual_class=vc_anglais,
+            title="Contrôle : temps du passé",
+            defaults=dict(
+                instructions="Contrôle sur le prétérit, à publier la semaine prochaine.", status=ExerciseStatus.DRAFT
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -798,18 +946,27 @@ class Command(BaseCommand):
         resource_defs = [
             dict(
                 title="Cours : Les fractions au CM2",
-                description="Support de cours complet sur les fractions.", resource_type=ResourceType.COURSE,
-                category=ResourceCategory.ACADEMIC, level=SchoolLevel.SIXIEME,
-                subject="Mathématiques", file_url="https://example.com/demo/fractions-cm2.pdf",
-                file_size_kb=850, tags=["fractions", "cm2"], author=teachers["mariam"],
+                description="Support de cours complet sur les fractions.",
+                resource_type=ResourceType.COURSE,
+                category=ResourceCategory.ACADEMIC,
+                level=SchoolLevel.SIXIEME,
+                subject="Mathématiques",
+                file_url="https://example.com/demo/fractions-cm2.pdf",
+                file_size_kb=850,
+                tags=["fractions", "cm2"],
+                author=teachers["mariam"],
             ),
             dict(
                 title="Fiche de révision : Vocabulaire de la famille",
                 description="Fiche de vocabulaire anglais à réviser avant le contrôle.",
-                resource_type=ResourceType.REVISION, category=ResourceCategory.ACADEMIC,
+                resource_type=ResourceType.REVISION,
+                category=ResourceCategory.ACADEMIC,
                 level=SchoolLevel.CINQUIEME,
-                subject="Anglais", file_url="https://example.com/demo/vocab-famille.pdf",
-                file_size_kb=210, tags=["vocabulaire", "famille"], author=teachers["yao"],
+                subject="Anglais",
+                file_url="https://example.com/demo/vocab-famille.pdf",
+                file_size_kb=210,
+                tags=["vocabulaire", "famille"],
+                author=teachers["yao"],
             ),
             # Rayons de curiosité générale — au-delà du contenu strictement
             # scolaire, pour que l'écran de bibliothèque présente déjà sa
@@ -817,26 +974,38 @@ class Command(BaseCommand):
             dict(
                 title="Une si longue lettre : Mariama Bâ",
                 description="Roman épistolaire ivoiro-sénégalais, classique de la littérature africaine francophone.",
-                resource_type=ResourceType.COURSE, category=ResourceCategory.LITERATURE,
-                level=SchoolLevel.PREMIERE, subject="Littérature",
+                resource_type=ResourceType.COURSE,
+                category=ResourceCategory.LITERATURE,
+                level=SchoolLevel.PREMIERE,
+                subject="Littérature",
                 file_url="https://example.com/demo/une-si-longue-lettre.pdf",
-                file_size_kb=430, tags=["roman", "littérature africaine"], author=teachers["ibrahim"],
+                file_size_kb=430,
+                tags=["roman", "littérature africaine"],
+                author=teachers["ibrahim"],
             ),
             dict(
                 title="Comprendre le changement climatique en Afrique de l'Ouest",
                 description="Vulgarisation scientifique sur les enjeux climatiques régionaux.",
-                resource_type=ResourceType.COURSE, category=ResourceCategory.ENVIRONMENT,
-                level=SchoolLevel.SECONDE, subject="SVT",
+                resource_type=ResourceType.COURSE,
+                category=ResourceCategory.ENVIRONMENT,
+                level=SchoolLevel.SECONDE,
+                subject="SVT",
                 file_url="https://example.com/demo/climat-afrique-ouest.pdf",
-                file_size_kb=610, tags=["climat", "environnement"], author=teachers["aminata"],
+                file_size_kb=610,
+                tags=["climat", "environnement"],
+                author=teachers["aminata"],
             ),
             dict(
                 title="Portrait : Une entrepreneure ivoirienne de la tech",
                 description="Parcours d'une fondatrice de startup abidjanaise, de l'idée au financement.",
-                resource_type=ResourceType.COURSE, category=ResourceCategory.BIOGRAPHY,
-                level=SchoolLevel.TERMINALE, subject="Économie",
+                resource_type=ResourceType.COURSE,
+                category=ResourceCategory.BIOGRAPHY,
+                level=SchoolLevel.TERMINALE,
+                subject="Économie",
                 file_url="https://example.com/demo/portrait-entrepreneure.pdf",
-                file_size_kb=380, tags=["entrepreneuriat", "portrait"], author=teachers["awa"],
+                file_size_kb=380,
+                tags=["entrepreneuriat", "portrait"],
+                author=teachers["awa"],
             ),
         ]
 
@@ -844,7 +1013,8 @@ class Command(BaseCommand):
         for data in resource_defs:
             title = data.pop("title")
             resource, _ = LibraryResource.objects.get_or_create(
-                establishment=kouassi_profile, title=title,
+                establishment=kouassi_profile,
+                title=title,
                 defaults=dict(moderation_status=ModerationStatus.APPROVED, **data),
             )
             resources[title] = resource
@@ -873,47 +1043,75 @@ class Command(BaseCommand):
         teachers = users["teachers"]
 
         listing_active, _ = JobListing.objects.get_or_create(
-            school=directors["kouassi"], title="Enseignant(e) de Mathématiques : Collège",
+            school=directors["kouassi"],
+            title="Enseignant(e) de Mathématiques : Collège",
             defaults=dict(
-                subject="Mathématiques", levels=["6ème", "5ème"], contract_type=ContractType.CDI,
-                salary_min=150000, salary_max=220000, cert_level_required=CertificationLevel.BRONZE,
+                subject="Mathématiques",
+                levels=["6ème", "5ème"],
+                contract_type=ContractType.CDI,
+                salary_min=150000,
+                salary_max=220000,
+                cert_level_required=CertificationLevel.BRONZE,
                 description="Recherche enseignant(e) de mathématiques pour la rentrée, poste à pourvoir immédiatement.",
-                city="Abidjan", commune="Cocody", status=JobStatus.ACTIVE, published_at=timezone.now(),
+                city="Abidjan",
+                commune="Cocody",
+                status=JobStatus.ACTIVE,
+                published_at=timezone.now(),
             ),
         )
         application, _ = JobApplication.objects.get_or_create(
-            teacher=teachers["ibrahim"], listing=listing_active,
-            defaults=dict(cover_letter="Je suis très motivé pour rejoindre votre équipe pédagogique.",
-                          status=ApplicationStatus.PENDING),
+            teacher=teachers["ibrahim"],
+            listing=listing_active,
+            defaults=dict(
+                cover_letter="Je suis très motivé pour rejoindre votre équipe pédagogique.",
+                status=ApplicationStatus.PENDING,
+            ),
         )
-        notify_user(directors["kouassi"], NotificationType.NEW_JOB_OFFER,
-                    title="Nouvelle candidature", body=f"{teachers['ibrahim'].get_full_name()} a postulé à votre offre.",
-                    send_push=False)
+        notify_user(
+            directors["kouassi"],
+            NotificationType.NEW_JOB_OFFER,
+            title="Nouvelle candidature",
+            body=f"{teachers['ibrahim'].get_full_name()} a postulé à votre offre.",
+            send_push=False,
+        )
 
         # Un recrutement déjà conclu, pour illustrer l'historique.
         recruitment, created = Recruitment.objects.get_or_create(
-            school=directors["adjoua"], teacher=teachers["aminata"],
+            school=directors["adjoua"],
+            teacher=teachers["aminata"],
             defaults=dict(salary_agreed=250000),
         )
         if created:
-            notify_user(teachers["aminata"], NotificationType.RECRUITMENT,
-                        title="Recrutement confirmé", body="Votre recrutement chez Institution Sainte Marie est confirmé.",
-                        send_push=False)
+            notify_user(
+                teachers["aminata"],
+                NotificationType.RECRUITMENT,
+                title="Recrutement confirmé",
+                body="Votre recrutement chez Institution Sainte Marie est confirmé.",
+                send_push=False,
+            )
 
         JobListing.objects.get_or_create(
-            school=directors["adjoua"], title="Enseignant(e) d'Anglais : Lycée",
+            school=directors["adjoua"],
+            title="Enseignant(e) d'Anglais : Lycée",
             defaults=dict(
-                subject="Anglais", levels=["Seconde", "Première"], contract_type=ContractType.CDD,
+                subject="Anglais",
+                levels=["Seconde", "Première"],
+                contract_type=ContractType.CDD,
                 cert_level_required=CertificationLevel.BRONZE,
-                description="Brouillon d'offre en préparation.", city="Yopougon", status=JobStatus.DRAFT,
+                description="Brouillon d'offre en préparation.",
+                city="Yopougon",
+                status=JobStatus.DRAFT,
             ),
         )
 
         # Demande d'emploi (privilège Or) pour Aminata, seule enseignante Gold.
         JobSeekingRequest.objects.get_or_create(
             teacher=teachers["aminata"],
-            defaults=dict(subjects=["SVT", "Mathématiques"], city="Abidjan",
-                          message="Disponible immédiatement pour un poste à temps plein."),
+            defaults=dict(
+                subjects=["SVT", "Mathématiques"],
+                city="Abidjan",
+                message="Disponible immédiatement pour un poste à temps plein.",
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -925,49 +1123,76 @@ class Command(BaseCommand):
         children = users["children"]
 
         offer1, _ = InternshipOffer.objects.get_or_create(
-            company=companies["serge"], title="Stage découverte : Développement web",
+            company=companies["serge"],
+            title="Stage découverte : Développement web",
             defaults=dict(
-                domain="Numérique", missions="Initiation au développement web, observation des équipes techniques.",
-                level=InternshipLevel.COLLEGE, duration_weeks=2,
+                domain="Numérique",
+                missions="Initiation au développement web, observation des équipes techniques.",
+                level=InternshipLevel.COLLEGE,
+                duration_weeks=2,
                 period_start=TODAY() + datetime.timedelta(days=30),
                 period_end=TODAY() + datetime.timedelta(days=44),
-                places=3, city="Abidjan", skills_wanted=["Curiosité", "Autonomie"],
+                places=3,
+                city="Abidjan",
+                skills_wanted=["Curiosité", "Autonomie"],
             ),
         )
         _attach_demo_image(offer1, "cover_image", "image_abidjan_tech_hub.jpg", self._images_dir)
         application1, _ = InternshipApplication.objects.get_or_create(
-            offer=offer1, school=directors["kouassi"], student=children["ibrahim_jr"],
-            defaults=dict(motivation="Élève très motivé par le numérique.", status=InternshipApplicationStatus.ACCEPTED),
+            offer=offer1,
+            school=directors["kouassi"],
+            student=children["ibrahim_jr"],
+            defaults=dict(
+                motivation="Élève très motivé par le numérique.", status=InternshipApplicationStatus.ACCEPTED
+            ),
         )
         convention, _ = InternshipConvention.objects.get_or_create(
             application=application1,
-            defaults=dict(status=ConventionStatus.COMPLETE, signed_by_school_at=timezone.now(),
-                          signed_by_company_at=timezone.now()),
+            defaults=dict(
+                status=ConventionStatus.COMPLETE,
+                signed_by_school_at=timezone.now(),
+                signed_by_company_at=timezone.now(),
+            ),
         )
         InternshipJournal.objects.get_or_create(
-            convention=convention, date=TODAY(),
+            convention=convention,
+            date=TODAY(),
             defaults=dict(content="Première journée : découverte de l'environnement de travail et des équipes."),
         )
         InternshipEvaluation.objects.get_or_create(
             convention=convention,
-            defaults=dict(punctuality=5, initiative=4, integration=5, skills=4, global_rating=4,
-                          comment="Stagiaire sérieux et curieux, à recommander."),
+            defaults=dict(
+                punctuality=5,
+                initiative=4,
+                integration=5,
+                skills=4,
+                global_rating=4,
+                comment="Stagiaire sérieux et curieux, à recommander.",
+            ),
         )
 
         offer2, _ = InternshipOffer.objects.get_or_create(
-            company=companies["nadege"], title="Stage découverte : Marketing digital",
+            company=companies["nadege"],
+            title="Stage découverte : Marketing digital",
             defaults=dict(
-                domain="Marketing", missions="Support aux campagnes digitales et réseaux sociaux.",
-                level=InternshipLevel.SECONDE, duration_weeks=1,
+                domain="Marketing",
+                missions="Support aux campagnes digitales et réseaux sociaux.",
+                level=InternshipLevel.SECONDE,
+                duration_weeks=1,
                 period_start=TODAY() + datetime.timedelta(days=60),
                 period_end=TODAY() + datetime.timedelta(days=67),
-                places=2, city="Abidjan",
+                places=2,
+                city="Abidjan",
             ),
         )
         _attach_demo_image(offer2, "cover_image", "stagiaire_abidjan_tech_hub.jpg", self._images_dir)
         InternshipApplication.objects.get_or_create(
-            offer=offer2, school=directors["kouassi"], student=children["aicha"],
-            defaults=dict(motivation="Intéressée par le marketing digital.", status=InternshipApplicationStatus.PENDING),
+            offer=offer2,
+            school=directors["kouassi"],
+            student=children["aicha"],
+            defaults=dict(
+                motivation="Intéressée par le marketing digital.", status=InternshipApplicationStatus.PENDING
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -982,7 +1207,9 @@ class Command(BaseCommand):
         if not session:
             return
         enrollment, created = SessionEnrollment.objects.get_or_create(
-            session=session, teacher=ibrahim, defaults=dict(payment_status="paid"),
+            session=session,
+            teacher=ibrahim,
+            defaults=dict(payment_status="paid"),
         )
         if created:
             payment = _payment(ibrahim, session.module.price, PaymentType.TRAINING, PaymentStatus.COMPLETED, None)
@@ -1067,7 +1294,8 @@ class Command(BaseCommand):
 
         for i, data in enumerate(posts_data):
             post, created = Post.objects.get_or_create(
-                author=data["author"], body=data["body"],
+                author=data["author"],
+                body=data["body"],
                 defaults=dict(
                     title=data.get("title", ""),
                     created_at=timezone.now() - datetime.timedelta(days=data["days_ago"]),
@@ -1083,7 +1311,9 @@ class Command(BaseCommand):
                     PostLike.objects.get_or_create(post=post, user=liker)
                 for j, comment_author in enumerate([teachers["yao"], parents["aya"]][: i % 3]):
                     PostComment.objects.get_or_create(
-                        post=post, author=comment_author, body=comments_bank[(i + j) % len(comments_bank)],
+                        post=post,
+                        author=comment_author,
+                        body=comments_bank[(i + j) % len(comments_bank)],
                     )
             elif data.get("title") and not post.title:
                 # Backfill pour une base déjà seedée avant l'ajout du titre.
@@ -1131,15 +1361,21 @@ class Command(BaseCommand):
         subj_svt = establishments["kouassi"]["subjects"]["svt"]
 
         TimetableSlot.objects.get_or_create(
-            school_class=cinquieme, subject=subj_anglais, weekday=Weekday.MONDAY,
+            school_class=cinquieme,
+            subject=subj_anglais,
+            weekday=Weekday.MONDAY,
             defaults=dict(start_time="08:00", end_time="09:00", room="Salle 12"),
         )
         TimetableSlot.objects.get_or_create(
-            school_class=cinquieme, subject=subj_svt, weekday=Weekday.MONDAY,
+            school_class=cinquieme,
+            subject=subj_svt,
+            weekday=Weekday.MONDAY,
             defaults=dict(start_time="09:00", end_time="10:00", room="Labo SVT"),
         )
         TimetableSlot.objects.get_or_create(
-            school_class=cinquieme, subject=subj_anglais, weekday=Weekday.WEDNESDAY,
+            school_class=cinquieme,
+            subject=subj_anglais,
+            weekday=Weekday.WEDNESDAY,
             defaults=dict(start_time="10:15", end_time="11:15", room="Salle 12"),
         )
 
@@ -1150,7 +1386,8 @@ class Command(BaseCommand):
         if not svt_channel:
             svt_channel = create_subject_channel(subj_svt, subj_svt.teacher)
             Message.objects.create(
-                channel=svt_channel, author=subj_svt.teacher,
+                channel=svt_channel,
+                author=subj_svt.teacher,
                 body="Bienvenue dans le canal de SVT, postez vos questions ici entre deux cours.",
             )
 
@@ -1162,14 +1399,19 @@ class Command(BaseCommand):
             ),
         )
         BucketListItem.objects.get_or_create(
-            child=aicha, title="Terminer ma certification en algorithmique junior",
+            child=aicha,
+            title="Terminer ma certification en algorithmique junior",
             defaults=dict(description="Module découverte proposé par Xporadia."),
         )
         BucketListItem.objects.get_or_create(
-            child=aicha, title="Lire un livre de développement personnel par mois", defaults=dict(is_done=True),
+            child=aicha,
+            title="Lire un livre de développement personnel par mois",
+            defaults=dict(is_done=True),
         )
         PersonalNote.objects.get_or_create(
-            child=aicha, subject=subj_anglais, title="Vocabulaire : la famille",
+            child=aicha,
+            subject=subj_anglais,
+            title="Vocabulaire : la famille",
             defaults=dict(content="Mother, father, sibling, cousin, nephew, niece..."),
         )
 
@@ -1202,52 +1444,146 @@ class Command(BaseCommand):
         rng = random.Random(42)
 
         FIRST_NAMES_F = [
-            "Adjoua", "Akissi", "Affoué", "Aya", "Ama", "Rokia", "Fatoumata", "Mariame",
-            "Nafissatou", "Salimata", "Djeneba", "Aïssata", "Kadiatou", "Assetou", "Bintou",
-            "Awa", "Coumba", "Ramatoulaye", "Khady", "Ndèye",
+            "Adjoua",
+            "Akissi",
+            "Affoué",
+            "Aya",
+            "Ama",
+            "Rokia",
+            "Fatoumata",
+            "Mariame",
+            "Nafissatou",
+            "Salimata",
+            "Djeneba",
+            "Aïssata",
+            "Kadiatou",
+            "Assetou",
+            "Bintou",
+            "Awa",
+            "Coumba",
+            "Ramatoulaye",
+            "Khady",
+            "Ndèye",
         ]
         FIRST_NAMES_M = [
-            "Yao", "Kouassi", "Koffi", "Konan", "Kouame", "Adama", "Moussa", "Ibrahim",
-            "Souleymane", "Mamadou", "Sekou", "Boubacar", "Cheikh", "Abdoulaye", "Lassina",
-            "Drissa", "Issouf", "Bakary", "Sidiki", "Vamara",
+            "Yao",
+            "Kouassi",
+            "Koffi",
+            "Konan",
+            "Kouame",
+            "Adama",
+            "Moussa",
+            "Ibrahim",
+            "Souleymane",
+            "Mamadou",
+            "Sekou",
+            "Boubacar",
+            "Cheikh",
+            "Abdoulaye",
+            "Lassina",
+            "Drissa",
+            "Issouf",
+            "Bakary",
+            "Sidiki",
+            "Vamara",
         ]
         LAST_NAMES = [
-            "Kouassi", "Kone", "Traore", "Coulibaly", "Diabate", "Ouattara", "Bamba", "Diarra",
-            "Toure", "Camara", "Sanogo", "Kante", "Sangare", "Fofana", "Diallo", "Cisse",
-            "Yeo", "Silue", "Soro", "N'Guessan", "Kouame", "Assi", "Brou", "Angoua", "Kacou",
+            "Kouassi",
+            "Kone",
+            "Traore",
+            "Coulibaly",
+            "Diabate",
+            "Ouattara",
+            "Bamba",
+            "Diarra",
+            "Toure",
+            "Camara",
+            "Sanogo",
+            "Kante",
+            "Sangare",
+            "Fofana",
+            "Diallo",
+            "Cisse",
+            "Yeo",
+            "Silue",
+            "Soro",
+            "N'Guessan",
+            "Kouame",
+            "Assi",
+            "Brou",
+            "Angoua",
+            "Kacou",
         ]
         CITIES = ["Abidjan", "Bouaké", "Yamoussoukro", "San-Pédro", "Korhogo", "Daloa", "Man", "Gagnoa"]
         SUBJECTS_BANK = [
-            "Mathématiques", "Physique-Chimie", "SVT", "Français", "Anglais", "Histoire-Géographie",
-            "Philosophie", "EPS", "Arts Plastiques", "Espagnol", "Allemand", "Économie",
+            "Mathématiques",
+            "Physique-Chimie",
+            "SVT",
+            "Français",
+            "Anglais",
+            "Histoire-Géographie",
+            "Philosophie",
+            "EPS",
+            "Arts Plastiques",
+            "Espagnol",
+            "Allemand",
+            "Économie",
         ]
         SCHOOL_LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1ere", "tle"]
         POST_TOPICS = [
-            ("Ravi(e) d'avoir terminé le module {module} cette semaine, la formation était dense mais "
-             "vraiment utile pour ma pratique en classe. #{hashtag1} #formation"),
-            ("Nouvelle promotion d'élèves accueillie ce matin à {city}. Une rentrée pleine d'énergie "
-             "! #{hashtag1} #rentree"),
-            ("Question à la communauté : quelles ressources conseillez-vous pour préparer le BEPC en "
-             "{subject} ? #{hashtag1} #entraide"),
-            ("Session de cours particuliers très enrichissante hier soir avec un élève de {level}. "
-             "Les progrès en quelques semaines sont impressionnants. #{hashtag1} #tutorat"),
-            ("Notre établissement recrute des enseignants certifiés en {subject} pour {city}. "
-             "Candidatures ouvertes via l'annuaire Xporadia. #{hashtag1} #recrutement"),
-            ("Petit rappel pour les élèves : la bibliothèque numérique s'est enrichie de nouvelles "
-             "fiches de révision en {subject} cette semaine. #{hashtag1} #bibliotheque"),
-            ("Fier de mes élèves qui ont particulièrement bien réussi le dernier contrôle de "
-             "{subject}. Le travail paie ! #{hashtag1} #reussite"),
-            ("Stage de découverte très riche pour nos élèves de {level} chez nos entreprises "
-             "partenaires cette semaine. #{hashtag1} #stage"),
+            (
+                "Ravi(e) d'avoir terminé le module {module} cette semaine, la formation était dense mais "
+                "vraiment utile pour ma pratique en classe. #{hashtag1} #formation"
+            ),
+            (
+                "Nouvelle promotion d'élèves accueillie ce matin à {city}. Une rentrée pleine d'énergie "
+                "! #{hashtag1} #rentree"
+            ),
+            (
+                "Question à la communauté : quelles ressources conseillez-vous pour préparer le BEPC en "
+                "{subject} ? #{hashtag1} #entraide"
+            ),
+            (
+                "Session de cours particuliers très enrichissante hier soir avec un élève de {level}. "
+                "Les progrès en quelques semaines sont impressionnants. #{hashtag1} #tutorat"
+            ),
+            (
+                "Notre établissement recrute des enseignants certifiés en {subject} pour {city}. "
+                "Candidatures ouvertes via l'annuaire Xporadia. #{hashtag1} #recrutement"
+            ),
+            (
+                "Petit rappel pour les élèves : la bibliothèque numérique s'est enrichie de nouvelles "
+                "fiches de révision en {subject} cette semaine. #{hashtag1} #bibliotheque"
+            ),
+            (
+                "Fier de mes élèves qui ont particulièrement bien réussi le dernier contrôle de "
+                "{subject}. Le travail paie ! #{hashtag1} #reussite"
+            ),
+            (
+                "Stage de découverte très riche pour nos élèves de {level} chez nos entreprises "
+                "partenaires cette semaine. #{hashtag1} #stage"
+            ),
         ]
         HASHTAGS_BANK = [
-            "education", "xporadia", "pedagogie", "cotedivoire", "enseignement", "college", "lycee",
-            "certification", "abidjan", "afrique",
+            "education",
+            "xporadia",
+            "pedagogie",
+            "cotedivoire",
+            "enseignement",
+            "college",
+            "lycee",
+            "certification",
+            "abidjan",
+            "afrique",
         ]
         COMMENTS_BANK = [
-            "Merci pour ce partage !", "Bravo, bien mérité.", "Très intéressant, merci.",
-            "Je suis intéressé, comment en savoir plus ?", "Xporadia continue de faire la différence.",
-            "Excellente initiative.", "Bon courage pour la suite !",
+            "Merci pour ce partage !",
+            "Bravo, bien mérité.",
+            "Très intéressant, merci.",
+            "Je suis intéressé, comment en savoir plus ?",
+            "Xporadia continue de faire la différence.",
+            "Excellente initiative.",
+            "Bon courage pour la suite !",
         ]
 
         # --- 1. Enseignants supplémentaires (25) ---
@@ -1260,8 +1596,13 @@ class Command(BaseCommand):
             if User.objects.filter(email=email).exists():
                 continue
             user = User.objects.create_user(
-                email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
-                primary_role=UserRole.TEACHER, is_verified=True, is_documents_validated=True,
+                email=email,
+                password=DEMO_PASSWORD,
+                first_name=first,
+                last_name=last,
+                primary_role=UserRole.TEACHER,
+                is_verified=True,
+                is_documents_validated=True,
             )
             _attach_bulk_avatar(user, is_female=is_f, index=i, images_dir=self._images_dir)
             TeacherProfile.objects.get_or_create(
@@ -1287,16 +1628,20 @@ class Command(BaseCommand):
             for level in rng.sample(SCHOOL_LEVELS, 3):
                 class_name = f"{level.upper()} {rng.choice('ABC')}"
                 sc, created = SchoolClass.objects.get_or_create(
-                    track=track, name=class_name, school_year="2025-2026",
+                    track=track,
+                    name=class_name,
+                    school_year="2025-2026",
                     defaults=dict(
-                        homeroom_teacher=rng.choice(new_teachers) if new_teachers else None, capacity=40,
+                        homeroom_teacher=rng.choice(new_teachers) if new_teachers else None,
+                        capacity=40,
                     ),
                 )
                 if created:
                     new_classes.append(sc)
                 for subject_name in rng.sample(SUBJECTS_BANK, 4):
                     subj, s_created = Subject.objects.get_or_create(
-                        school_class=sc, name=subject_name,
+                        school_class=sc,
+                        name=subject_name,
                         defaults=dict(teacher=rng.choice(new_teachers) if new_teachers else None),
                     )
                     if s_created:
@@ -1308,9 +1653,12 @@ class Command(BaseCommand):
                         if subject_of_day:
                             hour = 8 + day
                             TimetableSlot.objects.get_or_create(
-                                school_class=sc, subject=subject_of_day, weekday=day,
+                                school_class=sc,
+                                subject=subject_of_day,
+                                weekday=day,
                                 defaults=dict(
-                                    start_time=f"{hour:02d}:00", end_time=f"{hour + 1:02d}:00",
+                                    start_time=f"{hour:02d}:00",
+                                    end_time=f"{hour + 1:02d}:00",
                                     room=f"Salle {rng.randint(1, 20)}",
                                 ),
                             )
@@ -1325,26 +1673,39 @@ class Command(BaseCommand):
             if User.objects.filter(email=parent_email).exists():
                 continue
             parent_user = User.objects.create_user(
-                email=parent_email, password=DEMO_PASSWORD, first_name=first, last_name=last,
-                primary_role=UserRole.PARENT, is_verified=True, is_documents_validated=True,
+                email=parent_email,
+                password=DEMO_PASSWORD,
+                first_name=first,
+                last_name=last,
+                primary_role=UserRole.PARENT,
+                is_verified=True,
+                is_documents_validated=True,
             )
             _attach_bulk_avatar(parent_user, is_female=is_f, index=i, images_dir=self._images_dir)
             parent_profile, _ = ParentProfile.objects.get_or_create(user=parent_user)
             child_is_f = rng.random() < 0.5
             child_first = rng.choice(FIRST_NAMES_F if child_is_f else FIRST_NAMES_M)
             child = Child.objects.create(
-                parent=parent_profile, first_name=child_first, last_name=last,
+                parent=parent_profile,
+                first_name=child_first,
+                last_name=last,
                 class_level=rng.choice(SCHOOL_LEVELS).upper(),
             )
             target_class = rng.choice(new_classes) if new_classes else None
             if target_class:
-                Enrollment.objects.get_or_create(child=child, school_class=target_class, defaults=dict(status="active"))
+                Enrollment.objects.get_or_create(
+                    child=child, school_class=target_class, defaults=dict(status="active")
+                )
             # Un enfant sur trois environ obtient un compte élève activé.
             if rng.random() < 0.35:
                 student_user = User.objects.create_user(
-                    email=f"student{i}.{child_first.lower()}@xporadia.ci", password=DEMO_PASSWORD,
-                    first_name=child_first, last_name=last, primary_role=UserRole.STUDENT,
-                    is_verified=True, is_documents_validated=True,
+                    email=f"student{i}.{child_first.lower()}@xporadia.ci",
+                    password=DEMO_PASSWORD,
+                    first_name=child_first,
+                    last_name=last,
+                    primary_role=UserRole.STUDENT,
+                    is_verified=True,
+                    is_documents_validated=True,
                 )
                 _attach_bulk_avatar(student_user, is_female=child_is_f, index=i, images_dir=self._images_dir)
                 child.user = student_user
@@ -1408,19 +1769,20 @@ class Command(BaseCommand):
             for _ in range(rng.randint(0, 3)):
                 commenter = rng.choice(all_authors)
                 if commenter.id != author.id:
-                    PostComment.objects.get_or_create(
-                        post=post, author=commenter, body=rng.choice(COMMENTS_BANK)
-                    )
+                    PostComment.objects.get_or_create(post=post, author=commenter, body=rng.choice(COMMENTS_BANK))
 
         # --- 6. Bibliothèque enrichie (35 ressources) ---
         LIB_TITLES = [
-            "Fiche de révision", "Cours complet", "Annale corrigée", "Exercices d'application",
-            "Support de cours", "Corrigé type", "Préparation d'examen",
+            "Fiche de révision",
+            "Cours complet",
+            "Annale corrigée",
+            "Exercices d'application",
+            "Support de cours",
+            "Corrigé type",
+            "Préparation d'examen",
         ]
         for i in range(35):
-            establishment = rng.choice(
-                [establishments["kouassi"]["profile"], establishments["adjoua"]["profile"]]
-            )
+            establishment = rng.choice([establishments["kouassi"]["profile"], establishments["adjoua"]["profile"]])
             author = rng.choice(new_teachers) if new_teachers else None
             subject_name = rng.choice(SUBJECTS_BANK)
             LibraryResource.objects.get_or_create(
@@ -1443,12 +1805,16 @@ class Command(BaseCommand):
         for i in range(15):
             director = rng.choice(directors)
             JobListing.objects.get_or_create(
-                school=director, title=f"Poste enseignant {rng.choice(SUBJECTS_BANK)} #{i}",
+                school=director,
+                title=f"Poste enseignant {rng.choice(SUBJECTS_BANK)} #{i}",
                 defaults=dict(
-                    subject=rng.choice(SUBJECTS_BANK), levels=[rng.choice(SCHOOL_LEVELS)],
+                    subject=rng.choice(SUBJECTS_BANK),
+                    levels=[rng.choice(SCHOOL_LEVELS)],
                     contract_type=rng.choice(list(ContractType)),
-                    salary_min=rng.randint(150000, 250000), salary_max=rng.randint(250000, 400000),
-                    description="Poste à pourvoir dès que possible.", status=JobStatus.ACTIVE,
+                    salary_min=rng.randint(150000, 250000),
+                    salary_max=rng.randint(250000, 400000),
+                    description="Poste à pourvoir dès que possible.",
+                    status=JobStatus.ACTIVE,
                 ),
             )
         for i in range(12):
@@ -1456,7 +1822,8 @@ class Command(BaseCommand):
                 break
             company_profile = rng.choice(companies)
             bulk_offer, _ = InternshipOffer.objects.get_or_create(
-                company=company_profile.user, title=f"Stage découverte {rng.choice(SUBJECTS_BANK)} #{i}",
+                company=company_profile.user,
+                title=f"Stage découverte {rng.choice(SUBJECTS_BANK)} #{i}",
                 defaults=dict(
                     domain=rng.choice(["Numérique", "Commerce", "Industrie", "Communication"]),
                     missions="Observation et participation aux activités de l'équipe.",
@@ -1464,7 +1831,8 @@ class Command(BaseCommand):
                     duration_weeks=rng.randint(1, 4),
                     period_start=TODAY() + datetime.timedelta(days=rng.randint(10, 60)),
                     period_end=TODAY() + datetime.timedelta(days=rng.randint(70, 100)),
-                    city=rng.choice(CITIES), places=rng.randint(1, 3),
+                    city=rng.choice(CITIES),
+                    places=rng.randint(1, 3),
                 ),
             )
             if i == 0:
@@ -1472,9 +1840,13 @@ class Command(BaseCommand):
 
         # --- Marqueur d'idempotence ---
         User.objects.create_user(
-            email="bulk.seed.marker@xporadia.ci", password=DEMO_PASSWORD,
-            first_name="Marqueur", last_name="Seed", primary_role=UserRole.ADMIN,
-            is_verified=True, is_active=False,
+            email="bulk.seed.marker@xporadia.ci",
+            password=DEMO_PASSWORD,
+            first_name="Marqueur",
+            last_name="Seed",
+            primary_role=UserRole.ADMIN,
+            is_verified=True,
+            is_active=False,
         )
 
         self.stdout.write(
@@ -1500,72 +1872,79 @@ class Command(BaseCommand):
             if User.objects.filter(email=email).exists():
                 return User.objects.get(email=email), User.objects.get(email=email).child_profile
             user = User.objects.create_user(
-                email=email, password=DEMO_PASSWORD, first_name=first_name, last_name=last_name,
-                primary_role=UserRole.STUDENT, is_verified=True, is_documents_validated=True,
+                email=email,
+                password=DEMO_PASSWORD,
+                first_name=first_name,
+                last_name=last_name,
+                primary_role=UserRole.STUDENT,
+                is_verified=True,
+                is_documents_validated=True,
             )
             child = Child.objects.create(
-                parent=None, user=user, first_name=first_name, last_name=last_name,
+                parent=None,
+                user=user,
+                first_name=first_name,
+                last_name=last_name,
                 class_level=declared_level,
             )
             return user, child
 
         # 1. Demande en attente — l'élève vient de s'inscrire, le
         # directeur n'a pas encore statué.
-        _, child_pending = _self_registered_student(
-            "amara.pending@xporadia.ci", "Amara", "Ouattara", "5e"
-        )
+        _, child_pending = _self_registered_student("amara.pending@xporadia.ci", "Amara", "Ouattara", "5e")
         EstablishmentJoinRequest.objects.get_or_create(
             child=child_pending,
             defaults=dict(
-                establishment=kouassi_profile, declared_level="5e",
+                establishment=kouassi_profile,
+                declared_level="5e",
                 status=JoinRequestStatus.PENDING,
             ),
         )
 
         # 2. Demande approuvée, mais l'élève n'est ENCORE inscrit dans
         # aucune classe — teste directement l'écran "élèves à placer".
-        _, child_approved = _self_registered_student(
-            "salimata.approved@xporadia.ci", "Salimata", "Bamba", "4e"
-        )
+        _, child_approved = _self_registered_student("salimata.approved@xporadia.ci", "Salimata", "Bamba", "4e")
         EstablishmentJoinRequest.objects.get_or_create(
             child=child_approved,
             defaults=dict(
-                establishment=kouassi_profile, declared_level="4e",
-                status=JoinRequestStatus.APPROVED, reviewed_at=timezone.now(),
+                establishment=kouassi_profile,
+                declared_level="4e",
+                status=JoinRequestStatus.APPROVED,
+                reviewed_at=timezone.now(),
             ),
         )
 
         # 3. Demande rejetée — teste l'affichage du motif et la
         # possibilité de retenter ailleurs.
-        _, child_rejected = _self_registered_student(
-            "ibrahim.rejected@xporadia.ci", "Ibrahim", "Sanogo", "Terminale"
-        )
+        _, child_rejected = _self_registered_student("ibrahim.rejected@xporadia.ci", "Ibrahim", "Sanogo", "Terminale")
         EstablishmentJoinRequest.objects.get_or_create(
             child=child_rejected,
             defaults=dict(
-                establishment=kouassi_profile, declared_level="Terminale",
-                status=JoinRequestStatus.REJECTED, rejection_reason="Effectif de Terminale déjà complet.",
+                establishment=kouassi_profile,
+                declared_level="Terminale",
+                status=JoinRequestStatus.REJECTED,
+                rejection_reason="Effectif de Terminale déjà complet.",
                 reviewed_at=timezone.now(),
             ),
         )
 
         # 4. Cas "Autre" — établissement pas encore sur Xporadia, reste
         # en attente indéfiniment jusqu'à ce qu'il nous rejoigne.
-        _, child_other = _self_registered_student(
-            "kadiatou.other@xporadia.ci", "Kadiatou", "Diarra", "3e"
-        )
+        _, child_other = _self_registered_student("kadiatou.other@xporadia.ci", "Kadiatou", "Diarra", "3e")
         EstablishmentJoinRequest.objects.get_or_create(
             child=child_other,
             defaults=dict(
-                establishment=None, other_establishment_name="Collège Moderne d'Adjamé",
-                declared_level="3e", status=JoinRequestStatus.PENDING,
+                establishment=None,
+                other_establishment_name="Collège Moderne d'Adjamé",
+                declared_level="3e",
+                status=JoinRequestStatus.PENDING,
             ),
         )
 
         self.stdout.write(
             self.style.SUCCESS(
                 "Flux d'auto-inscription : 4 élèves de démo (en attente / approuvé non placé / "
-                "rejeté / cas \"Autre\") — mot de passe commun Xporadia2026!"
+                'rejeté / cas "Autre") — mot de passe commun Xporadia2026!'
             )
         )
 
@@ -1587,7 +1966,10 @@ class Command(BaseCommand):
         ]:
             if not User.objects.filter(email=email).exists():
                 User.objects.create_superuser(
-                    email=email, password=DEMO_PASSWORD, first_name=first, last_name=last,
+                    email=email,
+                    password=DEMO_PASSWORD,
+                    first_name=first,
+                    last_name=last,
                 )
 
         # Groupe "Formateurs" — permissions Django réellement limitées aux
@@ -1596,17 +1978,24 @@ class Command(BaseCommand):
         training_models = ["trainingmodule", "trainingsession", "examquestion", "sessionenrollment"]
         formateurs_group.permissions.set(
             Permission.objects.filter(
-                content_type__app_label="certification", content_type__model__in=training_models,
+                content_type__app_label="certification",
+                content_type__model__in=training_models,
             )
         )
 
         formateur_email = "formateur@xporadia.ci"
         if not User.objects.filter(email=formateur_email).exists():
             formateur = User.objects.create_user(
-                email=formateur_email, password=DEMO_PASSWORD, first_name="Solange", last_name="Yao",
-                primary_role=UserRole.ADMIN, admin_scope=AdminScope.CATALOG,
-                is_staff=True, is_superuser=False,
-                is_verified=True, is_documents_validated=True,
+                email=formateur_email,
+                password=DEMO_PASSWORD,
+                first_name="Solange",
+                last_name="Yao",
+                primary_role=UserRole.ADMIN,
+                admin_scope=AdminScope.CATALOG,
+                is_staff=True,
+                is_superuser=False,
+                is_verified=True,
+                is_documents_validated=True,
             )
             formateur.groups.add(formateurs_group)
 

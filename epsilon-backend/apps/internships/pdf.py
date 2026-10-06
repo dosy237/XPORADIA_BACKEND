@@ -7,6 +7,7 @@ WeasyPrint plutôt qu'une librairie de dessin bas niveau (reportlab) : le
 gabarit reste lisible et modifiable comme n'importe quel template Django,
 sans coordonnées x/y à la main.
 """
+
 from datetime import date
 from io import BytesIO
 
@@ -47,8 +48,8 @@ def generate_and_attach_convention_pdf(convention) -> None:
     pièce jointe dans le canal de stage — créant ce dernier au besoin
     (une entreprise peut générer la convention avant la signature
     complète, donc avant que le canal n'existe forcément déjà)."""
-    from apps.messaging.services import ensure_internship_channel
     from apps.messaging.models import Message
+    from apps.messaging.services import ensure_internship_channel
 
     pdf_bytes = render_convention_pdf(convention)
     filename = f"convention_{convention.id}.pdf"

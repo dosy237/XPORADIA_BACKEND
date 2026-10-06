@@ -1,5 +1,6 @@
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.academics.models import Department, Enrollment, SchoolClass, Subject, TeacherInvitation, Track
 from apps.notifications.models import Notification
@@ -15,7 +16,10 @@ def api_client():
 
 def _create_director(email="director@example.ci", school_name="Groupe Scolaire Test"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="D", last_name="R",
+        email=email,
+        password="testpass123",
+        first_name="D",
+        last_name="R",
         primary_role=UserRole.DIRECTOR,
     )
     profile = DirectorProfile.objects.create(user=user, school_name=school_name, address="Cocody")
@@ -24,7 +28,10 @@ def _create_director(email="director@example.ci", school_name="Groupe Scolaire T
 
 def _create_teacher(email="teacher@example.ci"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="T", last_name="E",
+        email=email,
+        password="testpass123",
+        first_name="T",
+        last_name="E",
         primary_role=UserRole.TEACHER,
     )
     TeacherProfile.objects.create(user=user)
@@ -108,8 +115,11 @@ def test_director_creates_class_with_homeroom_teacher(api_client):
     response = api_client.post(
         "/api/v1/academics/classes/",
         {
-            "track_id": track.id, "name": "Terminale D1", "school_year": "2025-2026",
-            "homeroom_teacher_email": teacher.email, "capacity": 40,
+            "track_id": track.id,
+            "name": "Terminale D1",
+            "school_year": "2025-2026",
+            "homeroom_teacher_email": teacher.email,
+            "capacity": 40,
         },
         format="json",
     )
@@ -124,7 +134,10 @@ def test_class_homeroom_teacher_must_have_teacher_role(api_client):
     department = Department.objects.create(establishment=profile, name="Secondaire")
     track = Track.objects.create(department=department, name="Scientifique")
     parent = User.objects.create_user(
-        email="parent@example.ci", password="testpass123", first_name="P", last_name="A",
+        email="parent@example.ci",
+        password="testpass123",
+        first_name="P",
+        last_name="A",
         primary_role=UserRole.PARENT,
     )
     _login(api_client, director.email)
@@ -132,7 +145,9 @@ def test_class_homeroom_teacher_must_have_teacher_role(api_client):
     response = api_client.post(
         "/api/v1/academics/classes/",
         {
-            "track_id": track.id, "name": "Terminale D1", "school_year": "2025-2026",
+            "track_id": track.id,
+            "name": "Terminale D1",
+            "school_year": "2025-2026",
             "homeroom_teacher_email": parent.email,
         },
         format="json",
@@ -173,9 +188,7 @@ def test_my_homeroom_classes_lists_only_own_classes(api_client):
     track = Track.objects.create(department=department, name="Scientifique")
     teacher = _create_teacher()
     other_teacher = _create_teacher(email="other.teacher@example.ci")
-    SchoolClass.objects.create(
-        track=track, name="Terminale D1", school_year="2025-2026", homeroom_teacher=teacher
-    )
+    SchoolClass.objects.create(track=track, name="Terminale D1", school_year="2025-2026", homeroom_teacher=teacher)
     SchoolClass.objects.create(
         track=track, name="Terminale D2", school_year="2025-2026", homeroom_teacher=other_teacher
     )
@@ -289,7 +302,10 @@ def test_subject_teacher_email_without_teacher_account_creates_invitation(api_cl
 def test_subject_teacher_email_matching_non_teacher_account_creates_invitation(api_client):
     titulaire = _create_teacher(email="titulaire.wrongrole@example.ci")
     parent = User.objects.create_user(
-        email="parent.subject@example.ci", password="testpass123", first_name="P", last_name="A",
+        email="parent.subject@example.ci",
+        password="testpass123",
+        first_name="P",
+        last_name="A",
         primary_role=UserRole.PARENT,
     )
     _, school_class = _create_class(school_year="2020-2029", homeroom_teacher=titulaire)
@@ -406,9 +422,7 @@ def test_accept_invitation_forbidden_for_non_teacher(api_client):
 
 
 def test_accept_invitation_assigns_teacher_and_notifies_inviter(api_client):
-    titulaire, subject, invitation = _create_invitation(
-        email="accepting.teacher@example.ci", school_year="2020-2034"
-    )
+    titulaire, subject, invitation = _create_invitation(email="accepting.teacher@example.ci", school_year="2020-2034")
     invited_teacher = _create_teacher(email="accepting.teacher@example.ci")
     _login(api_client, invited_teacher.email)
 
@@ -437,7 +451,10 @@ def test_accept_invitation_already_accepted_returns_404(api_client):
 
 def _create_parent_with_child(email="parent@example.ci", child_name="Aïcha", class_level="Terminale"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="P", last_name="A",
+        email=email,
+        password="testpass123",
+        first_name="P",
+        last_name="A",
         primary_role=UserRole.PARENT,
     )
     profile = ParentProfile.objects.create(user=user, location="Cocody")

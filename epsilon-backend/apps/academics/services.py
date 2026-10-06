@@ -15,6 +15,7 @@ système ne peut pas savoir où commence la prochaine vacance (aucune borne
 suivante à comparer) — comportement naturel de la fonction, pas un bug à
 corriger.
 """
+
 from django.db.models import Q
 
 
@@ -25,12 +26,16 @@ def term_for_date(establishment, school_year, target_date):
     vacances."""
     from apps.grading.models import Term
 
-    return Term.objects.filter(
-        establishment=establishment,
-        school_year=school_year,
-        start_date__lte=target_date,
-        end_date__gte=target_date,
-    ).order_by("start_date").first()
+    return (
+        Term.objects.filter(
+            establishment=establishment,
+            school_year=school_year,
+            start_date__lte=target_date,
+            end_date__gte=target_date,
+        )
+        .order_by("start_date")
+        .first()
+    )
 
 
 def is_holiday(establishment, school_class, target_date):
@@ -44,9 +49,15 @@ def is_holiday(establishment, school_class, target_date):
 
     from .models import EstablishmentEvent, EventType
 
-    return EstablishmentEvent.objects.filter(
-        establishment=establishment, event_type=EventType.HOLIDAY, date=target_date,
-    ).filter(_Q(school_class__isnull=True) | _Q(school_class=school_class)).exists()
+    return (
+        EstablishmentEvent.objects.filter(
+            establishment=establishment,
+            event_type=EventType.HOLIDAY,
+            date=target_date,
+        )
+        .filter(_Q(school_class__isnull=True) | _Q(school_class=school_class))
+        .exists()
+    )
 
 
 def timetable_slots_for_date(school_class, target_date):
@@ -72,9 +83,11 @@ def timetable_slots_for_date(school_class, target_date):
     if is_holiday(establishment, school_class, target_date):
         return TimetableSlot.objects.none()
 
-    return TimetableSlot.objects.filter(
-        school_class=school_class, weekday=weekday
-    ).filter(Q(term__isnull=True) | Q(term=term)).select_related("subject")
+    return (
+        TimetableSlot.objects.filter(school_class=school_class, weekday=weekday)
+        .filter(Q(term__isnull=True) | Q(term=term))
+        .select_related("subject")
+    )
 
 
 def teacher_timetable_slots_for_date(teacher, target_date):
@@ -88,17 +101,13 @@ def teacher_timetable_slots_for_date(teacher, target_date):
     toute la classe, y compris quand `teacher` est aussi le titulaire."""
     from .models import SchoolClass, Subject
 
-    class_ids = Subject.objects.filter(teacher=teacher).values_list(
-        "school_class_id", flat=True
-    ).distinct()
+    class_ids = Subject.objects.filter(teacher=teacher).values_list("school_class_id", flat=True).distinct()
 
     slots = []
     for school_class in SchoolClass.objects.filter(id__in=class_ids).select_related(
         "track__department__establishment"
     ):
-        slots.extend(
-            timetable_slots_for_date(school_class, target_date).filter(subject__teacher=teacher)
-        )
+        slots.extend(timetable_slots_for_date(school_class, target_date).filter(subject__teacher=teacher))
     slots.sort(key=lambda slot: (slot.start_time, slot.school_class_id))
     return slots
 
@@ -111,9 +120,14 @@ def events_for_date(establishment, school_class, target_date, audience_role):
     l'agenda élève et l'agenda parent, jamais dupliquée."""
     from .models import EstablishmentEvent
 
-    events = EstablishmentEvent.objects.filter(
-        establishment=establishment, date=target_date,
-    ).filter(Q(school_class__isnull=True) | Q(school_class=school_class)).order_by("start_time")
+    events = (
+        EstablishmentEvent.objects.filter(
+            establishment=establishment,
+            date=target_date,
+        )
+        .filter(Q(school_class__isnull=True) | Q(school_class=school_class))
+        .order_by("start_time")
+    )
     return [e for e in events if audience_role in (e.audience or [])]
 
 
@@ -125,15 +139,21 @@ def personal_blocks_for_date(child, target_date):
     from .models import PersonalScheduleBlock, PersonalScheduleException
 
     weekday = target_date.weekday()
-    blocks = PersonalScheduleBlock.objects.filter(
-        child=child, weekday=weekday, valid_from__lte=target_date,
-    ).filter(
-        Q(valid_until__isnull=True) | Q(valid_until__gte=target_date)
-    ).select_related("subject")
+    blocks = (
+        PersonalScheduleBlock.objects.filter(
+            child=child,
+            weekday=weekday,
+            valid_from__lte=target_date,
+        )
+        .filter(Q(valid_until__isnull=True) | Q(valid_until__gte=target_date))
+        .select_related("subject")
+    )
 
     exceptions = {
         exc.block_id: exc
-        for exc in PersonalScheduleException.objects.filter(block__in=blocks, date=target_date).select_related("subject")
+        for exc in PersonalScheduleException.objects.filter(block__in=blocks, date=target_date).select_related(
+            "subject"
+        )
     }
 
     result = []
@@ -143,23 +163,27 @@ def personal_blocks_for_date(child, target_date):
             continue
         if exc:
             subject = exc.subject if exc.subject_id else block.subject
-            result.append({
-                "block": block.id,
-                "exception": exc.id,
-                "title": exc.title or block.title,
-                "subject": subject.id if subject else None,
-                "subject_name": subject.name if subject else None,
-                "start_time": exc.start_time or block.start_time,
-                "end_time": exc.end_time or block.end_time,
-            })
+            result.append(
+                {
+                    "block": block.id,
+                    "exception": exc.id,
+                    "title": exc.title or block.title,
+                    "subject": subject.id if subject else None,
+                    "subject_name": subject.name if subject else None,
+                    "start_time": exc.start_time or block.start_time,
+                    "end_time": exc.end_time or block.end_time,
+                }
+            )
         else:
-            result.append({
-                "block": block.id,
-                "exception": None,
-                "title": block.title,
-                "subject": block.subject_id,
-                "subject_name": block.subject.name if block.subject_id else None,
-                "start_time": block.start_time,
-                "end_time": block.end_time,
-            })
+            result.append(
+                {
+                    "block": block.id,
+                    "exception": None,
+                    "title": block.title,
+                    "subject": block.subject_id,
+                    "subject_name": block.subject.name if block.subject_id else None,
+                    "start_time": block.start_time,
+                    "end_time": block.end_time,
+                }
+            )
     return result

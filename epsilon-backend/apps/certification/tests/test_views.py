@@ -1,7 +1,8 @@
 import datetime
 
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.academics.models import Department, SchoolClass, Subject, Track
 from apps.certification.models import (
@@ -31,24 +32,28 @@ def api_client():
 @pytest.fixture
 def teacher(db):
     return User.objects.create_user(
-        email="teacher.cert@example.ci", password="testpass123",
-        first_name="Kouame", last_name="Yao", primary_role=UserRole.TEACHER,
+        email="teacher.cert@example.ci",
+        password="testpass123",
+        first_name="Kouame",
+        last_name="Yao",
+        primary_role=UserRole.TEACHER,
     )
 
 
 @pytest.fixture
 def trainer(db):
     return User.objects.create_user(
-        email="trainer@example.ci", password="testpass123",
-        first_name="Konan", last_name="Assi", primary_role=UserRole.TRAINER,
+        email="trainer@example.ci",
+        password="testpass123",
+        first_name="Konan",
+        last_name="Assi",
+        primary_role=UserRole.TRAINER,
     )
 
 
 @pytest.fixture
 def authed_client(api_client, teacher):
-    login = api_client.post(
-        "/api/v1/auth/token/", {"email": teacher.email, "password": "testpass123"}, format="json"
-    )
+    login = api_client.post("/api/v1/auth/token/", {"email": teacher.email, "password": "testpass123"}, format="json")
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     return api_client
 
@@ -128,7 +133,9 @@ def test_training_sessions_excludes_past_and_cancelled(authed_client, trainer):
     module = make_module()
     upcoming = make_session(module, trainer, city="Abidjan")
     make_session(
-        module, trainer, city="Abidjan",
+        module,
+        trainer,
+        city="Abidjan",
         date=datetime.date.today() - datetime.timedelta(days=5),
     )
     make_session(module, trainer, city="Abidjan", status=SessionStatus.CANCELLED)
@@ -158,12 +165,13 @@ def test_my_status_requires_authentication(api_client):
 
 def test_my_status_forbidden_for_non_teacher(api_client):
     director = User.objects.create_user(
-        email="director.cert@example.ci", password="testpass123",
-        first_name="Adjoua", last_name="Kone", primary_role=UserRole.DIRECTOR,
+        email="director.cert@example.ci",
+        password="testpass123",
+        first_name="Adjoua",
+        last_name="Kone",
+        primary_role=UserRole.DIRECTOR,
     )
-    login = api_client.post(
-        "/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json"
-    )
+    login = api_client.post("/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json")
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     response = api_client.get("/api/v1/certification/my-status/")
     assert response.status_code == 403
@@ -182,8 +190,12 @@ def _issue_certification(teacher, trainer, level, is_valid=True):
     session = make_session(module, trainer)
     attempt = ExamAttempt.objects.create(teacher=teacher, session=session, score_total=85)
     return Certification.objects.create(
-        teacher=teacher, module=module, attempt=attempt, level=level,
-        score_total=85, qr_code=f"QR-{teacher.id}-{level}-{is_valid}",
+        teacher=teacher,
+        module=module,
+        attempt=attempt,
+        level=level,
+        score_total=85,
+        qr_code=f"QR-{teacher.id}-{level}-{is_valid}",
         expires_at=datetime.date.today() + datetime.timedelta(days=365),
         is_valid=is_valid,
     )
@@ -231,7 +243,10 @@ def make_question(module, correct_answer, question_type=QuestionType.MCQ, **kwar
 
 def _create_director(email="director.cert@example.ci"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="Adjoua", last_name="Kone",
+        email=email,
+        password="testpass123",
+        first_name="Adjoua",
+        last_name="Kone",
         primary_role=UserRole.DIRECTOR,
     )
     profile = DirectorProfile.objects.create(user=user, school_name="École Test", address="Cocody")
@@ -259,9 +274,7 @@ def test_online_exam_questions_excludes_open_questions_and_correct_answer(authed
 
 def test_online_exam_questions_forbidden_for_non_teacher(api_client):
     director, _ = _create_director()
-    login = api_client.post(
-        "/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json"
-    )
+    login = api_client.post("/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json")
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     module = make_module()
     response = api_client.get(f"/api/v1/certification/modules/{module.id}/online-exam/")
@@ -324,17 +337,13 @@ def test_submit_online_exam_notifies_affiliated_establishment_on_level_up(authed
 
     from apps.notifications.models import Notification, NotificationType
 
-    assert Notification.objects.filter(
-        user=director, notif_type=NotificationType.EXAM_RESULT
-    ).exists()
+    assert Notification.objects.filter(user=director, notif_type=NotificationType.EXAM_RESULT).exists()
 
 
 def test_submit_online_exam_requires_answers(authed_client):
     module = make_module()
     make_question(module, "a")
-    response = authed_client.post(
-        f"/api/v1/certification/modules/{module.id}/online-exam/submit/", {}, format="json"
-    )
+    response = authed_client.post(f"/api/v1/certification/modules/{module.id}/online-exam/submit/", {}, format="json")
     assert response.status_code == 400
 
 
@@ -406,9 +415,7 @@ def test_enroll_requires_mobile_money_details(authed_client, trainer):
     module = make_module()
     session = make_session(module, trainer)
 
-    response = authed_client.post(
-        f"/api/v1/certification/sessions/{session.id}/enroll/", {}, format="json"
-    )
+    response = authed_client.post(f"/api/v1/certification/sessions/{session.id}/enroll/", {}, format="json")
     assert response.status_code == 400
 
 
@@ -416,12 +423,13 @@ def test_enroll_forbidden_for_non_teacher(api_client, trainer):
     module = make_module()
     session = make_session(module, trainer)
     director = User.objects.create_user(
-        email="director.enroll@example.ci", password="testpass123",
-        first_name="Adjoua", last_name="Kone", primary_role=UserRole.DIRECTOR,
+        email="director.enroll@example.ci",
+        password="testpass123",
+        first_name="Adjoua",
+        last_name="Kone",
+        primary_role=UserRole.DIRECTOR,
     )
-    login = api_client.post(
-        "/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json"
-    )
+    login = api_client.post("/api/v1/auth/token/", {"email": director.email, "password": "testpass123"}, format="json")
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     response = api_client.post(
         f"/api/v1/certification/sessions/{session.id}/enroll/",

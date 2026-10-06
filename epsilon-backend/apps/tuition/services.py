@@ -6,15 +6,19 @@ déduisent toujours des FeePayment réellement enregistrés — jamais un champ
 stocké séparément qui pourrait diverger (voir models.py, docstring de
 module).
 """
+
 from django.db.models import Sum
 
 from .models import FeeInstallment, FeePayment, FeeSchedule
 
 
 def installment_status(installment: FeeInstallment, child) -> dict:
-    paid = FeePayment.objects.filter(fee_installment=installment, child=child).aggregate(
-        total=Sum("amount_paid")
-    )["total"] or 0
+    paid = (
+        FeePayment.objects.filter(fee_installment=installment, child=child).aggregate(total=Sum("amount_paid"))[
+            "total"
+        ]
+        or 0
+    )
     if paid >= installment.amount:
         status = "paid"
     elif paid > 0:
@@ -50,9 +54,10 @@ def establishment_fee_totals(establishment, school_year: str) -> dict:
     if not schedule:
         return {"total_expected": 0, "total_collected": 0}
     total_expected = schedule.installments.aggregate(total=Sum("amount"))["total"] or 0
-    total_collected = FeePayment.objects.filter(fee_installment__fee_schedule=schedule).aggregate(
-        total=Sum("amount_paid")
-    )["total"] or 0
+    total_collected = (
+        FeePayment.objects.filter(fee_installment__fee_schedule=schedule).aggregate(total=Sum("amount_paid"))["total"]
+        or 0
+    )
     return {"total_expected": total_expected, "total_collected": total_collected}
 
 

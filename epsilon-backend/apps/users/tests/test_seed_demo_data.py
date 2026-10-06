@@ -1,5 +1,6 @@
-import pytest
 from django.core.management import call_command
+
+import pytest
 
 from apps.users.models import User
 

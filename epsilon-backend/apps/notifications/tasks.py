@@ -12,10 +12,12 @@ tâche existe mais ne se déclenche jamais toute seule. Un envoi par compte
 et par jour maximum (voir _already_nudged_today) — évite les doublons si le
 beat est relancé ou la tâche rejouée manuellement.
 """
+
 from datetime import timedelta
 
-from celery import shared_task
 from django.utils import timezone
+
+from celery import shared_task
 
 from .models import Notification, NotificationType
 from .services import notify_user
@@ -46,9 +48,7 @@ def _nudge_teachers():
     from apps.certification.services import teacher_total_points
     from apps.users.models import User, UserRole
 
-    teachers = User.objects.filter(
-        primary_role=UserRole.TEACHER, is_active=True, is_documents_validated=True
-    )
+    teachers = User.objects.filter(primary_role=UserRole.TEACHER, is_active=True, is_documents_validated=True)
     for user in teachers:
         if _already_nudged_today(user):
             continue
@@ -75,9 +75,7 @@ def _nudge_establishments():
     from apps.users.models import User, UserRole
 
     since = timezone.now() - timedelta(days=INACTIVITY_WINDOW_DAYS)
-    directors = User.objects.filter(
-        primary_role=UserRole.DIRECTOR, is_active=True, is_documents_validated=True
-    )
+    directors = User.objects.filter(primary_role=UserRole.DIRECTOR, is_active=True, is_documents_validated=True)
     for user in directors:
         if _already_nudged_today(user):
             continue
@@ -100,9 +98,7 @@ def _nudge_companies():
     from apps.users.models import User, UserRole
 
     since = timezone.now() - timedelta(days=INACTIVITY_WINDOW_DAYS)
-    companies = User.objects.filter(
-        primary_role=UserRole.COMPANY, is_active=True, is_documents_validated=True
-    )
+    companies = User.objects.filter(primary_role=UserRole.COMPANY, is_active=True, is_documents_validated=True)
     for user in companies:
         if _already_nudged_today(user):
             continue

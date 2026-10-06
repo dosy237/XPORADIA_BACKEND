@@ -7,6 +7,7 @@ bas de fichier garantit qu'un futur NotificationType ajouté sans être
 catégorisé ici est détecté au démarrage plutôt que de contourner
 silencieusement les préférences de notification.
 """
+
 from .models import NotificationCategory, NotificationType
 
 CATEGORY_BY_NOTIF_TYPE = {
@@ -45,6 +46,6 @@ CATEGORY_BY_NOTIF_TYPE = {
     NotificationType.SYSTEM: NotificationCategory.ADMINISTRATIVE,
 }
 
-assert set(CATEGORY_BY_NOTIF_TYPE) == set(NotificationType.values), (
-    "Chaque NotificationType doit être rattaché à une NotificationCategory dans CATEGORY_BY_NOTIF_TYPE."
-)
+assert set(CATEGORY_BY_NOTIF_TYPE) == set(
+    NotificationType.values
+), "Chaque NotificationType doit être rattaché à une NotificationCategory dans CATEGORY_BY_NOTIF_TYPE."

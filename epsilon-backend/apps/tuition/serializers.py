@@ -25,8 +25,14 @@ class FeePaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = FeePayment
         fields = [
-            "id", "child", "fee_installment", "amount_paid", "payment_channel",
-            "paid_at", "recorded_by", "recorded_by_name",
+            "id",
+            "child",
+            "fee_installment",
+            "amount_paid",
+            "payment_channel",
+            "paid_at",
+            "recorded_by",
+            "recorded_by_name",
         ]
         read_only_fields = ["id", "child", "recorded_by", "recorded_by_name", "paid_at"]
 

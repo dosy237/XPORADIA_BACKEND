@@ -14,6 +14,7 @@ automatique) :
   - internship  : ouvert à la signature complète d'une convention de
                   stage, archivé (pas supprimé) à la fin.
 """
+
 from django.conf import settings
 from django.db import models
 
@@ -35,7 +36,10 @@ class Channel(models.Model):
         "academics.Subject", on_delete=models.CASCADE, null=True, blank=True, related_name="channels"
     )
     internship_convention = models.OneToOneField(
-        "internships.InternshipConvention", on_delete=models.CASCADE, null=True, blank=True,
+        "internships.InternshipConvention",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="channel",
     )
 
@@ -79,9 +83,7 @@ class Channel(models.Model):
 
 class ChannelMembership(models.Model):
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="memberships")
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="channel_memberships"
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="channel_memberships")
     is_admin = models.BooleanField(
         default=False, verbose_name="Administrateur du canal (titulaire / enseignant dédié)"
     )
@@ -99,9 +101,7 @@ class ChannelMembership(models.Model):
 
 class Message(models.Model):
     channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="messages")
-    author = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="messages_sent"
-    )
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="messages_sent")
     body = models.TextField(max_length=4000, blank=True)
     # Même convention que partout ailleurs (Exercise.attachments,
     # Submission.attachments) : liste de {"name", "url", "type"}.

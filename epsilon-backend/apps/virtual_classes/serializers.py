@@ -17,8 +17,18 @@ class ExerciseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exercise
         fields = [
-            "id", "kind", "title", "instructions", "attachments", "deadline", "term",
-            "status", "is_overdue", "published_at", "created_at", "updated_at",
+            "id",
+            "kind",
+            "title",
+            "instructions",
+            "attachments",
+            "deadline",
+            "term",
+            "status",
+            "is_overdue",
+            "published_at",
+            "created_at",
+            "updated_at",
         ]
         # attachments : jamais une liste JSON fournie telle quelle par le
         # client, toujours des fichiers réellement transférés (multipart)
@@ -41,8 +51,16 @@ class ExerciseCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exercise
         fields = [
-            "id", "kind", "title", "subject_name", "deadline", "status",
-            "is_overdue", "attachments", "my_submission_status", "my_dm_channel_id",
+            "id",
+            "kind",
+            "title",
+            "subject_name",
+            "deadline",
+            "status",
+            "is_overdue",
+            "attachments",
+            "my_submission_status",
+            "my_dm_channel_id",
         ]
         read_only_fields = fields
 
@@ -69,9 +87,11 @@ class ExerciseCardSerializer(serializers.ModelSerializer):
             return None
         from apps.messaging.models import Channel, ChannelType
 
-        channel = Channel.objects.filter(
-            channel_type=ChannelType.DIRECT, memberships__user_id=child.user_id
-        ).filter(memberships__user_id=teacher.id).first()
+        channel = (
+            Channel.objects.filter(channel_type=ChannelType.DIRECT, memberships__user_id=child.user_id)
+            .filter(memberships__user_id=teacher.id)
+            .first()
+        )
         return channel.id if channel else None
 
 
@@ -91,12 +111,32 @@ class SubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Submission
         fields = [
-            "id", "exercise", "exercise_title", "child", "child_id", "content", "attachments",
-            "status", "grade", "feedback", "is_late", "submitted_at", "updated_at", "graded_at",
+            "id",
+            "exercise",
+            "exercise_title",
+            "child",
+            "child_id",
+            "content",
+            "attachments",
+            "status",
+            "grade",
+            "feedback",
+            "is_late",
+            "submitted_at",
+            "updated_at",
+            "graded_at",
         ]
         read_only_fields = [
-            "id", "exercise", "exercise_title", "status", "grade", "feedback",
-            "is_late", "submitted_at", "updated_at", "graded_at",
+            "id",
+            "exercise",
+            "exercise_title",
+            "status",
+            "grade",
+            "feedback",
+            "is_late",
+            "submitted_at",
+            "updated_at",
+            "graded_at",
         ]
 
 
@@ -128,8 +168,17 @@ class ChildExerciseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exercise
         fields = [
-            "id", "kind", "title", "instructions", "attachments", "deadline",
-            "status", "is_overdue", "published_at", "my_submission", "my_dm_channel_id",
+            "id",
+            "kind",
+            "title",
+            "instructions",
+            "attachments",
+            "deadline",
+            "status",
+            "is_overdue",
+            "published_at",
+            "my_submission",
+            "my_dm_channel_id",
         ]
         read_only_fields = fields
 
@@ -148,9 +197,11 @@ class ChildExerciseSerializer(serializers.ModelSerializer):
             return None
         from apps.messaging.models import Channel, ChannelType
 
-        channel = Channel.objects.filter(
-            channel_type=ChannelType.DIRECT, memberships__user_id=child.user_id
-        ).filter(memberships__user_id=teacher.id).first()
+        channel = (
+            Channel.objects.filter(channel_type=ChannelType.DIRECT, memberships__user_id=child.user_id)
+            .filter(memberships__user_id=teacher.id)
+            .first()
+        )
         return channel.id if channel else None
 
 
@@ -169,9 +220,7 @@ class ChildSubjectSerializer(serializers.Serializer):
         # (marqué "corrigé" par l'enseignant) doit continuer à apparaître
         # chez l'élève avec sa note, jamais disparaître. Seul un brouillon
         # (jamais publié) reste invisible côté élève.
-        exercises = virtual_class.exercises.filter(
-            status__in=[ExerciseStatus.PUBLISHED, ExerciseStatus.CLOSED]
-        )
+        exercises = virtual_class.exercises.filter(status__in=[ExerciseStatus.PUBLISHED, ExerciseStatus.CLOSED])
         return ChildExerciseSerializer(exercises, many=True, context={"child": child}).data
 
 
@@ -183,8 +232,15 @@ class VirtualClassSerializer(serializers.ModelSerializer):
     class Meta:
         model = VirtualClass
         fields = [
-            "id", "subject", "subject_name", "school_class_name",
-            "description", "is_active", "exercise_count", "created_at", "updated_at",
+            "id",
+            "subject",
+            "subject_name",
+            "school_class_name",
+            "description",
+            "is_active",
+            "exercise_count",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = ["id", "subject", "created_at", "updated_at"]
 

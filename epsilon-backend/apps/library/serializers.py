@@ -14,14 +14,42 @@ class LibraryResourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = LibraryResource
         fields = [
-            "id", "title", "description", "resource_type", "category", "level", "subject",
-            "cover_image", "file_url", "pdf_file", "file_size_kb", "tags", "author_name",
-            "is_contributed", "moderation_status", "download_count", "avg_rating", "ratings_count",
-            "my_rating", "is_archived", "is_favorited", "can_manage", "created_at",
+            "id",
+            "title",
+            "description",
+            "resource_type",
+            "category",
+            "level",
+            "subject",
+            "cover_image",
+            "file_url",
+            "pdf_file",
+            "file_size_kb",
+            "tags",
+            "author_name",
+            "is_contributed",
+            "moderation_status",
+            "download_count",
+            "avg_rating",
+            "ratings_count",
+            "my_rating",
+            "is_archived",
+            "is_favorited",
+            "can_manage",
+            "created_at",
         ]
         read_only_fields = [
-            "id", "author_name", "is_contributed", "moderation_status", "download_count",
-            "avg_rating", "ratings_count", "my_rating", "is_favorited", "can_manage", "created_at",
+            "id",
+            "author_name",
+            "is_contributed",
+            "moderation_status",
+            "download_count",
+            "avg_rating",
+            "ratings_count",
+            "my_rating",
+            "is_favorited",
+            "can_manage",
+            "created_at",
         ]
 
     def validate(self, attrs):
@@ -34,9 +62,7 @@ class LibraryResourceSerializer(serializers.ModelSerializer):
             file_url = attrs.get("file_url", getattr(self.instance, "file_url", ""))
             pdf_file = attrs.get("pdf_file", getattr(self.instance, "pdf_file", None))
             if not file_url and not pdf_file:
-                raise serializers.ValidationError(
-                    {"file_url": "Renseignez un PDF hébergé ou un lien externe."}
-                )
+                raise serializers.ValidationError({"file_url": "Renseignez un PDF hébergé ou un lien externe."})
             if file_url and pdf_file:
                 raise serializers.ValidationError(
                     {"file_url": "Choisissez un PDF hébergé ou un lien externe, pas les deux."}

@@ -8,11 +8,13 @@ WebSocket standard ne permet pas d'en-têtes custom depuis React Native,
 contrairement à une requête HTTP classique) et résout l'utilisateur associé,
 exactement comme le fait JWTAuthentication côté REST.
 """
+
 from urllib.parse import parse_qs
+
+from django.contrib.auth.models import AnonymousUser
 
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
-from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 

@@ -2,8 +2,9 @@
 Xporadia — Modèle utilisateur personnalisé
 Le modèle User est la fondation de toute la plateforme.
 """
-from django.core.validators import RegexValidator
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.validators import RegexValidator
 from django.db import models
 
 hex_color_validator = RegexValidator(
@@ -60,6 +61,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     Un utilisateur peut avoir plusieurs rôles (ex : Enseignant + Parent).
     Le primary_role est celui de l'inscription initiale.
     """
+
     # Identification
     email = models.EmailField(unique=True, verbose_name="Email")
     phone = models.CharField(max_length=20, blank=True, verbose_name="Téléphone")
@@ -70,16 +72,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
 
     # Rôles — multi-rôles supportés
-    primary_role = models.CharField(
-        max_length=20,
-        choices=UserRole.choices,
-        verbose_name="Rôle principal"
-    )
-    secondary_roles = models.JSONField(
-        default=list,
-        blank=True,
-        verbose_name="Rôles secondaires"
-    )
+    primary_role = models.CharField(max_length=20, choices=UserRole.choices, verbose_name="Rôle principal")
+    secondary_roles = models.JSONField(default=list, blank=True, verbose_name="Rôles secondaires")
     admin_scope = models.CharField(
         max_length=20,
         choices=AdminScope.choices,
@@ -91,18 +85,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False, verbose_name="Compte vérifié")
-    is_documents_validated = models.BooleanField(
-        default=False,
-        verbose_name="Documents validés par Xporadia"
-    )
+    is_documents_validated = models.BooleanField(default=False, verbose_name="Documents validés par Xporadia")
 
     # Sécurité
     two_fa_enabled = models.BooleanField(default=False, verbose_name="2FA activée")
 
     # Visibilité & préférences (E-14 — Paramètres du compte)
-    profile_visible = models.BooleanField(
-        default=True, verbose_name="Profil public visible"
-    )
+    profile_visible = models.BooleanField(default=True, verbose_name="Profil public visible")
     notify_email = models.BooleanField(default=True, verbose_name="Notifications par email")
     notify_sms = models.BooleanField(default=False, verbose_name="Notifications par SMS")
     notify_push = models.BooleanField(default=True, verbose_name="Notifications push")
@@ -169,9 +158,7 @@ class PreRegistrationCode(models.Model):
     """
 
     code = models.CharField(max_length=12, unique=True, default=_generate_code)
-    label = models.CharField(
-        max_length=255, blank=True, verbose_name="Session de formation (ex : Cocody, mars 2026)"
-    )
+    label = models.CharField(max_length=255, blank=True, verbose_name="Session de formation (ex : Cocody, mars 2026)")
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="preregistration_codes_created"
     )
@@ -194,9 +181,7 @@ class PreRegistrationCode(models.Model):
 class TeacherProfile(models.Model):
     """PROFIL_ENSEIGNANT — étend User quand primary_role = teacher."""
 
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="teacher_profile"
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="teacher_profile")
     preregistration_code = models.OneToOneField(
         PreRegistrationCode, on_delete=models.SET_NULL, null=True, blank=True, related_name="teacher_profile"
     )
@@ -224,9 +209,7 @@ class TeacherProfile(models.Model):
 class TeacherDiploma(models.Model):
     """Diplôme uploadé par l'enseignant à l'inscription."""
 
-    teacher = models.ForeignKey(
-        TeacherProfile, on_delete=models.CASCADE, related_name="diplomas"
-    )
+    teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE, related_name="diplomas")
     title = models.CharField(max_length=255, verbose_name="Intitulé du diplôme")
     file = models.FileField(upload_to="diplomas/", verbose_name="Fichier (PDF/image)")
     obtained_year = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -247,9 +230,7 @@ class SchoolGroup(models.Model):
     (voir SchoolGroupInvitation)."""
 
     name = models.CharField(max_length=200, verbose_name="Nom du groupe")
-    created_by = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="founded_school_groups"
-    )
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="founded_school_groups")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -272,9 +253,7 @@ class SchoolGroupInvitation(models.Model):
     une décision du directeur invité (voir vue de réponse)."""
 
     group = models.ForeignKey(SchoolGroup, on_delete=models.CASCADE, related_name="invitations")
-    invited_director = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="school_group_invitations"
-    )
+    invited_director = models.ForeignKey(User, on_delete=models.CASCADE, related_name="school_group_invitations")
     status = models.CharField(
         max_length=10, choices=SchoolGroupInvitationStatus.choices, default=SchoolGroupInvitationStatus.PENDING
     )
@@ -293,9 +272,7 @@ class SchoolGroupInvitation(models.Model):
 class DirectorProfile(models.Model):
     """PROFIL_DIRECTEUR — étend User quand primary_role = director."""
 
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="director_profile"
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="director_profile")
     # Nullable — un établissement reste indépendant par défaut, rattaché à
     # un groupe uniquement en acceptant une SchoolGroupInvitation.
     school_group = models.ForeignKey(
@@ -337,9 +314,7 @@ class CompanyProfile(models.Model):
     validé avec le Product Owner, même structure que PROFIL_DIRECTEUR.
     """
 
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="company_profile"
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="company_profile")
     company_name = models.CharField(max_length=255, verbose_name="Raison sociale")
     sector = models.CharField(max_length=255, blank=True, verbose_name="Secteur d'activité")
     address = models.CharField(max_length=255, verbose_name="Adresse")
@@ -352,11 +327,15 @@ class CompanyProfile(models.Model):
     # choisi une fois par l'entreprise, réutilisé sur toutes ses conventions
     # plutôt que ressaisi à chaque génération.
     brand_primary_color = models.CharField(
-        max_length=7, default="#0F172A", validators=[hex_color_validator],
+        max_length=7,
+        default="#0F172A",
+        validators=[hex_color_validator],
         verbose_name="Couleur principale (hex)",
     )
     brand_secondary_color = models.CharField(
-        max_length=7, default="#FB5406", validators=[hex_color_validator],
+        max_length=7,
+        default="#FB5406",
+        validators=[hex_color_validator],
         verbose_name="Couleur secondaire (hex)",
     )
 
@@ -371,9 +350,7 @@ class CompanyProfile(models.Model):
 class ParentProfile(models.Model):
     """PROFIL_PARENT — étend User quand primary_role = parent."""
 
-    user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="parent_profile"
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="parent_profile")
     location = models.CharField(max_length=255, blank=True, verbose_name="Localisation")
     subscription_active = models.BooleanField(default=False, verbose_name="Abonnement actif")
 
@@ -405,11 +382,13 @@ class Child(models.Model):
     # directe à la création de son propre compte élève, voir
     # apps.grading — module Vie scolaire, flux d'auto-inscription). Un
     # enfant ajouté par un parent garde toujours ce lien.
-    parent = models.ForeignKey(
-        ParentProfile, on_delete=models.CASCADE, related_name="children", null=True, blank=True
-    )
+    parent = models.ForeignKey(ParentProfile, on_delete=models.CASCADE, related_name="children", null=True, blank=True)
     user = models.OneToOneField(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="child_profile",
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="child_profile",
         verbose_name="Compte élève (une fois activé)",
     )
     first_name = models.CharField(max_length=100, verbose_name="Prénom")
@@ -449,7 +428,9 @@ class ChildClaimRequest(models.Model):
 
     parent = models.ForeignKey(ParentProfile, on_delete=models.CASCADE, related_name="claim_requests")
     child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="claim_requests")
-    status = models.CharField(max_length=10, choices=ChildClaimRequestStatus.choices, default=ChildClaimRequestStatus.PENDING)
+    status = models.CharField(
+        max_length=10, choices=ChildClaimRequestStatus.choices, default=ChildClaimRequestStatus.PENDING
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
 
@@ -478,9 +459,7 @@ class StudentActivationInvite(models.Model):
 
     child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="activation_invites")
     email = models.EmailField(verbose_name="Email de l'élève")
-    invited_by = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="sent_student_invitations"
-    )
+    invited_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_student_invitations")
     token = models.CharField(max_length=43, unique=True, editable=False)
     is_accepted = models.BooleanField(default=False)
     parent_notified_at = models.DateTimeField(null=True, blank=True)
@@ -526,6 +505,7 @@ class OTPCode(models.Model):
 
     def is_valid(self) -> bool:
         from django.utils import timezone
+
         return not self.used and self.expires_at > timezone.now()
 
     def __str__(self):
@@ -538,12 +518,8 @@ class TeacherComment(models.Model):
     modération), même quand le commentaire s'affiche comme anonyme aux
     autres utilisateurs."""
 
-    teacher = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="received_comments"
-    )
-    author = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="written_teacher_comments"
-    )
+    teacher = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_comments")
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="written_teacher_comments")
     body = models.TextField(max_length=1000, verbose_name="Commentaire")
     is_anonymous = models.BooleanField(default=False, verbose_name="Publié anonymement")
     is_hidden = models.BooleanField(default=False, verbose_name="Masqué par modération")

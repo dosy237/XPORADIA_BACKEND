@@ -6,6 +6,7 @@ PDF ou CSV. Le rapprochement avec les demandes de rattachement en attente
 est une PROPOSITION, jamais une décision : rien n'est écrit en base tant
 que le directeur n'a pas validé (voir ConfirmAdmissionReportView).
 """
+
 import csv
 import difflib
 import io
@@ -74,10 +75,7 @@ def match_report_to_join_requests(extracted_lines: list[dict], pending_join_requ
     inclus, jamais un rapprochement automatique appliqué sans relecture
     humaine. Seuil de 0.6 en dessous duquel on ne propose rien (mieux
     vaut ne rien proposer qu'un mauvais rapprochement)."""
-    candidates = [
-        (jr, _normalize_name(f"{jr.child.first_name} {jr.child.last_name}"))
-        for jr in pending_join_requests
-    ]
+    candidates = [(jr, _normalize_name(f"{jr.child.first_name} {jr.child.last_name}")) for jr in pending_join_requests]
 
     proposals = []
     for line in extracted_lines:
@@ -90,14 +88,17 @@ def match_report_to_join_requests(extracted_lines: list[dict], pending_join_requ
                 best_score = score
                 best_match = join_request
 
-        proposals.append({
-            "extracted_name": line["name"],
-            "extracted_status": line["status"],
-            "matched_join_request_id": best_match.id if best_match and best_score >= 0.6 else None,
-            "matched_child_name": (
-                f"{best_match.child.first_name} {best_match.child.last_name}"
-                if best_match and best_score >= 0.6 else None
-            ),
-            "match_score": round(best_score, 2),
-        })
+        proposals.append(
+            {
+                "extracted_name": line["name"],
+                "extracted_status": line["status"],
+                "matched_join_request_id": best_match.id if best_match and best_score >= 0.6 else None,
+                "matched_child_name": (
+                    f"{best_match.child.first_name} {best_match.child.last_name}"
+                    if best_match and best_score >= 0.6
+                    else None
+                ),
+                "match_score": round(best_score, 2),
+            }
+        )
     return proposals

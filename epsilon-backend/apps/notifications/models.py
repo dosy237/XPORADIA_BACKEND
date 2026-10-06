@@ -2,46 +2,48 @@
 Xporadia — apps/notifications/models.py
 Entité : Notification (multi-canal)
 """
+
 import uuid
+
 from django.conf import settings
 from django.db import models
 
 
 class NotificationType(models.TextChoices):
-    NEW_JOB_OFFER      = "new_job_offer",      "Nouvelle offre d'emploi"
+    NEW_JOB_OFFER = "new_job_offer", "Nouvelle offre d'emploi"
     APPLICATION_VIEWED = "application_viewed", "Candidature consultée"
-    EXAM_AVAILABLE     = "exam_available",     "Examen disponible"
-    EXAM_RESULT        = "exam_result",        "Résultat d'examen"
-    SESSION_CONFIRMED  = "session_confirmed",  "Séance confirmée"
-    SESSION_CANCELLED  = "session_cancelled",  "Séance annulée"
-    PAYMENT_RECEIVED   = "payment_received",   "Paiement reçu"
-    INVOICE_READY      = "invoice_ready",      "Facture disponible"
-    CERT_EXPIRY        = "cert_expiry",        "Alerte expiration certification"
-    NEW_MESSAGE        = "new_message",        "Nouveau message"
+    EXAM_AVAILABLE = "exam_available", "Examen disponible"
+    EXAM_RESULT = "exam_result", "Résultat d'examen"
+    SESSION_CONFIRMED = "session_confirmed", "Séance confirmée"
+    SESSION_CANCELLED = "session_cancelled", "Séance annulée"
+    PAYMENT_RECEIVED = "payment_received", "Paiement reçu"
+    INVOICE_READY = "invoice_ready", "Facture disponible"
+    CERT_EXPIRY = "cert_expiry", "Alerte expiration certification"
+    NEW_MESSAGE = "new_message", "Nouveau message"
     EXERCISE_PUBLISHED = "exercise_published", "Devoir publié"
     EXERCISE_SUBMITTED = "exercise_submitted", "Copie soumise"
-    EXERCISE_DUE_SOON   = "exercise_due_soon",   "Devoir bientôt à rendre"
-    EXERCISE_OVERDUE    = "exercise_overdue",    "Devoir non rendu à échéance"
-    CORRECTION_READY   = "correction_ready",   "Correction disponible"
-    RECRUITMENT        = "recruitment",        "Recrutement confirmé"
-    STAGE_UPDATE       = "stage_update",       "Mise à jour stage"
-    CLASS_ASSIGNMENT   = "class_assignment",   "Affectation à une matière"
-    ENROLLMENT_UPDATE  = "enrollment_update",  "Mise à jour de scolarité"
+    EXERCISE_DUE_SOON = "exercise_due_soon", "Devoir bientôt à rendre"
+    EXERCISE_OVERDUE = "exercise_overdue", "Devoir non rendu à échéance"
+    CORRECTION_READY = "correction_ready", "Correction disponible"
+    RECRUITMENT = "recruitment", "Recrutement confirmé"
+    STAGE_UPDATE = "stage_update", "Mise à jour stage"
+    CLASS_ASSIGNMENT = "class_assignment", "Affectation à une matière"
+    ENROLLMENT_UPDATE = "enrollment_update", "Mise à jour de scolarité"
     CERT_LEVEL_CHANGED = "cert_level_changed", "Changement de niveau de certification"
     REPORT_CARD_PUBLISHED = "report_card_published", "Bulletin publié"
-    TIMETABLE_REMINDER  = "timetable_reminder",  "Rappel des cours du lendemain"
-    REVISION_REMINDER   = "revision_reminder",   "Rappel de révision personnelle"
-    HOLIDAY_DECLARED    = "holiday_declared",    "Jour férié déclaré"
+    TIMETABLE_REMINDER = "timetable_reminder", "Rappel des cours du lendemain"
+    REVISION_REMINDER = "revision_reminder", "Rappel de révision personnelle"
+    HOLIDAY_DECLARED = "holiday_declared", "Jour férié déclaré"
     CLAIM_REQUEST_REVIEWED = "claim_request_reviewed", "Réponse à une demande de rattachement"
-    NEW_CERT_MODULE    = "new_cert_module",    "Nouveau module de certification"
+    NEW_CERT_MODULE = "new_cert_module", "Nouveau module de certification"
     FOLLOWED_USER_POST = "followed_user_post", "Publication d'un profil suivi"
-    ENGAGEMENT_TIP     = "engagement_tip",     "Conseil de visibilité"
-    SYSTEM             = "system",             "Système"
+    ENGAGEMENT_TIP = "engagement_tip", "Conseil de visibilité"
+    SYSTEM = "system", "Système"
 
 
 class NotificationChannel(models.TextChoices):
-    PUSH  = "push",  "Push mobile"
-    SMS   = "sms",   "SMS"
+    PUSH = "push", "Push mobile"
+    SMS = "sms", "SMS"
     EMAIL = "email", "Email"
     INAPP = "inapp", "In-app"
 
@@ -63,36 +65,23 @@ class Notification(models.Model):
     Un même événement peut générer plusieurs Notification
     (une par canal : push + email par exemple).
     """
-    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user       = models.ForeignKey(
-                    settings.AUTH_USER_MODEL,
-                    on_delete=models.CASCADE,
-                    related_name="notifications"
-                 )
-    notif_type = models.CharField(
-                    max_length=30,
-                    choices=NotificationType.choices
-                 )
-    channel    = models.CharField(
-                    max_length=10,
-                    choices=NotificationChannel.choices,
-                    default=NotificationChannel.INAPP
-                 )
-    title      = models.CharField(max_length=150)
-    body       = models.TextField()
-    data       = models.JSONField(
-                    default=dict,
-                    help_text="Payload extra — ex: {url, object_id, object_type}"
-                 )
-    is_read    = models.BooleanField(default=False)
-    read_at    = models.DateTimeField(null=True, blank=True)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
+    notif_type = models.CharField(max_length=30, choices=NotificationType.choices)
+    channel = models.CharField(max_length=10, choices=NotificationChannel.choices, default=NotificationChannel.INAPP)
+    title = models.CharField(max_length=150)
+    body = models.TextField()
+    data = models.JSONField(default=dict, help_text="Payload extra — ex: {url, object_id, object_type}")
+    is_read = models.BooleanField(default=False)
+    read_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name        = "Notification"
+        verbose_name = "Notification"
         verbose_name_plural = "Notifications"
-        ordering            = ["-created_at"]
-        indexes             = [
+        ordering = ["-created_at"]
+        indexes = [
             models.Index(fields=["user", "is_read"]),
             models.Index(fields=["user", "notif_type"]),
         ]
@@ -114,9 +103,7 @@ class DeviceToken(models.Model):
     token appartient à l'appareil, pas au compte : à la reconnexion d'un
     autre utilisateur sur le même appareil, il est simplement réassigné."""
 
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="device_tokens"
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="device_tokens")
     token = models.CharField(max_length=255, unique=True)
     platform = models.CharField(max_length=10, choices=DevicePlatform.choices)
     created_at = models.DateTimeField(auto_now_add=True)

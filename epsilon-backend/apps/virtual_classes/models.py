@@ -100,7 +100,7 @@ class Exercise(models.Model):
 
 class SubmissionStatus(models.TextChoices):
     SUBMITTED = "submitted", "Soumis"
-    GRADED    = "graded",    "Corrigé"
+    GRADED = "graded", "Corrigé"
 
 
 class Submission(models.Model):
@@ -109,29 +109,32 @@ class Submission(models.Model):
     dans tous les cas). Notée sur 20 (convention scolaire ivoirienne), par
     l'enseignant dédié de la matière."""
 
-    exercise      = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name="submissions")
-    child         = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="submissions")
-    submitted_by  = models.ForeignKey(
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name="submissions")
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="submissions")
+    submitted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="submissions_made"
     )
-    content       = models.TextField(blank=True)
-    attachments   = models.JSONField(default=list, blank=True)
-    status        = models.CharField(max_length=15, choices=SubmissionStatus.choices, default=SubmissionStatus.SUBMITTED)
-    grade         = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, help_text="Note sur 20")
-    feedback      = models.TextField(blank=True)
-    submitted_at  = models.DateTimeField(auto_now_add=True)
-    updated_at    = models.DateTimeField(auto_now=True)
-    graded_at     = models.DateTimeField(null=True, blank=True)
-    graded_by     = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+    content = models.TextField(blank=True)
+    attachments = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=15, choices=SubmissionStatus.choices, default=SubmissionStatus.SUBMITTED)
+    grade = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, help_text="Note sur 20")
+    feedback = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    graded_at = models.DateTimeField(null=True, blank=True)
+    graded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="graded_submissions",
     )
 
     class Meta:
-        verbose_name        = "Soumission"
+        verbose_name = "Soumission"
         verbose_name_plural = "Soumissions"
-        unique_together     = ("exercise", "child")
-        ordering            = ["-submitted_at"]
+        unique_together = ("exercise", "child")
+        ordering = ["-submitted_at"]
 
     def __str__(self):
         return f"{self.child.first_name} → {self.exercise.title} ({self.status})"

@@ -2,6 +2,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
+
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -26,9 +27,11 @@ def _get_child_in_establishment(child_id, establishment):
     plus inscrit activement."""
     from apps.academics.models import Enrollment
 
-    enrollment = Enrollment.objects.filter(
-        child_id=child_id, school_class__track__department__establishment=establishment
-    ).select_related("child").first()
+    enrollment = (
+        Enrollment.objects.filter(child_id=child_id, school_class__track__department__establishment=establishment)
+        .select_related("child")
+        .first()
+    )
     if not enrollment:
         raise Http404
     return enrollment.child
@@ -49,7 +52,9 @@ class AdministrativeDocumentListCreateView(generics.ListCreateAPIView):
         return child_id
 
     def get_serializer_class(self):
-        return AdministrativeDocumentSerializer if self.request.method == "GET" else IssueAdministrativeDocumentSerializer
+        return (
+            AdministrativeDocumentSerializer if self.request.method == "GET" else IssueAdministrativeDocumentSerializer
+        )
 
     def get_queryset(self):
         establishment = _get_establishment(self.request.user)

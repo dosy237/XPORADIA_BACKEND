@@ -34,6 +34,7 @@ jamais rien, elle complète seulement ce qui manque. Construit dans son
 propre établissement dédié pour ne jamais interférer avec seed_demo_data
 ni avec les comptes de test créés manuellement pendant le développement.
 """
+
 import io
 from datetime import date, time, timedelta
 from decimal import Decimal
@@ -71,22 +72,12 @@ from apps.certification.models import (
     ModuleCategory,
     QuestionType,
     SessionEnrollment,
-    TrainingModule,
-    TrainingSession,
 )
 from apps.certification.models import SessionStatus as CertSessionStatus
-from apps.employment.models import (
-    ContractType,
-    JobApplication,
-    JobListing,
-    JobStatus,
-    PayrollEntry,
-    Recruitment,
-    WalletTransaction,
-    WorkedHours,
-    WorkedHoursStatus,
-)
+from apps.certification.models import TrainingModule, TrainingSession
+from apps.employment.models import ContractType, JobApplication, JobListing, JobStatus
 from apps.employment.models import PaymentStatus as RecruitmentPaymentStatus
+from apps.employment.models import PayrollEntry, Recruitment, WalletTransaction, WorkedHours, WorkedHoursStatus
 from apps.feed.models import Follow, Post
 from apps.grading.models import Evaluation, EvaluationType, Grade, ReportCard, SubjectReportEntry, Term
 from apps.grading.services import (
@@ -104,8 +95,9 @@ from apps.messaging.services import (
     get_or_create_direct_channel,
 )
 from apps.notifications.models import Notification, NotificationType
-from apps.payments.models import MobileOperator, Payment, PaymentType
+from apps.payments.models import MobileOperator, Payment
 from apps.payments.models import PaymentStatus as PayStatus
+from apps.payments.models import PaymentType
 from apps.student_life.models import BucketListItem, LifeGoal
 from apps.users.models import (
     Child,
@@ -118,7 +110,14 @@ from apps.users.models import (
     User,
     UserRole,
 )
-from apps.virtual_classes.models import Exercise, ExerciseKind, ExerciseStatus, Submission, SubmissionStatus, VirtualClass
+from apps.virtual_classes.models import (
+    Exercise,
+    ExerciseKind,
+    ExerciseStatus,
+    Submission,
+    SubmissionStatus,
+    VirtualClass,
+)
 
 DEMO_PASSWORD = "Xporadia2026!"
 
@@ -216,16 +215,22 @@ class Command(BaseCommand):
         with transaction.atomic():
             # === Établissement + structure ===
             director_user, c = get_or_create_user(
-                "demo.directeur.showcase@xporadia.ci", primary_role=UserRole.DIRECTOR,
-                first_name="Solange", last_name="Bakayoko",
+                "demo.directeur.showcase@xporadia.ci",
+                primary_role=UserRole.DIRECTOR,
+                first_name="Solange",
+                last_name="Bakayoko",
             )
             note(c)
             director, c = DirectorProfile.objects.get_or_create(
                 user=director_user,
                 defaults={
-                    "school_name": "Lycée Démo Complet", "address": "Cocody, Abidjan", "is_partner": True,
-                    "phone": "22443517", "contact_email": "contact@lyceedemocomplet.ci",
-                    "establishment_code": "000395", "is_public": True,
+                    "school_name": "Lycée Démo Complet",
+                    "address": "Cocody, Abidjan",
+                    "is_partner": True,
+                    "phone": "22443517",
+                    "contact_email": "contact@lyceedemocomplet.ci",
+                    "establishment_code": "000395",
+                    "is_public": True,
                 },
             )
             if not c and not director.phone:
@@ -241,13 +246,17 @@ class Command(BaseCommand):
             note(c)
 
             homeroom_user, c = get_or_create_user(
-                "demo.titulaire.showcase@xporadia.ci", primary_role=UserRole.TEACHER,
-                first_name="Fatou", last_name="Diabaté",
+                "demo.titulaire.showcase@xporadia.ci",
+                primary_role=UserRole.TEACHER,
+                first_name="Fatou",
+                last_name="Diabaté",
             )
             note(c)
 
             school_class, c = SchoolClass.objects.get_or_create(
-                track=track, name="Terminale D2", school_year="2025-2026",
+                track=track,
+                name="Terminale D2",
+                school_year="2025-2026",
                 defaults={"homeroom_teacher": homeroom_user},
             )
             if not c and school_class.homeroom_teacher_id != homeroom_user.id:
@@ -260,14 +269,30 @@ class Command(BaseCommand):
             # (voir SubjectCategory) — Lettres/Sciences/Autres, la même
             # répartition qu'un vrai bulletin de série D.
             subject_specs = [
-                ("Mathématiques", 4, "demo.prof.maths.showcase@xporadia.ci", "Adama", "Koné", SubjectCategory.SCIENCES),
+                (
+                    "Mathématiques",
+                    4,
+                    "demo.prof.maths.showcase@xporadia.ci",
+                    "Adama",
+                    "Koné",
+                    SubjectCategory.SCIENCES,
+                ),
                 ("Physique-Chimie", 3, "demo.prof.pc.showcase@xporadia.ci", "Nadège", "Yao", SubjectCategory.SCIENCES),
-                ("Français", 3, "demo.prof.francais.showcase@xporadia.ci", "Ibrahim", "Traoré", SubjectCategory.LETTERS),
+                (
+                    "Français",
+                    3,
+                    "demo.prof.francais.showcase@xporadia.ci",
+                    "Ibrahim",
+                    "Traoré",
+                    SubjectCategory.LETTERS,
+                ),
                 ("Anglais", 2, "demo.prof.anglais.showcase@xporadia.ci", "Christelle", "Aka", SubjectCategory.LETTERS),
             ]
             subjects = {}
             for name, coeff, email, first, last, category in subject_specs:
-                teacher, c1 = get_or_create_user(email, primary_role=UserRole.TEACHER, first_name=first, last_name=last)
+                teacher, c1 = get_or_create_user(
+                    email, primary_role=UserRole.TEACHER, first_name=first, last_name=last
+                )
                 note(c1)
                 if name == "Mathématiques":
                     note(ensure_avatar(teacher, (58, 92, 148)))
@@ -276,10 +301,12 @@ class Command(BaseCommand):
                 # get_or_create explicite ici, un enseignant seedé en ORM
                 # n'en a jamais un, ce qui viderait sa propre fiche profil.
                 TeacherProfile.objects.get_or_create(
-                    user=teacher, defaults={"subjects": [name], "experience_years": 5, "hourly_rate": Decimal("6000")},
+                    user=teacher,
+                    defaults={"subjects": [name], "experience_years": 5, "hourly_rate": Decimal("6000")},
                 )
                 subject, c2 = Subject.objects.get_or_create(
-                    school_class=school_class, name=name,
+                    school_class=school_class,
+                    name=name,
                     defaults={"coefficient": coeff, "teacher": teacher, "category": category},
                 )
                 if not c2 and (subject.teacher_id != teacher.id or subject.category != category):
@@ -299,17 +326,21 @@ class Command(BaseCommand):
             homeroom_teacher_profile, c = TeacherProfile.objects.get_or_create(
                 user=homeroom_user,
                 defaults={
-                    "subjects": ["Philosophie"], "experience_years": 11,
-                    "hourly_rate": Decimal("7500"), "location": "Cocody, Abidjan",
+                    "subjects": ["Philosophie"],
+                    "experience_years": 11,
+                    "hourly_rate": Decimal("7500"),
+                    "location": "Cocody, Abidjan",
                     "bio": "Professeure de philosophie et titulaire de Terminale D2, disponible pour "
-                           "de l'accompagnement personnalisé et ouverte à de nouvelles opportunités.",
-                    "available_for_tutoring": True, "available_for_employment": True,
+                    "de l'accompagnement personnalisé et ouverte à de nouvelles opportunités.",
+                    "available_for_tutoring": True,
+                    "available_for_employment": True,
                 },
             )
             note(c)
             note(ensure_avatar(homeroom_user, (150, 90, 130)))
             philo_subject, c = Subject.objects.get_or_create(
-                school_class=school_class, name="Philosophie",
+                school_class=school_class,
+                name="Philosophie",
                 defaults={"coefficient": 2, "teacher": homeroom_user, "category": SubjectCategory.LETTERS},
             )
             if not c and philo_subject.category != SubjectCategory.LETTERS:
@@ -321,26 +352,36 @@ class Command(BaseCommand):
 
             # === Élève + parent ===
             parent_user, c = get_or_create_user(
-                "demo.parent.showcase@xporadia.ci", primary_role=UserRole.PARENT,
-                first_name="Ramata", last_name="Ouattara",
+                "demo.parent.showcase@xporadia.ci",
+                primary_role=UserRole.PARENT,
+                first_name="Ramata",
+                last_name="Ouattara",
             )
             note(c)
             parent, c = ParentProfile.objects.get_or_create(user=parent_user, defaults={"subscription_active": True})
             note(c)
 
             student_user, c = get_or_create_user(
-                "demo.eleve.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
-                first_name="Kevin", last_name="Ouattara",
+                "demo.eleve.showcase@xporadia.ci",
+                primary_role=UserRole.STUDENT,
+                first_name="Kevin",
+                last_name="Ouattara",
             )
             note(c)
             note(ensure_avatar(student_user, (214, 122, 44)))
             child, c = Child.objects.get_or_create(
                 user=student_user,
                 defaults={
-                    "parent": parent, "first_name": "Kevin", "last_name": "Ouattara",
-                    "class_level": "Terminale D", "target_subjects": ["Mathématiques", "Physique-Chimie"],
-                    "birth_date": date(2008, 3, 14), "birth_place": "Yopougon",
-                    "matricule": "08 036 659 C", "sex": ChildSex.MALE, "nationality": "Ivoirienne",
+                    "parent": parent,
+                    "first_name": "Kevin",
+                    "last_name": "Ouattara",
+                    "class_level": "Terminale D",
+                    "target_subjects": ["Mathématiques", "Physique-Chimie"],
+                    "birth_date": date(2008, 3, 14),
+                    "birth_place": "Yopougon",
+                    "matricule": "08 036 659 C",
+                    "sex": ChildSex.MALE,
+                    "nationality": "Ivoirienne",
                 },
             )
             child_updates = []
@@ -357,7 +398,8 @@ class Command(BaseCommand):
             note(c)
 
             enrollment, c = Enrollment.objects.get_or_create(
-                child=child, school_class=school_class,
+                child=child,
+                school_class=school_class,
                 defaults={"status": EnrollmentStatus.ACTIVE, "is_boarder": False, "is_ministry_assigned": True},
             )
             if not c and enrollment.is_boarder is None:
@@ -372,7 +414,9 @@ class Command(BaseCommand):
             # distinct de Kevin, pour tester le tableau de bord parent à
             # plusieurs enfants avec un profil sciemment plus vide.
             second_child, c = Child.objects.get_or_create(
-                parent=parent, first_name="Aminata", last_name="Ouattara",
+                parent=parent,
+                first_name="Aminata",
+                last_name="Ouattara",
                 defaults={"class_level": "6ème", "birth_date": date(2014, 9, 2)},
             )
             note(c)
@@ -383,13 +427,20 @@ class Command(BaseCommand):
             # de rattachement depuis parent/claim-child.tsx (recherche par
             # email + soumission), distinct du cas déjà en attente plus bas.
             unclaimed_user, c = get_or_create_user(
-                "demo.eleve.libre.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
-                first_name="Nafissatou", last_name="Diallo",
+                "demo.eleve.libre.showcase@xporadia.ci",
+                primary_role=UserRole.STUDENT,
+                first_name="Nafissatou",
+                last_name="Diallo",
             )
             note(c)
             Child.objects.get_or_create(
                 user=unclaimed_user,
-                defaults={"parent": None, "first_name": "Nafissatou", "last_name": "Diallo", "class_level": "Terminale D"},
+                defaults={
+                    "parent": None,
+                    "first_name": "Nafissatou",
+                    "last_name": "Diallo",
+                    "class_level": "Terminale D",
+                },
             )
 
             # Un quatrième enfant, réclamé et déjà APPROUVÉ par le passé —
@@ -397,24 +448,35 @@ class Command(BaseCommand):
             # affiche aussi une demande résolue, pas seulement l'écran de
             # recherche vide d'une toute première demande.
             approved_child_user, c = get_or_create_user(
-                "demo.eleve.neveu.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
-                first_name="Yssouf", last_name="Ouattara",
+                "demo.eleve.neveu.showcase@xporadia.ci",
+                primary_role=UserRole.STUDENT,
+                first_name="Yssouf",
+                last_name="Ouattara",
             )
             note(c)
             approved_child, c = Child.objects.get_or_create(
                 user=approved_child_user,
-                defaults={"parent": parent, "first_name": "Yssouf", "last_name": "Ouattara", "class_level": "Terminale D"},
+                defaults={
+                    "parent": parent,
+                    "first_name": "Yssouf",
+                    "last_name": "Ouattara",
+                    "class_level": "Terminale D",
+                },
             )
             note(c)
             _, c = ChildClaimRequest.objects.get_or_create(
-                parent=parent, child=approved_child, defaults={"status": ChildClaimRequestStatus.APPROVED},
+                parent=parent,
+                child=approved_child,
+                defaults={"status": ChildClaimRequestStatus.APPROVED},
             )
             note(c)
 
             # Un camarade de classe pour la messagerie entre élèves.
             classmate_user, c = get_or_create_user(
-                "demo.camarade.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
-                first_name="Aïcha", last_name="Bamba",
+                "demo.camarade.showcase@xporadia.ci",
+                primary_role=UserRole.STUDENT,
+                first_name="Aïcha",
+                last_name="Bamba",
             )
             note(c)
             note(ensure_avatar(classmate_user, (90, 150, 110)))
@@ -431,8 +493,10 @@ class Command(BaseCommand):
             # tester le démarrage réel d'une toute nouvelle DM depuis Ma
             # classe, distinct du cas où la conversation existe déjà.
             classmate2_user, c = get_or_create_user(
-                "demo.camarade2.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
-                first_name="Moussa", last_name="Kouadio",
+                "demo.camarade2.showcase@xporadia.ci",
+                primary_role=UserRole.STUDENT,
+                first_name="Moussa",
+                last_name="Kouadio",
             )
             note(c)
             classmate2, c = Child.objects.get_or_create(
@@ -450,14 +514,18 @@ class Command(BaseCommand):
             # inscription, ReviewChildClaimRequestView côté approbation) —
             # état distinct du cas Kevin/Ramata où le lien est déjà établi.
             selfreg_user, c = get_or_create_user(
-                "demo.eleve.autoinscrit.showcase@xporadia.ci", primary_role=UserRole.STUDENT,
-                first_name="Salimata", last_name="Coulibaly",
+                "demo.eleve.autoinscrit.showcase@xporadia.ci",
+                primary_role=UserRole.STUDENT,
+                first_name="Salimata",
+                last_name="Coulibaly",
             )
             note(c)
             selfreg_child, c = Child.objects.get_or_create(
                 user=selfreg_user,
                 defaults={
-                    "parent": None, "first_name": "Salimata", "last_name": "Coulibaly",
+                    "parent": None,
+                    "first_name": "Salimata",
+                    "last_name": "Coulibaly",
                     "class_level": "Terminale D",
                 },
             )
@@ -467,8 +535,10 @@ class Command(BaseCommand):
             )
 
             waiting_parent_user, c = get_or_create_user(
-                "demo.parent.enattente.showcase@xporadia.ci", primary_role=UserRole.PARENT,
-                first_name="Yacouba", last_name="Coulibaly",
+                "demo.parent.enattente.showcase@xporadia.ci",
+                primary_role=UserRole.PARENT,
+                first_name="Yacouba",
+                last_name="Coulibaly",
             )
             note(c)
             waiting_parent, c = ParentProfile.objects.get_or_create(
@@ -511,18 +581,39 @@ class Command(BaseCommand):
 
             # === Trimestres (historique, échelles de notation différentes) ===
             term1, c = Term.objects.get_or_create(
-                establishment=director, school_year="2025-2026", number=1,
-                defaults={"name": "Premier trimestre", "start_date": date(2025, 9, 15), "end_date": date(2025, 12, 19), "is_active": False},
+                establishment=director,
+                school_year="2025-2026",
+                number=1,
+                defaults={
+                    "name": "Premier trimestre",
+                    "start_date": date(2025, 9, 15),
+                    "end_date": date(2025, 12, 19),
+                    "is_active": False,
+                },
             )
             note(c)
             term2, c = Term.objects.get_or_create(
-                establishment=director, school_year="2025-2026", number=2,
-                defaults={"name": "Deuxième trimestre", "start_date": date(2026, 1, 5), "end_date": date(2026, 3, 27), "is_active": False},
+                establishment=director,
+                school_year="2025-2026",
+                number=2,
+                defaults={
+                    "name": "Deuxième trimestre",
+                    "start_date": date(2026, 1, 5),
+                    "end_date": date(2026, 3, 27),
+                    "is_active": False,
+                },
             )
             note(c)
             term3, c = Term.objects.get_or_create(
-                establishment=director, school_year="2025-2026", number=3,
-                defaults={"name": "Troisième trimestre", "start_date": date(2026, 4, 13), "end_date": date(2026, 6, 30), "is_active": False},
+                establishment=director,
+                school_year="2025-2026",
+                number=3,
+                defaults={
+                    "name": "Troisième trimestre",
+                    "start_date": date(2026, 4, 13),
+                    "end_date": date(2026, 6, 30),
+                    "is_active": False,
+                },
             )
             note(c)
 
@@ -538,14 +629,12 @@ class Command(BaseCommand):
                 (term1, "Physique-Chimie", "Composition T1", EvaluationType.EXAM, 20, 3, Decimal("13.50")),
                 (term1, "Français", "Dissertation", EvaluationType.EXAM, 20, 2, Decimal("11.00")),
                 (term1, "Anglais", "Oral", EvaluationType.QUIZ, 20, 1, Decimal("17.00")),
-
                 (term2, "Mathématiques", "Devoir 2", EvaluationType.HOMEWORK, 10, 1, Decimal("7.50")),
                 (term2, "Mathématiques", "Composition T2", EvaluationType.EXAM, 40, 3, Decimal("31.00")),
                 (term2, "Physique-Chimie", "Interro 2", EvaluationType.QUIZ, 10, 1, Decimal("8.00")),
                 (term2, "Physique-Chimie", "Composition T2", EvaluationType.EXAM, 40, 3, Decimal("29.00")),
                 (term2, "Français", "Commentaire", EvaluationType.EXAM, 20, 2, Decimal("13.00")),
                 (term2, "Anglais", "Composition T2", EvaluationType.EXAM, 20, 2, Decimal("15.50")),
-
                 (term3, "Mathématiques", "Devoir 3", EvaluationType.HOMEWORK, 20, 1, Decimal("15.00")),
                 (term3, "Mathématiques", "Composition T3", EvaluationType.EXAM, 15, 3, Decimal("10.50")),
                 (term3, "Physique-Chimie", "Composition T3", EvaluationType.EXAM, 20, 3, Decimal("14.00")),
@@ -559,15 +648,22 @@ class Command(BaseCommand):
             for term, subject_name, title, eval_type, max_score, coeff, score in eval_specs:
                 subject = subjects[subject_name]
                 evaluation, c1 = Evaluation.objects.get_or_create(
-                    subject=subject, term=term, title=title,
+                    subject=subject,
+                    term=term,
+                    title=title,
                     defaults={
-                        "eval_type": eval_type, "coefficient": coeff, "max_score": max_score,
-                        "date": term.start_date + timedelta(days=20), "created_by": subject.teacher,
+                        "eval_type": eval_type,
+                        "coefficient": coeff,
+                        "max_score": max_score,
+                        "date": term.start_date + timedelta(days=20),
+                        "created_by": subject.teacher,
                     },
                 )
                 note(c1)
                 grade, c2 = Grade.objects.get_or_create(
-                    evaluation=evaluation, child=child, defaults={"score": score},
+                    evaluation=evaluation,
+                    child=child,
+                    defaults={"score": score},
                 )
                 note(c2)
 
@@ -579,7 +675,8 @@ class Command(BaseCommand):
                 rankings = compute_class_rankings(school_class, term)
                 my_rank_entry = next((e for e in rankings["ranked"] if e["child"].id == child.id), None)
                 report_card, c = ReportCard.objects.get_or_create(
-                    child=child, term=term,
+                    child=child,
+                    term=term,
                     defaults={
                         "school_class": school_class,
                         "general_average": general_avg,
@@ -600,13 +697,21 @@ class Command(BaseCommand):
                         subject_avg = compute_subject_average(child, subject, term)
                         teacher_name = (
                             f"{subject.teacher.first_name} {subject.teacher.last_name}".strip()
-                            if subject.teacher_id else ""
+                            if subject.teacher_id
+                            else ""
                         )
                         SubjectReportEntry.objects.create(
-                            report_card=report_card, subject_name=subject.name,
-                            subject_average=subject_avg, coefficient=subject.coefficient,
-                            teacher_comment="Bon niveau, continuez ainsi." if subject_avg and subject_avg >= 12 else "Peut mieux faire avec plus de régularité.",
-                            teacher_name=teacher_name, category=subject.category,
+                            report_card=report_card,
+                            subject_name=subject.name,
+                            subject_average=subject_avg,
+                            coefficient=subject.coefficient,
+                            teacher_comment=(
+                                "Bon niveau, continuez ainsi."
+                                if subject_avg and subject_avg >= 12
+                                else "Peut mieux faire avec plus de régularité."
+                            ),
+                            teacher_name=teacher_name,
+                            category=subject.category,
                         )
                 else:
                     # Bulletin déjà présent mais republié depuis (par ex. via
@@ -646,15 +751,23 @@ class Command(BaseCommand):
                         )
                         teacher_name = (
                             f"{subject.teacher.first_name} {subject.teacher.last_name}".strip()
-                            if subject.teacher_id else ""
+                            if subject.teacher_id
+                            else ""
                         )
                         if entry is None:
                             subject_avg = compute_subject_average(child, subject, term)
                             SubjectReportEntry.objects.create(
-                                report_card=report_card, subject_name=subject.name,
-                                subject_average=subject_avg, coefficient=subject.coefficient,
-                                teacher_comment="Bon niveau, continuez ainsi." if subject_avg and subject_avg >= 12 else "Peut mieux faire avec plus de régularité.",
-                                teacher_name=teacher_name, category=subject.category,
+                                report_card=report_card,
+                                subject_name=subject.name,
+                                subject_average=subject_avg,
+                                coefficient=subject.coefficient,
+                                teacher_comment=(
+                                    "Bon niveau, continuez ainsi."
+                                    if subject_avg and subject_avg >= 12
+                                    else "Peut mieux faire avec plus de régularité."
+                                ),
+                                teacher_name=teacher_name,
+                                category=subject.category,
                             )
                             note(True)
                         else:
@@ -687,10 +800,13 @@ class Command(BaseCommand):
                 vc = VirtualClass.objects.get(subject=subject)
                 deadline = timezone.now() - timedelta(days=days_ago) + timedelta(days=7)
                 exercise, created = Exercise.objects.get_or_create(
-                    virtual_class=vc, title=title,
+                    virtual_class=vc,
+                    title=title,
                     defaults={
-                        "kind": kind, "instructions": f"Consignes pour « {title} ».",
-                        "status": ExerciseStatus.PUBLISHED, "deadline": deadline,
+                        "kind": kind,
+                        "instructions": f"Consignes pour « {title} ».",
+                        "status": ExerciseStatus.PUBLISHED,
+                        "deadline": deadline,
                         "published_at": timezone.now() - timedelta(days=days_ago),
                     },
                 )
@@ -699,7 +815,9 @@ class Command(BaseCommand):
             ex_maths, c = get_exercise("Mathématiques", "Exercices sur les suites numériques")
             note(c)  # en cours : publié, sans soumission
             if not Message.objects.filter(channel=maths_channel, exercise_id=ex_maths.id).exists():
-                Message.objects.create(channel=maths_channel, author=subjects["Mathématiques"].teacher, exercise_id=ex_maths.id)
+                Message.objects.create(
+                    channel=maths_channel, author=subjects["Mathématiques"].teacher, exercise_id=ex_maths.id
+                )
                 note(True)
             else:
                 note(False)
@@ -709,8 +827,10 @@ class Command(BaseCommand):
             sub_pc = Submission.objects.filter(exercise=ex_pc, child=child).first()
             if sub_pc is None:
                 sub_pc = Submission.objects.create(
-                    exercise=ex_pc, child=child,
-                    submitted_by=student_user, content="Voici mon compte-rendu de TP.",
+                    exercise=ex_pc,
+                    child=child,
+                    submitted_by=student_user,
+                    content="Voici mon compte-rendu de TP.",
                     status=SubmissionStatus.SUBMITTED,
                 )
                 note(True)
@@ -724,23 +844,36 @@ class Command(BaseCommand):
                 # antérieure du seed (avant l'ajout de ce champ) doit aussi
                 # être complétée, pas seulement une toute nouvelle.
                 sub_pc.attachments = [
-                    save_demo_attachment("schema_experience.jpg", make_demo_cover_bytes(), "image/jpeg", "submission_attachments"),
-                    save_demo_attachment("compte_rendu_tp.pdf", make_demo_pdf_bytes("TP lois de Newton"), "application/pdf", "submission_attachments"),
+                    save_demo_attachment(
+                        "schema_experience.jpg", make_demo_cover_bytes(), "image/jpeg", "submission_attachments"
+                    ),
+                    save_demo_attachment(
+                        "compte_rendu_tp.pdf",
+                        make_demo_pdf_bytes("TP lois de Newton"),
+                        "application/pdf",
+                        "submission_attachments",
+                    ),
                 ]
                 sub_pc.save(update_fields=["attachments"])
                 note(True)
             else:
                 note(False)
 
-            ex_francais, c = get_exercise("Français", "Dissertation sur Une si longue lettre", kind=ExerciseKind.EXAM, days_ago=10)
+            ex_francais, c = get_exercise(
+                "Français", "Dissertation sur Une si longue lettre", kind=ExerciseKind.EXAM, days_ago=10
+            )
             note(c)
             sub_francais, c2 = Submission.objects.get_or_create(
-                exercise=ex_francais, child=child,
+                exercise=ex_francais,
+                child=child,
                 defaults={
-                    "submitted_by": student_user, "content": "Dissertation complète en pièce jointe.",
-                    "status": SubmissionStatus.GRADED, "grade": Decimal("14.00"),
+                    "submitted_by": student_user,
+                    "content": "Dissertation complète en pièce jointe.",
+                    "status": SubmissionStatus.GRADED,
+                    "grade": Decimal("14.00"),
                     "feedback": "Bonne analyse, structure claire. Attention à la conclusion, trop courte.",
-                    "graded_at": timezone.now() - timedelta(days=2), "graded_by": subjects["Français"].teacher,
+                    "graded_at": timezone.now() - timedelta(days=2),
+                    "graded_by": subjects["Français"].teacher,
                 },
             )
             note(c2)  # corrigé
@@ -748,35 +881,46 @@ class Command(BaseCommand):
             ex_anglais, c = get_exercise("Anglais", "Essay: My future career", days_ago=8)
             note(c)
             sub_anglais, c2 = Submission.objects.get_or_create(
-                exercise=ex_anglais, child=child,
+                exercise=ex_anglais,
+                child=child,
                 defaults={
-                    "submitted_by": student_user, "content": "My essay is attached.",
-                    "status": SubmissionStatus.GRADED, "grade": Decimal("16.50"),
+                    "submitted_by": student_user,
+                    "content": "My essay is attached.",
+                    "status": SubmissionStatus.GRADED,
+                    "grade": Decimal("16.50"),
                     "feedback": "Very good vocabulary, well done!",
-                    "graded_at": timezone.now() - timedelta(days=1), "graded_by": subjects["Anglais"].teacher,
+                    "graded_at": timezone.now() - timedelta(days=1),
+                    "graded_by": subjects["Anglais"].teacher,
                 },
             )
             note(c2)  # corrigé (2e matière, pour la variété)
 
-            ex_philo, c = get_exercise("Philosophie", "Dissertation : la liberté est-elle une illusion ?", kind=ExerciseKind.EXAM, days_ago=4)
+            ex_philo, c = get_exercise(
+                "Philosophie", "Dissertation : la liberté est-elle une illusion ?", kind=ExerciseKind.EXAM, days_ago=4
+            )
             note(c)  # en cours : publié, sans soumission — Fatou a une copie réelle à voir arriver
 
             # === Messagerie : DM avec un enseignant, DM avec un camarade ===
             dm_teacher = get_or_create_direct_channel(student_user, subjects["Mathématiques"].teacher)
             if dm_teacher.messages.count() == 0:
                 Message.objects.create(
-                    channel=dm_teacher, author=student_user,
+                    channel=dm_teacher,
+                    author=student_user,
                     body="Bonjour Monsieur, je n'ai pas compris l'exercice 3 sur les suites, vous pouvez m'aider ?",
                 )
                 Message.objects.create(
-                    channel=dm_teacher, author=subjects["Mathématiques"].teacher,
+                    channel=dm_teacher,
+                    author=subjects["Mathématiques"].teacher,
                     body="Bonjour Kevin, regarde la formule du terme général : reprends ton cours page 12, ça devrait débloquer.",
                     attachments=[
-                        save_demo_attachment("formule_terme_general.jpg", make_demo_cover_bytes(), "image/jpeg", "message_attachments"),
+                        save_demo_attachment(
+                            "formule_terme_general.jpg", make_demo_cover_bytes(), "image/jpeg", "message_attachments"
+                        ),
                     ],
                 )
                 Message.objects.create(
-                    channel=dm_teacher, author=student_user,
+                    channel=dm_teacher,
+                    author=student_user,
                     body="Ah oui, merci, je vois mieux maintenant !",
                 )
                 note(True)
@@ -789,7 +933,9 @@ class Command(BaseCommand):
                     # Complète une conversation déjà créée avant l'ajout de
                     # la pièce jointe à ce message précis.
                     teacher_answer.attachments = [
-                        save_demo_attachment("formule_terme_general.jpg", make_demo_cover_bytes(), "image/jpeg", "message_attachments"),
+                        save_demo_attachment(
+                            "formule_terme_general.jpg", make_demo_cover_bytes(), "image/jpeg", "message_attachments"
+                        ),
                     ]
                     teacher_answer.save(update_fields=["attachments"])
                     note(True)
@@ -798,29 +944,73 @@ class Command(BaseCommand):
 
             dm_classmate = get_or_create_direct_channel(student_user, classmate_user)
             if dm_classmate.messages.count() == 0:
-                Message.objects.create(channel=dm_classmate, author=classmate_user, body="Salut, t'as fini le devoir de maths ?")
-                Message.objects.create(channel=dm_classmate, author=student_user, body="Pas encore, je bloque sur l'exo 3 aussi !")
+                Message.objects.create(
+                    channel=dm_classmate, author=classmate_user, body="Salut, t'as fini le devoir de maths ?"
+                )
+                Message.objects.create(
+                    channel=dm_classmate, author=student_user, body="Pas encore, je bloque sur l'exo 3 aussi !"
+                )
                 note(True)
             else:
                 note(False)
 
             # === Bibliothèque : formats et tailles variés ===
             library_specs = [
-                dict(title="Cours complet : Suites numériques", resource_type=ResourceType.COURSE,
-                     category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Mathématiques",
-                     file_url="", has_pdf=True, has_cover=True, file_size_kb=850),
-                dict(title="Fiche de révision : Lois de Newton", resource_type=ResourceType.REVISION,
-                     category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Physique-Chimie",
-                     file_url="", has_pdf=True, has_cover=False, file_size_kb=210),
-                dict(title="Une si longue lettre : Mariama Bâ (texte intégral)", resource_type=ResourceType.EXAM,
-                     category=ResourceCategory.LITERATURE, level=SchoolLevel.TERMINALE, subject="Français",
-                     file_url="https://example.com/une-si-longue-lettre.pdf", has_pdf=False, has_cover=True, file_size_kb=0),
-                dict(title="Annale BAC 2024 : Anglais LV1", resource_type=ResourceType.EXAM,
-                     category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Anglais",
-                     file_url="https://example.com/annale-anglais-2024.pdf", has_pdf=False, has_cover=False, file_size_kb=0),
-                dict(title="Corrigé : Composition Physique-Chimie T2", resource_type=ResourceType.SOLUTION,
-                     category=ResourceCategory.ACADEMIC, level=SchoolLevel.TERMINALE, subject="Physique-Chimie",
-                     file_url="", has_pdf=True, has_cover=True, file_size_kb=390),
+                dict(
+                    title="Cours complet : Suites numériques",
+                    resource_type=ResourceType.COURSE,
+                    category=ResourceCategory.ACADEMIC,
+                    level=SchoolLevel.TERMINALE,
+                    subject="Mathématiques",
+                    file_url="",
+                    has_pdf=True,
+                    has_cover=True,
+                    file_size_kb=850,
+                ),
+                dict(
+                    title="Fiche de révision : Lois de Newton",
+                    resource_type=ResourceType.REVISION,
+                    category=ResourceCategory.ACADEMIC,
+                    level=SchoolLevel.TERMINALE,
+                    subject="Physique-Chimie",
+                    file_url="",
+                    has_pdf=True,
+                    has_cover=False,
+                    file_size_kb=210,
+                ),
+                dict(
+                    title="Une si longue lettre : Mariama Bâ (texte intégral)",
+                    resource_type=ResourceType.EXAM,
+                    category=ResourceCategory.LITERATURE,
+                    level=SchoolLevel.TERMINALE,
+                    subject="Français",
+                    file_url="https://example.com/une-si-longue-lettre.pdf",
+                    has_pdf=False,
+                    has_cover=True,
+                    file_size_kb=0,
+                ),
+                dict(
+                    title="Annale BAC 2024 : Anglais LV1",
+                    resource_type=ResourceType.EXAM,
+                    category=ResourceCategory.ACADEMIC,
+                    level=SchoolLevel.TERMINALE,
+                    subject="Anglais",
+                    file_url="https://example.com/annale-anglais-2024.pdf",
+                    has_pdf=False,
+                    has_cover=False,
+                    file_size_kb=0,
+                ),
+                dict(
+                    title="Corrigé : Composition Physique-Chimie T2",
+                    resource_type=ResourceType.SOLUTION,
+                    category=ResourceCategory.ACADEMIC,
+                    level=SchoolLevel.TERMINALE,
+                    subject="Physique-Chimie",
+                    file_url="",
+                    has_pdf=True,
+                    has_cover=True,
+                    file_size_kb=390,
+                ),
             ]
             # Renommage correctif : ces deux titres portaient un tiret
             # cadratin (règle d'interface interdisant ce caractère) avant
@@ -837,14 +1027,19 @@ class Command(BaseCommand):
 
             for spec in library_specs:
                 resource, c = LibraryResource.objects.get_or_create(
-                    establishment=director, title=spec["title"],
+                    establishment=director,
+                    title=spec["title"],
                     defaults={
                         "description": f"Ressource de démonstration pour {spec['subject']}.",
-                        "resource_type": spec["resource_type"], "category": spec["category"],
-                        "level": spec["level"], "subject": spec["subject"],
+                        "resource_type": spec["resource_type"],
+                        "category": spec["category"],
+                        "level": spec["level"],
+                        "subject": spec["subject"],
                         "file_url": spec["file_url"],
                         "tags": [spec["subject"].lower()],
-                        "author": subjects.get(spec["subject"]).teacher if spec["subject"] in subjects else director_user,
+                        "author": (
+                            subjects.get(spec["subject"]).teacher if spec["subject"] in subjects else director_user
+                        ),
                         "is_contributed": False,
                         "moderation_status": ModerationStatus.APPROVED,
                     },
@@ -861,9 +1056,7 @@ class Command(BaseCommand):
                     )
                     needs_save = True
                 if spec["has_cover"] and not resource.cover_image:
-                    resource.cover_image.save(
-                        f"{resource.id}.jpg", ContentFile(make_demo_cover_bytes()), save=False
-                    )
+                    resource.cover_image.save(f"{resource.id}.jpg", ContentFile(make_demo_cover_bytes()), save=False)
                     needs_save = True
                 if needs_save:
                     resource.file_size_kb = max(1, resource.pdf_file.size // 1024) if resource.pdf_file else 0
@@ -880,17 +1073,24 @@ class Command(BaseCommand):
             ]
             for subject_name, weekday, start, end in slot_specs:
                 _, c = TimetableSlot.objects.get_or_create(
-                    school_class=school_class, subject=subjects[subject_name], weekday=weekday,
-                    start_time=start, defaults={"end_time": end, "room": "Salle 12"},
+                    school_class=school_class,
+                    subject=subjects[subject_name],
+                    weekday=weekday,
+                    start_time=start,
+                    defaults={"end_time": end, "room": "Salle 12"},
                 )
                 note(c)
 
             today = timezone.localdate()
             personal_block, c = PersonalScheduleBlock.objects.get_or_create(
-                child=child, weekday=today.weekday(), start_time=time(18, 0),
+                child=child,
+                weekday=today.weekday(),
+                start_time=time(18, 0),
                 defaults={
-                    "end_time": time(19, 0), "title": "Révision maths du soir",
-                    "subject": subjects["Mathématiques"], "valid_from": today - timedelta(days=30),
+                    "end_time": time(19, 0),
+                    "title": "Révision maths du soir",
+                    "subject": subjects["Mathématiques"],
+                    "valid_from": today - timedelta(days=30),
                 },
             )
             note(c)
@@ -900,16 +1100,25 @@ class Command(BaseCommand):
             # normalement les autres semaines, seule cette date change.
             next_occurrence = today + timedelta(days=7)
             _, c = PersonalScheduleException.objects.get_or_create(
-                block=personal_block, date=next_occurrence,
-                defaults={"title": "Révision maths décalée (contrôle le lendemain)", "start_time": time(19, 30), "end_time": time(20, 30)},
+                block=personal_block,
+                date=next_occurrence,
+                defaults={
+                    "title": "Révision maths décalée (contrôle le lendemain)",
+                    "start_time": time(19, 30),
+                    "end_time": time(20, 30),
+                },
             )
             note(c)
 
             _, c = EstablishmentEvent.objects.get_or_create(
-                establishment=director, school_class=school_class, event_type=EventType.MEETING,
-                title="Réunion parents-professeurs", date=today + timedelta(days=10),
+                establishment=director,
+                school_class=school_class,
+                event_type=EventType.MEETING,
+                title="Réunion parents-professeurs",
+                date=today + timedelta(days=10),
                 defaults={
-                    "start_time": time(17, 0), "end_time": time(19, 0),
+                    "start_time": time(17, 0),
+                    "end_time": time(19, 0),
                     "audience": [EventAudience.PARENTS, EventAudience.TEACHERS],
                     "created_by": homeroom_user,
                 },
@@ -921,8 +1130,11 @@ class Command(BaseCommand):
             # cours de Mathématiques ce jour précis dans l'agenda, sans
             # requalifier la date en vacance pour le reste du système.
             holiday_event, c = EstablishmentEvent.objects.get_or_create(
-                establishment=director, school_class=school_class, event_type=EventType.HOLIDAY,
-                title="Fête nationale", date=date(2026, 2, 2),
+                establishment=director,
+                school_class=school_class,
+                event_type=EventType.HOLIDAY,
+                title="Fête nationale",
+                date=date(2026, 2, 2),
                 defaults={"audience": [EventAudience.STUDENTS, EventAudience.PARENTS], "created_by": homeroom_user},
             )
             note(c)
@@ -934,7 +1146,8 @@ class Command(BaseCommand):
             # démontrer. Backfill couvert aussi pour un événement déjà
             # présent d'une exécution précédente à ce correctif.
             if not Notification.objects.filter(
-                user=student_user, notif_type=NotificationType.HOLIDAY_DECLARED,
+                user=student_user,
+                notif_type=NotificationType.HOLIDAY_DECLARED,
                 data__event_id=str(holiday_event.id),
             ).exists():
                 _notify_holiday_declared(holiday_event)
@@ -949,7 +1162,7 @@ class Command(BaseCommand):
                 child=child,
                 defaults={
                     "description": "Devenir ingénieur en énergies renouvelables pour contribuer à l'accès à "
-                                   "l'électricité en zone rurale.",
+                    "l'électricité en zone rurale.",
                     "related_subjects": ["Mathématiques", "Physique-Chimie", "Français"],
                 },
             )
@@ -966,7 +1179,8 @@ class Command(BaseCommand):
             ]
             for title, is_done in bucket_specs:
                 _, c = BucketListItem.objects.get_or_create(
-                    child=child, title=title,
+                    child=child,
+                    title=title,
                     defaults={"is_done": is_done, "done_at": timezone.now() - timedelta(days=60) if is_done else None},
                 )
                 note(c)
@@ -989,7 +1203,9 @@ class Command(BaseCommand):
             # destination réelle lors d'une promotion de fin d'année,
             # sans quoi l'écran n'aurait aucune classe cible à proposer.
             sibling_class, c = SchoolClass.objects.get_or_create(
-                track=track, name="Terminale D1", school_year="2025-2026",
+                track=track,
+                name="Terminale D1",
+                school_year="2025-2026",
             )
             note(c)
 
@@ -997,7 +1213,9 @@ class Command(BaseCommand):
             # directrice à Fatou (déjà titulaire) — teste my-delegations et
             # débloque timetable-editor pour elle sur tout l'établissement.
             _, c = TaskDelegation.objects.get_or_create(
-                establishment=director, teacher=homeroom_user, task=DelegatedTask.TIMETABLE,
+                establishment=director,
+                teacher=homeroom_user,
+                task=DelegatedTask.TIMETABLE,
             )
             note(c)
 
@@ -1007,30 +1225,57 @@ class Command(BaseCommand):
                 defaults={
                     "category": ModuleCategory.PEDAGOGY,
                     "description": "Les bases de la pédagogie active : différenciation, structuration de séquence.",
-                    "objectives": ["Différencier pédagogie active et transmissive", "Structurer une séquence complète"],
-                    "duration_hours": 6, "price": 15000, "points": 10,
+                    "objectives": [
+                        "Différencier pédagogie active et transmissive",
+                        "Structurer une séquence complète",
+                    ],
+                    "duration_hours": 6,
+                    "price": 15000,
+                    "points": 10,
                     "target_level": CertificationLevel.BRONZE,
                 },
             )
             note(c)
             bronze_questions = [
-                ("Qu'est-ce que la pédagogie active ?", QuestionType.MCQ,
-                 ["Une méthode centrée sur l'enseignant", "Une méthode où l'élève construit son savoir", "Un simple exposé magistral"],
-                 "Une méthode où l'élève construit son savoir"),
-                ("Une séquence pédagogique doit toujours commencer par une évaluation sommative.", QuestionType.TF, [], "false"),
+                (
+                    "Qu'est-ce que la pédagogie active ?",
+                    QuestionType.MCQ,
+                    [
+                        "Une méthode centrée sur l'enseignant",
+                        "Une méthode où l'élève construit son savoir",
+                        "Un simple exposé magistral",
+                    ],
+                    "Une méthode où l'élève construit son savoir",
+                ),
+                (
+                    "Une séquence pédagogique doit toujours commencer par une évaluation sommative.",
+                    QuestionType.TF,
+                    [],
+                    "false",
+                ),
             ]
             for text, qtype, options, correct in bronze_questions:
                 _, c = ExamQuestion.objects.get_or_create(
-                    module=bronze_module, text=text,
-                    defaults={"question_type": qtype, "options": options, "correct_answer": correct,
-                              "difficulty": DifficultyLevel.EASY, "points": 1},
+                    module=bronze_module,
+                    text=text,
+                    defaults={
+                        "question_type": qtype,
+                        "options": options,
+                        "correct_answer": correct,
+                        "difficulty": DifficultyLevel.EASY,
+                        "points": 1,
+                    },
                 )
                 note(c)
 
             bronze_attempt, c = ExamAttempt.objects.get_or_create(
-                teacher=homeroom_user, module=bronze_module, is_online=True,
+                teacher=homeroom_user,
+                module=bronze_module,
+                is_online=True,
                 defaults={
-                    "answers": {}, "score_auto": Decimal("85.00"), "score_total": Decimal("85.00"),
+                    "answers": {},
+                    "score_auto": Decimal("85.00"),
+                    "score_total": Decimal("85.00"),
                     "status": AttemptStatus.PASSED,
                     "submitted_at": timezone.now() - timedelta(days=200),
                     "graded_at": timezone.now() - timedelta(days=200),
@@ -1038,10 +1283,13 @@ class Command(BaseCommand):
             )
             note(c)
             _, c = Certification.objects.get_or_create(
-                teacher=homeroom_user, module=bronze_module,
+                teacher=homeroom_user,
+                module=bronze_module,
                 defaults={
-                    "attempt": bronze_attempt, "level": CertificationLevel.BRONZE,
-                    "points_awarded": bronze_module.points, "score_total": Decimal("85.00"),
+                    "attempt": bronze_attempt,
+                    "level": CertificationLevel.BRONZE,
+                    "points_awarded": bronze_module.points,
+                    "score_total": Decimal("85.00"),
                     "qr_code": f"XPD-SHOWCASE-BRONZE-{homeroom_user.id}",
                     "expires_at": date.today() + timedelta(days=730),
                 },
@@ -1057,49 +1305,78 @@ class Command(BaseCommand):
                 defaults={
                     "category": ModuleCategory.DIDACTICS,
                     "description": "Concevoir des parcours différenciés pour des classes hétérogènes.",
-                    "objectives": ["Adapter une séquence à des niveaux hétérogènes", "Concevoir une évaluation différenciée"],
-                    "duration_hours": 8, "price": 25000, "points": 15,
+                    "objectives": [
+                        "Adapter une séquence à des niveaux hétérogènes",
+                        "Concevoir une évaluation différenciée",
+                    ],
+                    "duration_hours": 8,
+                    "price": 25000,
+                    "points": 15,
                     "target_level": CertificationLevel.SILVER,
                 },
             )
             note(c)
             silver_questions = [
-                ("La différenciation pédagogique consiste à...", QuestionType.MCQ,
-                 ["Donner le même exercice à tous", "Adapter les tâches aux besoins de chaque élève", "Ne noter que les meilleurs"],
-                 "Adapter les tâches aux besoins de chaque élève"),
+                (
+                    "La différenciation pédagogique consiste à...",
+                    QuestionType.MCQ,
+                    [
+                        "Donner le même exercice à tous",
+                        "Adapter les tâches aux besoins de chaque élève",
+                        "Ne noter que les meilleurs",
+                    ],
+                    "Adapter les tâches aux besoins de chaque élève",
+                ),
                 ("Décrivez une situation de différenciation vécue dans votre classe.", QuestionType.OPEN, [], ""),
             ]
             for text, qtype, options, correct in silver_questions:
                 _, c = ExamQuestion.objects.get_or_create(
-                    module=silver_module, text=text,
-                    defaults={"question_type": qtype, "options": options, "correct_answer": correct,
-                              "difficulty": DifficultyLevel.MEDIUM, "points": 1},
+                    module=silver_module,
+                    text=text,
+                    defaults={
+                        "question_type": qtype,
+                        "options": options,
+                        "correct_answer": correct,
+                        "difficulty": DifficultyLevel.MEDIUM,
+                        "points": 1,
+                    },
                 )
                 note(c)
 
             # === Enseignante : formation continue (session à venir, payée) ===
             trainer_user, c = get_or_create_user(
-                "demo.formateur.showcase@xporadia.ci", primary_role=UserRole.TRAINER,
-                first_name="Konan", last_name="Assouan",
+                "demo.formateur.showcase@xporadia.ci",
+                primary_role=UserRole.TRAINER,
+                first_name="Konan",
+                last_name="Assouan",
             )
             note(c)
             training_session, c = TrainingSession.objects.get_or_create(
-                module=silver_module, trainer=trainer_user, city="Abidjan",
+                module=silver_module,
+                trainer=trainer_user,
+                city="Abidjan",
                 date=timezone.localdate() + timedelta(days=25),
                 defaults={
                     "location": "Centre de formation Xporadia, Cocody",
-                    "start_time": time(9, 0), "end_time": time(16, 0),
-                    "capacity": 25, "status": CertSessionStatus.PLANNED,
+                    "start_time": time(9, 0),
+                    "end_time": time(16, 0),
+                    "capacity": 25,
+                    "status": CertSessionStatus.PLANNED,
                 },
             )
             note(c)
             session_enrollment, c = SessionEnrollment.objects.get_or_create(
-                session=training_session, teacher=homeroom_user,
+                session=training_session,
+                teacher=homeroom_user,
             )
             if c:
                 session_payment = Payment.objects.create(
-                    user=homeroom_user, amount=silver_module.price, operator=MobileOperator.ORANGE,
-                    phone_number="0700000001", payment_type=PaymentType.TRAINING, status=PayStatus.COMPLETED,
+                    user=homeroom_user,
+                    amount=silver_module.price,
+                    operator=MobileOperator.ORANGE,
+                    phone_number="0700000001",
+                    payment_type=PaymentType.TRAINING,
+                    status=PayStatus.COMPLETED,
                     tx_ref=f"XPD-SHOWCASE-TRAINING-{homeroom_user.id}",
                     completed_at=timezone.now() - timedelta(days=5),
                 )
@@ -1116,8 +1393,10 @@ class Command(BaseCommand):
             # deux états réels et compatibles (vacations chez un autre
             # employeur, en plus de son poste de titulaire).
             second_director_user, c = get_or_create_user(
-                "demo.directeur2.showcase@xporadia.ci", primary_role=UserRole.DIRECTOR,
-                first_name="Yves", last_name="N'Guessan",
+                "demo.directeur2.showcase@xporadia.ci",
+                primary_role=UserRole.DIRECTOR,
+                first_name="Yves",
+                last_name="N'Guessan",
             )
             note(c)
             second_director, c = DirectorProfile.objects.get_or_create(
@@ -1127,28 +1406,40 @@ class Command(BaseCommand):
             note(c)
 
             job_listing, c = JobListing.objects.get_or_create(
-                school=second_director_user, title="Professeur(e) de Philosophie, vacation",
+                school=second_director_user,
+                title="Professeur(e) de Philosophie, vacation",
                 defaults={
-                    "subject": "Philosophie", "levels": ["Terminale"], "contract_type": ContractType.VACATION,
-                    "salary_min": 4000, "salary_max": 6000, "cert_level_required": CertificationLevel.BRONZE,
+                    "subject": "Philosophie",
+                    "levels": ["Terminale"],
+                    "contract_type": ContractType.VACATION,
+                    "salary_min": 4000,
+                    "salary_max": 6000,
+                    "cert_level_required": CertificationLevel.BRONZE,
                     "description": "Vacations de philosophie pour la Terminale, deux soirs par semaine.",
-                    "city": "Abidjan", "commune": "Yopougon", "status": JobStatus.ACTIVE,
+                    "city": "Abidjan",
+                    "commune": "Yopougon",
+                    "status": JobStatus.ACTIVE,
                     "published_at": timezone.now() - timedelta(days=12),
                     "expires_at": timezone.localdate() + timedelta(days=45),
                 },
             )
             note(c)
             _, c = JobApplication.objects.get_or_create(
-                teacher=homeroom_user, listing=job_listing,
+                teacher=homeroom_user,
+                listing=job_listing,
                 defaults={"cover_letter": "Titulaire certifiée Bronze, disponible en soirée pour des vacations."},
             )
             note(c)
 
             recruitment, c = Recruitment.objects.get_or_create(
-                school=second_director_user, teacher=homeroom_user,
+                school=second_director_user,
+                teacher=homeroom_user,
                 defaults={
-                    "contract_type": ContractType.CDD, "hourly_rate_teacher": 5000, "hourly_rate_billed": 6000,
-                    "commission_rate": Decimal("10.00"), "payment_status": RecruitmentPaymentStatus.PAID,
+                    "contract_type": ContractType.CDD,
+                    "hourly_rate_teacher": 5000,
+                    "hourly_rate_billed": 6000,
+                    "commission_rate": Decimal("10.00"),
+                    "payment_status": RecruitmentPaymentStatus.PAID,
                 },
             )
             note(c)
@@ -1168,10 +1459,14 @@ class Command(BaseCommand):
             worked_hours_rows = []
             for wdate, hours in worked_hours_specs:
                 wh, c = WorkedHours.objects.get_or_create(
-                    recruitment=recruitment, date=wdate,
+                    recruitment=recruitment,
+                    date=wdate,
                     defaults={
-                        "hours": hours, "note": "Vacations de philosophie", "status": WorkedHoursStatus.APPROVED,
-                        "reviewed_by": second_director_user, "reviewed_at": timezone.now() - timedelta(days=20),
+                        "hours": hours,
+                        "note": "Vacations de philosophie",
+                        "status": WorkedHoursStatus.APPROVED,
+                        "reviewed_by": second_director_user,
+                        "reviewed_at": timezone.now() - timedelta(days=20),
                     },
                 )
                 note(c)
@@ -1180,20 +1475,26 @@ class Command(BaseCommand):
             gross_amount = int(total_hours * recruitment.hourly_rate_teacher)
             billed_amount = int(total_hours * recruitment.hourly_rate_billed)
             payroll_entry, c = PayrollEntry.objects.get_or_create(
-                recruitment=recruitment, period_year=last_month_ref.year, period_month=last_month_ref.month,
+                recruitment=recruitment,
+                period_year=last_month_ref.year,
+                period_month=last_month_ref.month,
                 defaults={
                     "total_hours": total_hours,
                     "hourly_rate_teacher": recruitment.hourly_rate_teacher,
                     "hourly_rate_billed": recruitment.hourly_rate_billed,
-                    "gross_amount": gross_amount, "billed_amount": billed_amount,
+                    "gross_amount": gross_amount,
+                    "billed_amount": billed_amount,
                     "xporadia_margin": billed_amount - gross_amount,
                 },
             )
             note(c)
             if c:
-                WorkedHours.objects.filter(id__in=[wh.id for wh in worked_hours_rows]).update(payroll_entry=payroll_entry)
+                WorkedHours.objects.filter(id__in=[wh.id for wh in worked_hours_rows]).update(
+                    payroll_entry=payroll_entry
+                )
             _, c = WalletTransaction.objects.get_or_create(
-                payroll_entry=payroll_entry, defaults={"teacher": homeroom_user, "amount": gross_amount},
+                payroll_entry=payroll_entry,
+                defaults={"teacher": homeroom_user, "amount": gross_amount},
             )
             note(c)
 
@@ -1201,8 +1502,13 @@ class Command(BaseCommand):
             # encore en attente de validation par le directeur, pour tester
             # ce second état (distinct du mois déjà payé ci-dessus).
             _, c = WorkedHours.objects.get_or_create(
-                recruitment=recruitment, date=timezone.localdate() - timedelta(days=2),
-                defaults={"hours": Decimal("3.00"), "note": "Vacations de philosophie", "status": WorkedHoursStatus.PENDING},
+                recruitment=recruitment,
+                date=timezone.localdate() - timedelta(days=2),
+                defaults={
+                    "hours": Decimal("3.00"),
+                    "note": "Vacations de philosophie",
+                    "status": WorkedHoursStatus.PENDING,
+                },
             )
             note(c)
 
@@ -1210,17 +1516,23 @@ class Command(BaseCommand):
             _, c = Payment.objects.get_or_create(
                 tx_ref=f"XPD-SHOWCASE-TUTORING-{homeroom_user.id}",
                 defaults={
-                    "user": homeroom_user, "amount": 7500, "operator": MobileOperator.WAVE,
-                    "phone_number": "0700000002", "payment_type": PaymentType.TUTORING,
-                    "status": PayStatus.COMPLETED, "completed_at": timezone.now() - timedelta(days=15),
+                    "user": homeroom_user,
+                    "amount": 7500,
+                    "operator": MobileOperator.WAVE,
+                    "phone_number": "0700000002",
+                    "payment_type": PaymentType.TUTORING,
+                    "status": PayStatus.COMPLETED,
+                    "completed_at": timezone.now() - timedelta(days=15),
                 },
             )
             note(c)
 
-        self.stdout.write(self.style.SUCCESS(
-            f"Écosystème vitrine prêt (mot de passe commun : {DEMO_PASSWORD}) — "
-            f"élève : demo.eleve.showcase@xporadia.ci · "
-            f"enseignante (titulaire + Philosophie) : demo.titulaire.showcase@xporadia.ci · "
-            f"parent : demo.parent.showcase@xporadia.ci "
-            f"(objets créés : {created_counts['created']}, déjà présents : {created_counts['existing']})."
-        ))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Écosystème vitrine prêt (mot de passe commun : {DEMO_PASSWORD}) — "
+                f"élève : demo.eleve.showcase@xporadia.ci · "
+                f"enseignante (titulaire + Philosophie) : demo.titulaire.showcase@xporadia.ci · "
+                f"parent : demo.parent.showcase@xporadia.ci "
+                f"(objets créés : {created_counts['created']}, déjà présents : {created_counts['existing']})."
+            )
+        )

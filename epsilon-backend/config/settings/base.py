@@ -2,8 +2,10 @@
 Xporadia — Settings de base
 Commun à tous les environnements (dev, staging, prod)
 """
+
 import os
 from pathlib import Path
+
 import environ
 from celery.schedules import crontab
 
@@ -105,9 +107,7 @@ TEMPLATES = [
 ASGI_APPLICATION = "config.asgi.application"
 
 # Database
-DATABASES = {
-    "default": env.db("DATABASE_URL", default="sqlite:///db.sqlite3")
-}
+DATABASES = {"default": env.db("DATABASE_URL", default="sqlite:///db.sqlite3")}
 
 # Cache — Redis
 CACHES = {
@@ -171,6 +171,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # JWT
 from datetime import timedelta
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
@@ -202,10 +203,7 @@ REST_FRAMEWORK = {
 }
 
 # CORS
-CORS_ALLOWED_ORIGINS = env.list(
-    "CORS_ALLOWED_ORIGINS",
-    default=["http://localhost:3000", "http://localhost:8081"]
-)
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:3000", "http://localhost:8081"])
 
 # Spectacular (OpenAPI)
 SPECTACULAR_SETTINGS = {

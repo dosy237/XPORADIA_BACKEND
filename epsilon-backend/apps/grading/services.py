@@ -6,6 +6,7 @@ introduire d'erreur d'arrondi dans un système où l'équité compte. Les
 moyennes sont recalculées à la volée tant qu'un bulletin n'est pas
 publié ; ReportCard fige le résultat définitivement à la publication.
 """
+
 from decimal import ROUND_HALF_UP, Decimal
 
 from apps.academics.models import Enrollment, EnrollmentStatus, Subject
@@ -26,13 +27,13 @@ def compute_subject_average(child, subject: Subject, term) -> Decimal | None:
     Ignore les notes dispensées et les évaluations sans note saisie pour
     cet élève (jamais comptées comme zéro). None si rien à calculer
     (pas encore de note saisie)."""
-    grades = (
-        Grade.objects.filter(
-            evaluation__subject=subject, evaluation__term=term, child=child,
-            is_excused=False, score__isnull=False,
-        )
-        .select_related("evaluation")
-    )
+    grades = Grade.objects.filter(
+        evaluation__subject=subject,
+        evaluation__term=term,
+        child=child,
+        is_excused=False,
+        score__isnull=False,
+    ).select_related("evaluation")
     total_weighted = Decimal("0")
     total_coefficient = Decimal("0")
     for grade in grades:
@@ -86,9 +87,9 @@ def compute_class_rankings(school_class, term) -> list[dict]:
     générale décroissante. Les élèves sans moyenne calculable (aucune
     note saisie nulle part) sont exclus du classement mais listés à part,
     pour que le directeur voie tout de suite qui n'a encore aucune note."""
-    enrollments = Enrollment.objects.filter(
-        school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).select_related("child__user")
+    enrollments = Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE).select_related(
+        "child__user"
+    )
 
     ranked = []
     without_average = []
@@ -150,9 +151,7 @@ def my_grades_for_child(child) -> list[dict]:
     pour chaque trimestre — extrait de MyGradesView pour être réutilisé
     tel quel par la vue PDF (même données, deux présentations)."""
     enrollment = (
-        Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
-        .select_related("school_class")
-        .first()
+        Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE).select_related("school_class").first()
     )
     if not enrollment:
         return []
@@ -171,9 +170,7 @@ def my_grades_for_child(child) -> list[dict]:
 
     result = []
     for subject in subjects:
-        terms_seen = {
-            term_id for (subject_id, term_id) in grades_by_subject_term if subject_id == subject.id
-        }
+        terms_seen = {term_id for (subject_id, term_id) in grades_by_subject_term if subject_id == subject.id}
         if not terms_seen:
             continue
         term_entries = []

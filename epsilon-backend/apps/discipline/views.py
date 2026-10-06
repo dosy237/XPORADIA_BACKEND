@@ -1,6 +1,7 @@
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -22,11 +23,15 @@ def _get_establishment(user):
 def _get_active_enrollment(child_id, establishment):
     from apps.academics.models import Enrollment, EnrollmentStatus
 
-    enrollment = Enrollment.objects.filter(
-        child_id=child_id,
-        status=EnrollmentStatus.ACTIVE,
-        school_class__track__department__establishment=establishment,
-    ).select_related("child", "school_class").first()
+    enrollment = (
+        Enrollment.objects.filter(
+            child_id=child_id,
+            status=EnrollmentStatus.ACTIVE,
+            school_class__track__department__establishment=establishment,
+        )
+        .select_related("child", "school_class")
+        .first()
+    )
     if not enrollment:
         raise Http404
     return enrollment
@@ -52,9 +57,9 @@ class ChildIncidentListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         establishment = _get_establishment(self.request.user)
         enrollment = _get_active_enrollment(self._child_id(), establishment)
-        return DisciplinaryIncident.objects.filter(
-            establishment=establishment, child=enrollment.child
-        ).select_related("school_class", "recorded_by")
+        return DisciplinaryIncident.objects.filter(establishment=establishment, child=enrollment.child).select_related(
+            "school_class", "recorded_by"
+        )
 
     def create(self, request, *args, **kwargs):
         establishment = _get_establishment(request.user)
@@ -68,9 +73,7 @@ class ChildIncidentListCreateView(generics.ListCreateAPIView):
             recorded_by=request.user,
             **serializer.validated_data,
         )
-        return Response(
-            DisciplinaryIncidentSerializer(incident).data, status=status.HTTP_201_CREATED
-        )
+        return Response(DisciplinaryIncidentSerializer(incident).data, status=status.HTTP_201_CREATED)
 
 
 class NotifyParentAboutIncidentView(APIView):
@@ -100,8 +103,8 @@ class NotifyParentAboutIncidentView(APIView):
             NotificationType.SYSTEM,
             title="Incident disciplinaire",
             body=f"Un incident ({incident.get_severity_display().lower()}) a été consigné pour "
-                 f"{child.first_name} le {incident.occurred_on.strftime('%d/%m/%Y')} à "
-                 f"{establishment.school_name}.",
+            f"{child.first_name} le {incident.occurred_on.strftime('%d/%m/%Y')} à "
+            f"{establishment.school_name}.",
         )
         incident.parent_notified_at = timezone.now()
         incident.save(update_fields=["parent_notified_at"])
@@ -124,8 +127,10 @@ class EstablishmentIncidentsDashboardView(APIView):
         recent = DisciplinaryIncident.objects.filter(
             establishment=establishment, school_class__school_year=school_year
         ).select_related("child", "school_class", "recorded_by")[:20]
-        return Response({
-            "total": totals["total"],
-            "by_severity": totals["by_severity"],
-            "recent": DisciplinaryIncidentSerializer(recent, many=True).data,
-        })
+        return Response(
+            {
+                "total": totals["total"],
+                "by_severity": totals["by_severity"],
+                "recent": DisciplinaryIncidentSerializer(recent, many=True).data,
+            }
+        )

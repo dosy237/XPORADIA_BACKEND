@@ -8,6 +8,7 @@ push). Ça évite de dupliquer la logique métier à deux endroits et garde une
 seule source de vérité pour les règles d'accès. Voir apps/messaging/views.py
 pour les appels à broadcast_to_channel() après chaque écriture réussie.
 """
+
 import json
 
 from channels.db import database_sync_to_async
@@ -42,10 +43,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # Aucune écriture acceptée depuis le WebSocket — un client qui
         # envoie des données ici est ignoré, pas planté (message clair
         # renvoyé à titre de diagnostic pour le développement).
-        await self.send(text_data=json.dumps({
-            "type": "info",
-            "detail": "Ce canal est en lecture seule — utilisez l'API REST pour envoyer un message.",
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "info",
+                    "detail": "Ce canal est en lecture seule — utilisez l'API REST pour envoyer un message.",
+                }
+            )
+        )
 
     async def broadcast_event(self, event):
         """Relai des événements poussés via channel_layer.group_send —

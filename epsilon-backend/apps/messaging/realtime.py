@@ -8,6 +8,7 @@ qui a écrit la donnée (déjà en base, déjà correcte) ne doit jamais échoue
 à cause d'un souci de diffusion temps réel — au pire, les clients
 recevront la mise à jour au prochain repli sur polling côté app.
 """
+
 import logging
 
 from asgiref.sync import async_to_sync

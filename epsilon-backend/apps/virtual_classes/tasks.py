@@ -7,8 +7,10 @@ déclencher périodiquement (voir CELERY_BEAT_SCHEDULE dans
 config/settings/base.py). La commande existait déjà mais n'était appelée
 par rien : sans cette tâche, aucun rappel n'était jamais envoyé.
 """
-from celery import shared_task
+
 from django.core.management import call_command
+
+from celery import shared_task
 
 
 @shared_task(ignore_result=True)

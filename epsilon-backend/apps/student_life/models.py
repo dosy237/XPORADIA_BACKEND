@@ -14,6 +14,7 @@ objectifs de son enfant plus jeune — même s'il n'y a aujourd'hui pas
 d'écriture côté parent, la donnée reste portée par Child pour rester
 cohérente avec Submission, Enrollment, etc.).
 """
+
 from django.conf import settings
 from django.db import models
 

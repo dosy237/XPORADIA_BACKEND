@@ -1,5 +1,6 @@
 """Xporadia — apps/feed/realtime.py — voir apps.messaging.realtime pour le
 principe général (tolérance aux pannes, appel synchrone)."""
+
 import logging
 
 from asgiref.sync import async_to_sync

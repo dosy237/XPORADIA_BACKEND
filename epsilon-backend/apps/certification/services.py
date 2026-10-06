@@ -7,6 +7,7 @@ centralisé ici pour n'avoir qu'une seule définition de "combien de points
 un enseignant a-t-il", réutilisable aussi bien pour l'affichage d'un profil
 que pour classer l'annuaire par réputation.
 """
+
 from django.db.models import IntegerField, OuterRef, Subquery, Sum
 from django.db.models.functions import Coalesce
 
@@ -15,9 +16,7 @@ def teacher_total_points(user) -> int:
     """Somme des points des certifications valides d'un enseignant donné."""
     from apps.certification.models import Certification
 
-    return sum(
-        Certification.objects.filter(teacher=user, is_valid=True).values_list("points_awarded", flat=True)
-    )
+    return sum(Certification.objects.filter(teacher=user, is_valid=True).values_list("points_awarded", flat=True))
 
 
 def annotate_total_points(queryset, user_field: str = "user_id"):
@@ -34,6 +33,4 @@ def annotate_total_points(queryset, user_field: str = "user_id"):
         .annotate(total=Sum("points_awarded"))
         .values("total")
     )
-    return queryset.annotate(
-        _total_points=Coalesce(Subquery(points_subquery, output_field=IntegerField()), 0)
-    )
+    return queryset.annotate(_total_points=Coalesce(Subquery(points_subquery, output_field=IntegerField()), 0))

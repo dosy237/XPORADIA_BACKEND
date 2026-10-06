@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Evaluation, EstablishmentJoinRequest, Grade, ReportCard, SubjectReportEntry, Term
+from .models import EstablishmentJoinRequest, Evaluation, Grade, ReportCard, SubjectReportEntry, Term
 
 
 class JoinRequestSerializer(serializers.ModelSerializer):
@@ -11,13 +11,29 @@ class JoinRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = EstablishmentJoinRequest
         fields = [
-            "id", "child", "child_first_name", "child_last_name", "establishment",
-            "establishment_name", "other_establishment_name", "declared_level",
-            "status", "rejection_reason", "created_at", "reviewed_at",
+            "id",
+            "child",
+            "child_first_name",
+            "child_last_name",
+            "establishment",
+            "establishment_name",
+            "other_establishment_name",
+            "declared_level",
+            "status",
+            "rejection_reason",
+            "created_at",
+            "reviewed_at",
         ]
         read_only_fields = [
-            "id", "child", "child_first_name", "child_last_name", "establishment_name",
-            "status", "rejection_reason", "created_at", "reviewed_at",
+            "id",
+            "child",
+            "child_first_name",
+            "child_last_name",
+            "establishment_name",
+            "status",
+            "rejection_reason",
+            "created_at",
+            "reviewed_at",
         ]
 
     def get_establishment_name(self, obj):
@@ -25,9 +41,7 @@ class JoinRequestSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         if not attrs.get("establishment") and not attrs.get("other_establishment_name"):
-            raise serializers.ValidationError(
-                "Précisez un établissement existant ou son nom si absent de la liste."
-            )
+            raise serializers.ValidationError("Précisez un établissement existant ou son nom si absent de la liste.")
         return attrs
 
 
@@ -44,8 +58,16 @@ class EvaluationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Evaluation
         fields = [
-            "id", "subject", "subject_name", "term", "title", "eval_type",
-            "coefficient", "max_score", "date", "created_at",
+            "id",
+            "subject",
+            "subject_name",
+            "term",
+            "title",
+            "eval_type",
+            "coefficient",
+            "max_score",
+            "date",
+            "created_at",
         ]
         read_only_fields = ["id", "subject", "subject_name", "created_at"]
 
@@ -64,8 +86,15 @@ class GradeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Grade
         fields = [
-            "id", "evaluation", "child", "child_first_name", "child_last_name", "score", "is_excused",
-            "updated_by_name", "updated_at",
+            "id",
+            "evaluation",
+            "child",
+            "child_first_name",
+            "child_last_name",
+            "score",
+            "is_excused",
+            "updated_by_name",
+            "updated_at",
         ]
         read_only_fields = ["id", "child_first_name", "child_last_name", "updated_by_name", "updated_at"]
 
@@ -129,10 +158,29 @@ class ReportCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReportCard
         fields = [
-            "id", "child", "child_first_name", "child_last_name", "term", "term_label",
-            "general_average", "class_average", "highest_average", "lowest_average", "rank", "class_size",
-            "homeroom_comment", "justified_absence_hours", "unjustified_absence_hours",
-            "distinction", "distinction_label", "sanction", "sanction_label",
-            "document", "subject_entries", "published_at", "updated_by_name", "updated_at",
+            "id",
+            "child",
+            "child_first_name",
+            "child_last_name",
+            "term",
+            "term_label",
+            "general_average",
+            "class_average",
+            "highest_average",
+            "lowest_average",
+            "rank",
+            "class_size",
+            "homeroom_comment",
+            "justified_absence_hours",
+            "unjustified_absence_hours",
+            "distinction",
+            "distinction_label",
+            "sanction",
+            "sanction_label",
+            "document",
+            "subject_entries",
+            "published_at",
+            "updated_by_name",
+            "updated_at",
         ]
         read_only_fields = fields

@@ -83,14 +83,13 @@ class ExamAttemptAdmin(admin.ModelAdmin):
             )
             issued += 1
         self.message_user(
-            request, f"{issued} certification(s) délivrée(s), {skipped} ignorée(s) (déjà certifiées ou score manquant)."
+            request,
+            f"{issued} certification(s) délivrée(s), {skipped} ignorée(s) (déjà certifiées ou score manquant).",
         )
 
     @admin.action(description="Rejeter (échec — pas de certification délivrée)")
     def reject_attempt(self, request, queryset):
-        attempts = list(
-            queryset.select_related("session__module", "teacher").exclude(status="passed")
-        )
+        attempts = list(queryset.select_related("session__module", "teacher").exclude(status="passed"))
         for attempt in attempts:
             attempt.status = "failed"
             attempt.save(update_fields=["status"])
@@ -124,7 +123,8 @@ class CertificationAdmin(admin.ModelAdmin):
             cert.revoked_at = timezone.now()
             cert.save(update_fields=["is_valid", "revoked_at"])
             notify_user(
-                cert.teacher, NotificationType.SYSTEM,
+                cert.teacher,
+                NotificationType.SYSTEM,
                 title="Certification révoquée",
                 body=f"Votre certification « {cert.module.title} » a été révoquée par l'administration.",
             )

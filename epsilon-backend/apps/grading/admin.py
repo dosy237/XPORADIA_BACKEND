@@ -1,13 +1,6 @@
 from django.contrib import admin
 
-from .models import (
-    EstablishmentJoinRequest,
-    Evaluation,
-    Grade,
-    ReportCard,
-    SubjectReportEntry,
-    Term,
-)
+from .models import EstablishmentJoinRequest, Evaluation, Grade, ReportCard, SubjectReportEntry, Term
 
 
 @admin.register(Term)
@@ -39,8 +32,15 @@ class SubjectReportEntryInline(admin.TabularInline):
 @admin.register(ReportCard)
 class ReportCardAdmin(admin.ModelAdmin):
     list_display = [
-        "child", "term", "school_class", "general_average", "rank", "class_size",
-        "published_at", "created_by", "updated_by",
+        "child",
+        "term",
+        "school_class",
+        "general_average",
+        "rank",
+        "class_size",
+        "published_at",
+        "created_by",
+        "updated_by",
     ]
     list_filter = ["term"]
     search_fields = ["child__first_name", "child__last_name"]

@@ -1,5 +1,6 @@
 """Xporadia — apps/grading/pdf.py — même principe que apps.certification.pdf
 et apps.internships.pdf : HTML → PDF via WeasyPrint."""
+
 import base64
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -15,8 +16,11 @@ from .models import EvaluationType, ReportCardDistinction, ReportCardSanction, S
 TWO_PLACES = Decimal("0.01")
 
 IMAGE_MIME_TYPES = {
-    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-    "webp": "image/webp", "gif": "image/gif",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "gif": "image/gif",
 }
 
 
@@ -47,6 +51,7 @@ def _image_data_uri(image_field) -> str | None:
     mime = IMAGE_MIME_TYPES.get(ext, "image/jpeg")
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
+
 # Ordre d'affichage des groupes ("Bilan LETTRES" avant "Bilan SCIENCES"
 # avant "Bilan AUTRES") — jamais l'ordre alphabétique des clés internes.
 CATEGORY_ORDER = [SubjectCategory.LETTERS, SubjectCategory.SCIENCES, SubjectCategory.OTHER]
@@ -69,7 +74,7 @@ def _rank_descending(scored: list[tuple[int, Decimal]]) -> dict[int, int]:
 
 
 def ordinal(rank: int | None) -> str:
-    """"1er" pour le premier rang, "Xème" au-delà — jamais "1ème" (faute
+    """ "1er" pour le premier rang, "Xème" au-delà — jamais "1ème" (faute
     en français). None si le rang n'existe pas (matière/groupe pas encore
     noté)."""
     if rank is None:
@@ -123,9 +128,7 @@ def render_report_card_pdf(report_card) -> bytes:
     scores_by_category: dict[str, list[tuple[int, Decimal]]] = {}
     for (child_id, category), avg in category_average_by_child.items():
         scores_by_category.setdefault(category, []).append((child_id, avg))
-    category_rank_by_key = {
-        category: _rank_descending(scores) for category, scores in scores_by_category.items()
-    }
+    category_rank_by_key = {category: _rank_descending(scores) for category, scores in scores_by_category.items()}
 
     # Regroupement des matières DE CE bulletin par catégorie, avec la ligne
     # de sous-total ("Bilan ...") à la fin de chaque groupe.
@@ -174,9 +177,7 @@ def render_report_card_pdf(report_card) -> bytes:
         graded_coeff_sum = sum((Decimal(e.coefficient) for e in graded_entries), Decimal("0"))
         m_coeff_sum = sum((e.subject_average * e.coefficient for e in graded_entries), Decimal("0"))
         bilan_average = (
-            (m_coeff_sum / graded_coeff_sum).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-            if graded_coeff_sum
-            else None
+            (m_coeff_sum / graded_coeff_sum).quantize(TWO_PLACES, rounding=ROUND_HALF_UP) if graded_coeff_sum else None
         )
         bilan_rank = category_rank_by_key.get(category, {}).get(child.id)
         category_groups.append(
@@ -198,7 +199,9 @@ def render_report_card_pdf(report_card) -> bytes:
     previous_report_card = None
     if term.number > 1:
         previous_term = Term.objects.filter(
-            establishment=establishment, school_year=term.school_year, number=term.number - 1,
+            establishment=establishment,
+            school_year=term.school_year,
+            number=term.number - 1,
         ).first()
         if previous_term:
             from .models import ReportCard
@@ -227,9 +230,9 @@ def render_report_card_pdf(report_card) -> bytes:
         "class_size": report_card.class_size,
         "is_repeating": enrollment.status == EnrollmentStatus.REPEATING if enrollment else False,
         "regime_label": (
-            "Interne" if enrollment and enrollment.is_boarder is True
-            else "Externe" if enrollment and enrollment.is_boarder is False
-            else ""
+            "Interne"
+            if enrollment and enrollment.is_boarder is True
+            else "Externe" if enrollment and enrollment.is_boarder is False else ""
         ),
         "is_assigned_label": "Oui" if (enrollment and enrollment.is_ministry_assigned) else "Non",
         "category_groups": category_groups,
@@ -244,7 +247,8 @@ def render_report_card_pdf(report_card) -> bytes:
         "unjustified_absence_hours": report_card.unjustified_absence_hours,
         "check_honor_roll": report_card.distinction == ReportCardDistinction.HONOR_ROLL,
         "check_honor_roll_encouragement": report_card.distinction == ReportCardDistinction.HONOR_ROLL_ENCOURAGEMENT,
-        "check_honor_roll_congratulations": report_card.distinction == ReportCardDistinction.HONOR_ROLL_CONGRATULATIONS,
+        "check_honor_roll_congratulations": report_card.distinction
+        == ReportCardDistinction.HONOR_ROLL_CONGRATULATIONS,
         "check_refused": report_card.distinction == ReportCardDistinction.REFUSED,
         "check_work_warning": report_card.sanction == ReportCardSanction.WORK_WARNING,
         "check_work_reprimand": report_card.sanction == ReportCardSanction.WORK_REPRIMAND,
@@ -279,17 +283,14 @@ def render_my_grades_pdf(child, subjects_data: list[dict]) -> bytes:
         .first()
     )
     school_class = enrollment.school_class if enrollment else None
-    establishment_name = (
-        school_class.track.department.establishment.school_name if school_class else ""
-    )
+    establishment_name = school_class.track.department.establishment.school_name if school_class else ""
 
     subjects = []
     for subject in subjects_data:
         terms = []
         for term in subject["terms"]:
             evaluations = [
-                {**ev, "eval_type_label": EvaluationType(ev["eval_type"]).label}
-                for ev in term["evaluations"]
+                {**ev, "eval_type_label": EvaluationType(ev["eval_type"]).label} for ev in term["evaluations"]
             ]
             terms.append({**term, "evaluations": evaluations})
         subjects.append({**subject, "terms": terms})

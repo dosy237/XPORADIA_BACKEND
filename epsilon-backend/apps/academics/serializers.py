@@ -46,8 +46,13 @@ class TrackSerializer(serializers.ModelSerializer):
     class Meta:
         model = Track
         fields = [
-            "id", "department", "department_id", "name", "description",
-            "class_delegates", "created_at",
+            "id",
+            "department",
+            "department_id",
+            "name",
+            "description",
+            "class_delegates",
+            "created_at",
         ]
         read_only_fields = ["id", "class_delegates", "created_at"]
 
@@ -85,9 +90,17 @@ class SchoolClassSerializer(serializers.ModelSerializer):
     class Meta:
         model = SchoolClass
         fields = [
-            "id", "track", "track_id", "name", "school_year",
-            "homeroom_teacher", "homeroom_teacher_email", "homeroom_subject_name",
-            "capacity", "is_active", "created_at",
+            "id",
+            "track",
+            "track_id",
+            "name",
+            "school_year",
+            "homeroom_teacher",
+            "homeroom_teacher_email",
+            "homeroom_subject_name",
+            "capacity",
+            "is_active",
+            "created_at",
         ]
         read_only_fields = ["id", "created_at"]
 
@@ -112,8 +125,16 @@ class SubjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Subject
         fields = [
-            "id", "school_class", "name", "coefficient", "category", "category_label",
-            "teacher", "teacher_email", "pending_invitation_email", "pending_invitation_token",
+            "id",
+            "school_class",
+            "name",
+            "coefficient",
+            "category",
+            "category_label",
+            "teacher",
+            "teacher_email",
+            "pending_invitation_email",
+            "pending_invitation_token",
             "created_at",
         ]
         read_only_fields = ["id", "school_class", "coefficient", "created_at"]
@@ -141,8 +162,13 @@ class TeacherInvitationPreviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherInvitation
         fields = [
-            "token", "email", "subject_name", "school_class_name",
-            "school_name", "invited_by_name", "created_at",
+            "token",
+            "email",
+            "subject_name",
+            "school_class_name",
+            "school_name",
+            "invited_by_name",
+            "created_at",
         ]
         read_only_fields = fields
 
@@ -171,8 +197,16 @@ class TimetableSlotSerializer(serializers.ModelSerializer):
     class Meta:
         model = TimetableSlot
         fields = [
-            "id", "school_class", "subject", "subject_name", "weekday", "weekday_label",
-            "start_time", "end_time", "room", "term",
+            "id",
+            "school_class",
+            "subject",
+            "subject_name",
+            "weekday",
+            "weekday_label",
+            "start_time",
+            "end_time",
+            "room",
+            "term",
         ]
         read_only_fields = ["id", "school_class", "subject_name", "weekday_label"]
 
@@ -184,7 +218,9 @@ class TimetableSlotSerializer(serializers.ModelSerializer):
         term = attrs.get("term", getattr(self.instance, "term", None))
         school_class = getattr(self.instance, "school_class", None) or self.context.get("school_class")
         if term and school_class and term.establishment_id != school_class.track.department.establishment_id:
-            raise serializers.ValidationError({"term": "Ce trimestre n'appartient pas à l'établissement de cette classe."})
+            raise serializers.ValidationError(
+                {"term": "Ce trimestre n'appartient pas à l'établissement de cette classe."}
+            )
         return attrs
 
 
@@ -208,8 +244,16 @@ class PersonalScheduleBlockSerializer(serializers.ModelSerializer):
     class Meta:
         model = PersonalScheduleBlock
         fields = [
-            "id", "weekday", "weekday_label", "start_time", "end_time", "title",
-            "subject", "subject_name", "valid_from", "valid_until",
+            "id",
+            "weekday",
+            "weekday_label",
+            "start_time",
+            "end_time",
+            "title",
+            "subject",
+            "subject_name",
+            "valid_from",
+            "valid_until",
         ]
         read_only_fields = ["id", "weekday_label", "subject_name"]
 
@@ -247,8 +291,18 @@ class EstablishmentEventSerializer(serializers.ModelSerializer):
     class Meta:
         model = EstablishmentEvent
         fields = [
-            "id", "school_class", "event_type", "event_type_label", "title", "description",
-            "date", "start_time", "end_time", "audience", "for_whole_establishment", "created_at",
+            "id",
+            "school_class",
+            "event_type",
+            "event_type_label",
+            "title",
+            "description",
+            "date",
+            "start_time",
+            "end_time",
+            "audience",
+            "for_whole_establishment",
+            "created_at",
         ]
         read_only_fields = ["id", "school_class", "event_type_label", "created_at"]
 

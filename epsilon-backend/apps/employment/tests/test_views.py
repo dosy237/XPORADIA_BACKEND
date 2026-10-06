@@ -1,7 +1,8 @@
 import datetime
 
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.certification.models import Certification, CertificationLevel, ExamAttempt, TrainingModule, TrainingSession
 from apps.employment.models import JobApplication, JobListing, JobSeekingRequest, Recruitment
@@ -18,7 +19,10 @@ def api_client():
 
 def _create_director(email="director@example.ci", school_name="Groupe Scolaire Test"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="D", last_name="R",
+        email=email,
+        password="testpass123",
+        first_name="D",
+        last_name="R",
         primary_role=UserRole.DIRECTOR,
     )
     DirectorProfile.objects.create(user=user, school_name=school_name, address="Cocody")
@@ -27,7 +31,10 @@ def _create_director(email="director@example.ci", school_name="Groupe Scolaire T
 
 def _create_teacher(email="teacher@example.ci"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="T", last_name="E",
+        email=email,
+        password="testpass123",
+        first_name="T",
+        last_name="E",
         primary_role=UserRole.TEACHER,
     )
     TeacherProfile.objects.create(user=user)
@@ -41,8 +48,12 @@ def _login(api_client, email, password="testpass123"):
 
 def _create_listing(director, status="draft", **kwargs):
     defaults = {
-        "school": director, "title": "Prof de Maths", "subject": "Mathématiques",
-        "contract_type": "cdi", "description": "Poste à pourvoir.", "city": "Abidjan",
+        "school": director,
+        "title": "Prof de Maths",
+        "subject": "Mathématiques",
+        "contract_type": "cdi",
+        "description": "Poste à pourvoir.",
+        "city": "Abidjan",
         "status": status,
     }
     defaults.update(kwargs)
@@ -52,21 +63,37 @@ def _create_listing(director, status="draft", **kwargs):
 def _make_gold_teacher(email="gold.teacher@example.ci"):
     teacher = _create_teacher(email=email)
     trainer = User.objects.create_user(
-        email=f"trainer.{email}", password="testpass123", first_name="Tr", last_name="A",
+        email=f"trainer.{email}",
+        password="testpass123",
+        first_name="Tr",
+        last_name="A",
         primary_role=UserRole.TRAINER,
     )
     module = TrainingModule.objects.create(
-        title="Leadership", category="leadership", description="...",
-        duration_hours=8, price=10000, target_level=CertificationLevel.GOLD,
+        title="Leadership",
+        category="leadership",
+        description="...",
+        duration_hours=8,
+        price=10000,
+        target_level=CertificationLevel.GOLD,
     )
     session = TrainingSession.objects.create(
-        module=module, trainer=trainer, city="Abidjan", location="Centre",
-        date=datetime.date.today(), start_time="09:00", end_time="17:00",
+        module=module,
+        trainer=trainer,
+        city="Abidjan",
+        location="Centre",
+        date=datetime.date.today(),
+        start_time="09:00",
+        end_time="17:00",
     )
     attempt = ExamAttempt.objects.create(teacher=teacher, session=session, score_total=90)
     Certification.objects.create(
-        teacher=teacher, module=module, attempt=attempt, level=CertificationLevel.GOLD,
-        score_total=90, qr_code=f"QR-{email}",
+        teacher=teacher,
+        module=module,
+        attempt=attempt,
+        level=CertificationLevel.GOLD,
+        score_total=90,
+        qr_code=f"QR-{email}",
         expires_at=datetime.date.today() + datetime.timedelta(days=365),
     )
     return teacher
@@ -119,8 +146,11 @@ def test_director_creates_listing_as_draft(api_client):
     response = api_client.post(
         "/api/v1/employment/listings/",
         {
-            "title": "Prof de Physique", "subject": "Physique", "contract_type": "cdd",
-            "description": "Poste temporaire.", "city": "Bouaké",
+            "title": "Prof de Physique",
+            "subject": "Physique",
+            "contract_type": "cdd",
+            "description": "Poste temporaire.",
+            "city": "Bouaké",
         },
         format="json",
     )
@@ -165,8 +195,11 @@ def test_targeted_teacher_emails_notifies_teachers(api_client):
     response = api_client.post(
         "/api/v1/employment/listings/",
         {
-            "title": "Prof d'Anglais", "subject": "Anglais", "contract_type": "cdi",
-            "description": "...", "city": "Abidjan",
+            "title": "Prof d'Anglais",
+            "subject": "Anglais",
+            "contract_type": "cdi",
+            "description": "...",
+            "city": "Abidjan",
             "targeted_teacher_emails": [teacher.email],
         },
         format="json",
@@ -297,13 +330,9 @@ def test_new_job_seeking_request_deactivates_previous(api_client):
     teacher = _make_gold_teacher(email="gold.repeat@example.ci")
     _login(api_client, teacher.email)
 
-    first = api_client.post(
-        "/api/v1/employment/job-seeking-requests/", {"message": "Premier."}, format="json"
-    )
+    first = api_client.post("/api/v1/employment/job-seeking-requests/", {"message": "Premier."}, format="json")
     assert first.status_code == 201
-    second = api_client.post(
-        "/api/v1/employment/job-seeking-requests/", {"message": "Second."}, format="json"
-    )
+    second = api_client.post("/api/v1/employment/job-seeking-requests/", {"message": "Second."}, format="json")
     assert second.status_code == 201
 
     active = JobSeekingRequest.objects.filter(teacher=teacher, is_active=True)

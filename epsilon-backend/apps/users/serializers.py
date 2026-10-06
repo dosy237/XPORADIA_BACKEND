@@ -1,5 +1,7 @@
 from django.utils import timezone
+
 from rest_framework import serializers
+
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import (
@@ -26,10 +28,25 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "email", "phone", "first_name", "last_name", "avatar",
-            "primary_role", "secondary_roles", "all_roles", "child_id", "admin_scope",
-            "is_verified", "is_documents_validated", "two_fa_enabled", "created_at",
-            "profile_visible", "notify_email", "notify_sms", "notify_push",
+            "id",
+            "email",
+            "phone",
+            "first_name",
+            "last_name",
+            "avatar",
+            "primary_role",
+            "secondary_roles",
+            "all_roles",
+            "child_id",
+            "admin_scope",
+            "is_verified",
+            "is_documents_validated",
+            "two_fa_enabled",
+            "created_at",
+            "profile_visible",
+            "notify_email",
+            "notify_sms",
+            "notify_push",
         ]
         read_only_fields = fields
 
@@ -165,14 +182,9 @@ class RegisterParentSerializer(BaseRegisterSerializer):
 
     def create(self):
         user = self.create_user(UserRole.PARENT)
-        parent_profile = ParentProfile.objects.create(
-            user=user, location=self.validated_data.get("location", "")
-        )
+        parent_profile = ParentProfile.objects.create(user=user, location=self.validated_data.get("location", ""))
         Child.objects.bulk_create(
-            [
-                Child(parent=parent_profile, **child_data)
-                for child_data in self.validated_data.get("children", [])
-            ]
+            [Child(parent=parent_profile, **child_data) for child_data in self.validated_data.get("children", [])]
         )
         return user
 
@@ -184,9 +196,15 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherProfile
         fields = [
-            "subjects", "experience_years", "hourly_rate", "location", "bio",
-            "available_for_tutoring", "available_for_employment",
-            "is_documents_validated", "preregistration_code_submitted",
+            "subjects",
+            "experience_years",
+            "hourly_rate",
+            "location",
+            "bio",
+            "available_for_tutoring",
+            "available_for_employment",
+            "is_documents_validated",
+            "preregistration_code_submitted",
         ]
 
     def get_preregistration_code_submitted(self, obj):
@@ -240,8 +258,16 @@ class DirectorProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = DirectorProfile
         fields = [
-            "school_name", "address", "levels_taught", "student_count", "is_partner",
-            "phone", "contact_email", "establishment_code", "is_public", "logo",
+            "school_name",
+            "address",
+            "levels_taught",
+            "student_count",
+            "is_partner",
+            "phone",
+            "contact_email",
+            "establishment_code",
+            "is_public",
+            "logo",
         ]
         read_only_fields = ["is_partner", "logo"]
 
@@ -288,8 +314,14 @@ class SchoolGroupInvitationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SchoolGroupInvitation
         fields = [
-            "id", "group", "group_name", "invited_director", "invited_director_name",
-            "status", "created_at", "responded_at",
+            "id",
+            "group",
+            "group_name",
+            "invited_director",
+            "invited_director_name",
+            "status",
+            "created_at",
+            "responded_at",
         ]
         read_only_fields = ["id", "group_name", "invited_director_name", "status", "created_at", "responded_at"]
 
@@ -298,8 +330,12 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompanyProfile
         fields = [
-            "company_name", "sector", "address", "is_partner",
-            "brand_primary_color", "brand_secondary_color",
+            "company_name",
+            "sector",
+            "address",
+            "is_partner",
+            "brand_primary_color",
+            "brand_secondary_color",
         ]
         read_only_fields = ["is_partner"]
 
@@ -369,10 +405,21 @@ class TeacherDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializ
     class Meta:
         model = TeacherProfile
         fields = [
-            "id", "first_name", "last_name", "avatar", "subjects", "experience_years",
-            "location", "available_for_tutoring", "available_for_employment",
-            "current_level", "total_points",
-            "followers_count", "following_count", "is_following", "posts_count",
+            "id",
+            "first_name",
+            "last_name",
+            "avatar",
+            "subjects",
+            "experience_years",
+            "location",
+            "available_for_tutoring",
+            "available_for_employment",
+            "current_level",
+            "total_points",
+            "followers_count",
+            "following_count",
+            "is_following",
+            "posts_count",
         ]
         read_only_fields = fields
 
@@ -390,7 +437,10 @@ class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
 
     class Meta(TeacherDirectoryCardSerializer.Meta):
         fields = TeacherDirectoryCardSerializer.Meta.fields + [
-            "bio", "certifications", "employment_history", "profile_visible",
+            "bio",
+            "certifications",
+            "employment_history",
+            "profile_visible",
         ]
         read_only_fields = fields
 
@@ -467,8 +517,17 @@ class EstablishmentDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSe
     class Meta:
         model = DirectorProfile
         fields = [
-            "id", "school_name", "address", "levels_taught", "student_count", "is_partner", "avatar",
-            "followers_count", "following_count", "is_following", "posts_count",
+            "id",
+            "school_name",
+            "address",
+            "levels_taught",
+            "student_count",
+            "is_partner",
+            "avatar",
+            "followers_count",
+            "following_count",
+            "is_following",
+            "posts_count",
         ]
         read_only_fields = fields
 
@@ -480,7 +539,9 @@ class EstablishmentDirectoryDetailSerializer(EstablishmentDirectoryCardSerialize
 
     class Meta(EstablishmentDirectoryCardSerializer.Meta):
         fields = EstablishmentDirectoryCardSerializer.Meta.fields + [
-            "departments", "average_rating", "review_count",
+            "departments",
+            "average_rating",
+            "review_count",
         ]
         read_only_fields = fields
 
@@ -521,8 +582,16 @@ class CompanyDirectoryCardSerializer(FollowStatsMixin, serializers.ModelSerializ
     class Meta:
         model = CompanyProfile
         fields = [
-            "id", "company_name", "sector", "address", "is_partner", "avatar",
-            "followers_count", "following_count", "is_following", "posts_count",
+            "id",
+            "company_name",
+            "sector",
+            "address",
+            "is_partner",
+            "avatar",
+            "followers_count",
+            "following_count",
+            "is_following",
+            "posts_count",
         ]
         read_only_fields = fields
 
@@ -534,7 +603,9 @@ class CompanyDirectoryDetailSerializer(CompanyDirectoryCardSerializer):
 
     class Meta(CompanyDirectoryCardSerializer.Meta):
         fields = CompanyDirectoryCardSerializer.Meta.fields + [
-            "open_internship_offers", "average_rating", "review_count",
+            "open_internship_offers",
+            "average_rating",
+            "review_count",
         ]
         read_only_fields = fields
 
@@ -593,8 +664,15 @@ class ChildDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child
         fields = [
-            "id", "first_name", "class_level", "target_subjects",
-            "matricule", "sex", "nationality", "birth_date", "birth_place",
+            "id",
+            "first_name",
+            "class_level",
+            "target_subjects",
+            "matricule",
+            "sex",
+            "nationality",
+            "birth_date",
+            "birth_place",
         ]
 
 
@@ -606,8 +684,14 @@ class ChildClaimRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChildClaimRequest
         fields = [
-            "id", "child", "child_first_name", "child_last_name", "parent_name",
-            "status", "created_at", "reviewed_at",
+            "id",
+            "child",
+            "child_first_name",
+            "child_last_name",
+            "parent_name",
+            "status",
+            "created_at",
+            "reviewed_at",
         ]
         read_only_fields = fields
 
@@ -706,8 +790,14 @@ class UpdateMeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "first_name", "last_name", "phone", "avatar",
-            "profile_visible", "notify_email", "notify_sms", "notify_push",
+            "first_name",
+            "last_name",
+            "phone",
+            "avatar",
+            "profile_visible",
+            "notify_email",
+            "notify_sms",
+            "notify_push",
             "two_fa_enabled",
         ]
 

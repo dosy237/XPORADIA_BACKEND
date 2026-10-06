@@ -3,6 +3,7 @@ Xporadia — Génération et envoi des codes OTP de vérification de compte.
 En dev : envoyé par email (console backend) et loggé comme SMS simulé.
 À remplacer par Twilio (SMS) en production — voir EP-08 US-08-02.
 """
+
 import logging
 import random
 from datetime import timedelta
@@ -89,11 +90,7 @@ def _deliver_otp(user, code: str, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION
 
 
 def verify_otp(user, code: str, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> bool:
-    otp = (
-        OTPCode.objects.filter(user=user, code=code, purpose=purpose, used=False)
-        .order_by("-created_at")
-        .first()
-    )
+    otp = OTPCode.objects.filter(user=user, code=code, purpose=purpose, used=False).order_by("-created_at").first()
     if not otp or not otp.is_valid():
         return False
     otp.used = True

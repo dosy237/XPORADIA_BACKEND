@@ -1,5 +1,6 @@
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.academics.models import Department, Enrollment, SchoolClass, Subject, Track
 from apps.notifications.models import Notification, NotificationType
@@ -16,7 +17,10 @@ def api_client():
 
 def _create_teacher(email):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="T", last_name="E",
+        email=email,
+        password="testpass123",
+        first_name="T",
+        last_name="E",
         primary_role=UserRole.TEACHER,
     )
     TeacherProfile.objects.create(user=user)
@@ -30,8 +34,11 @@ def _login(api_client, email, password="testpass123"):
 
 def _create_subject(name, homeroom_teacher=None, dedicated_teacher=None, school_year="2025-2026"):
     director_user = User.objects.create_user(
-        email=f"dir.{name}.{school_year}@example.ci", password="testpass123",
-        first_name="D", last_name="R", primary_role=UserRole.DIRECTOR,
+        email=f"dir.{name}.{school_year}@example.ci",
+        password="testpass123",
+        first_name="D",
+        last_name="R",
+        primary_role=UserRole.DIRECTOR,
     )
     profile = DirectorProfile.objects.create(user=director_user, school_name="École Test", address="Cocody")
     department = Department.objects.create(establishment=profile, name="Secondaire")
@@ -77,9 +84,7 @@ def test_dedicated_teacher_can_view_virtual_class(api_client):
 def test_homeroom_teacher_can_view_but_not_edit_virtual_class(api_client):
     titulaire = _create_teacher("titulaire.view@example.ci")
     dedicated = _create_teacher("dedicated.foredit@example.ci")
-    subject = _create_subject(
-        "SVT", homeroom_teacher=titulaire, dedicated_teacher=dedicated, school_year="2030-2035"
-    )
+    subject = _create_subject("SVT", homeroom_teacher=titulaire, dedicated_teacher=dedicated, school_year="2030-2035")
 
     _login(api_client, titulaire.email)
     get_response = api_client.get(f"/api/v1/virtual-classes/subjects/{subject.id}/")
@@ -182,8 +187,11 @@ def test_exercise_detail_forbidden_for_unrelated_teacher(api_client):
 
 def _create_parent_with_child(child_name="Aicha"):
     parent_user = User.objects.create_user(
-        email=f"parent.{child_name}@example.ci", password="testpass123",
-        first_name="P", last_name="A", primary_role=UserRole.PARENT,
+        email=f"parent.{child_name}@example.ci",
+        password="testpass123",
+        first_name="P",
+        last_name="A",
+        primary_role=UserRole.PARENT,
     )
     parent_profile = ParentProfile.objects.create(user=parent_user, location="Cocody")
     child = Child.objects.create(parent=parent_profile, first_name=child_name, class_level="3eme")
@@ -198,9 +206,7 @@ def test_child_subjects_lists_published_exercises_only(api_client):
     dedicated = _create_teacher("dedicated.childsubj@example.ci")
     subject = _create_subject("Maths Enfant", dedicated_teacher=dedicated, school_year="2030-2043")
     virtual_class = VirtualClass.objects.get(subject=subject)
-    Exercise.objects.create(
-        virtual_class=virtual_class, title="Devoir publié", instructions="...", status="published"
-    )
+    Exercise.objects.create(virtual_class=virtual_class, title="Devoir publié", instructions="...", status="published")
     Exercise.objects.create(virtual_class=virtual_class, title="Brouillon", instructions="...", status="draft")
 
     parent, child = _create_parent_with_child("EnfantSubj")

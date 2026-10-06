@@ -41,9 +41,24 @@ class InternshipOfferSerializer(serializers.ModelSerializer):
     class Meta:
         model = InternshipOffer
         fields = [
-            "id", "company", "title", "domain", "missions", "level", "duration_weeks",
-            "period_start", "period_end", "places", "city", "skills_wanted", "cover_image",
-            "is_premium", "is_active", "application_count", "is_published_by_my_school", "created_at",
+            "id",
+            "company",
+            "title",
+            "domain",
+            "missions",
+            "level",
+            "duration_weeks",
+            "period_start",
+            "period_end",
+            "places",
+            "city",
+            "skills_wanted",
+            "cover_image",
+            "is_premium",
+            "is_active",
+            "application_count",
+            "is_published_by_my_school",
+            "created_at",
         ]
         read_only_fields = ["id", "company", "is_premium", "application_count", "created_at"]
 
@@ -85,15 +100,20 @@ class InternshipApplicationSerializer(serializers.ModelSerializer):
     school = SchoolBasicSerializer(read_only=True)
     student = ChildBasicSerializer(read_only=True)
     offer = InternshipOfferSerializer(read_only=True)
-    student_id = serializers.PrimaryKeyRelatedField(
-        source="student", queryset=Child.objects.all(), write_only=True
-    )
+    student_id = serializers.PrimaryKeyRelatedField(source="student", queryset=Child.objects.all(), write_only=True)
 
     class Meta:
         model = InternshipApplication
         fields = [
-            "id", "offer", "school", "student", "student_id", "motivation",
-            "status", "applied_at", "reviewed_at",
+            "id",
+            "offer",
+            "school",
+            "student",
+            "student_id",
+            "motivation",
+            "status",
+            "applied_at",
+            "reviewed_at",
         ]
         read_only_fields = ["id", "offer", "school", "student", "status", "applied_at", "reviewed_at"]
 
@@ -107,13 +127,32 @@ class InternshipConventionSerializer(serializers.ModelSerializer):
     class Meta:
         model = InternshipConvention
         fields = [
-            "id", "application", "position_title", "document", "pdf_url", "status", "channel_id",
-            "signed_by_school_at", "signed_by_company_at", "generated_at",
-            "has_company_review", "can_review_company",
+            "id",
+            "application",
+            "position_title",
+            "document",
+            "pdf_url",
+            "status",
+            "channel_id",
+            "signed_by_school_at",
+            "signed_by_company_at",
+            "generated_at",
+            "has_company_review",
+            "can_review_company",
         ]
-        read_only_fields = ["id", "application", "document", "pdf_url", "status", "channel_id",
-                             "signed_by_school_at", "signed_by_company_at", "generated_at",
-                             "has_company_review", "can_review_company"]
+        read_only_fields = [
+            "id",
+            "application",
+            "document",
+            "pdf_url",
+            "status",
+            "channel_id",
+            "signed_by_school_at",
+            "signed_by_company_at",
+            "generated_at",
+            "has_company_review",
+            "can_review_company",
+        ]
 
     def get_channel_id(self, obj):
         return getattr(getattr(obj, "channel", None), "id", None)
@@ -140,8 +179,16 @@ class InternshipEvaluationSerializer(serializers.ModelSerializer):
     class Meta:
         model = InternshipEvaluation
         fields = [
-            "id", "evaluator_type", "punctuality", "initiative", "integration",
-            "skills", "global_rating", "comment", "attestation_url", "created_at",
+            "id",
+            "evaluator_type",
+            "punctuality",
+            "initiative",
+            "integration",
+            "skills",
+            "global_rating",
+            "comment",
+            "attestation_url",
+            "created_at",
         ]
         read_only_fields = ["id", "evaluator_type", "created_at"]
 

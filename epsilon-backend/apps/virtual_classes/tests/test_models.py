@@ -9,13 +9,19 @@ pytestmark = pytest.mark.django_db
 
 def test_virtual_class_teacher_property_follows_subject_dedicated_teacher():
     teacher = User.objects.create_user(
-        email="model.teacher@example.ci", password="testpass123", first_name="T", last_name="E",
+        email="model.teacher@example.ci",
+        password="testpass123",
+        first_name="T",
+        last_name="E",
         primary_role=UserRole.TEACHER,
     )
     TeacherProfile.objects.create(user=teacher)
 
     director_user = User.objects.create_user(
-        email="model.dir@example.ci", password="testpass123", first_name="D", last_name="R",
+        email="model.dir@example.ci",
+        password="testpass123",
+        first_name="D",
+        last_name="R",
         primary_role=UserRole.DIRECTOR,
     )
     profile = DirectorProfile.objects.create(user=director_user, school_name="École Test", address="Cocody")

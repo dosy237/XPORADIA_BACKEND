@@ -3,6 +3,7 @@ import secrets
 
 from django.http import Http404
 from django.utils import timezone
+
 from rest_framework import permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
@@ -11,11 +12,10 @@ from rest_framework.views import APIView
 from apps.academics.models import SchoolClass, Subject
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import AdminScope, DirectorProfile, UserRole
-from apps.users.permissions import admin_scope_permission
-
 from apps.payments.models import MobileOperator, PaymentType
 from apps.payments.services import confirm_payment_completed, initiate_payment
+from apps.users.models import AdminScope, DirectorProfile, UserRole
+from apps.users.permissions import admin_scope_permission
 
 from .constants import RETAKE_FEE_RATIO, RETAKE_MIN_SCORE, RETAKE_MIN_WAIT_DAYS, RETAKE_WINDOW_DAYS
 from .models import (
@@ -28,11 +28,11 @@ from .models import (
     TrainingSession,
 )
 from .serializers import (
+    ONLINE_GRADABLE_TYPES,
     AdminTrainingModuleSerializer,
     ExamAttemptResultSerializer,
     ExamQuestionSerializer,
     MyCertificationStatusSerializer,
-    ONLINE_GRADABLE_TYPES,
     PublicCertificationVerificationSerializer,
     SessionEnrollmentSerializer,
     TrainingModuleSerializer,
@@ -106,9 +106,11 @@ class TrainingSessionViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        qs = TrainingSession.objects.filter(
-            date__gte=timezone.localdate()
-        ).exclude(status="cancelled").select_related("module", "trainer")
+        qs = (
+            TrainingSession.objects.filter(date__gte=timezone.localdate())
+            .exclude(status="cancelled")
+            .select_related("module", "trainer")
+        )
         module_id = self.request.query_params.get("module")
         city = self.request.query_params.get("city")
         if module_id:
@@ -168,9 +170,7 @@ class OnlineExamQuestionsView(APIView):
         if not request.user.has_role(UserRole.TEACHER):
             raise PermissionDenied("Réservé aux enseignants.")
         module = _get_module(module_id)
-        questions = ExamQuestion.objects.filter(
-            module=module, question_type__in=ONLINE_GRADABLE_TYPES, is_active=True
-        )
+        questions = ExamQuestion.objects.filter(module=module, question_type__in=ONLINE_GRADABLE_TYPES, is_active=True)
         return Response(ExamQuestionSerializer(questions, many=True).data)
 
 
@@ -186,8 +186,13 @@ def _grade_and_issue_certification(user, module, questions, answers, *, is_retak
     status_before = MyCertificationStatusSerializer.build(user)["current_level"]
 
     attempt = ExamAttempt.objects.create(
-        teacher=user, module=module, is_online=True, is_retake=is_retake,
-        answers=answers, score_auto=score_auto, submitted_at=timezone.now(),
+        teacher=user,
+        module=module,
+        is_online=True,
+        is_retake=is_retake,
+        answers=answers,
+        score_auto=score_auto,
+        submitted_at=timezone.now(),
     )
     attempt.compute_total_score()
 
@@ -199,8 +204,12 @@ def _grade_and_issue_certification(user, module, questions, answers, *, is_retak
         attempt.save(update_fields=["status", "graded_at"])
 
         certification = Certification.objects.create(
-            teacher=user, module=module, attempt=attempt, level=module.target_level,
-            points_awarded=module.points, score_total=attempt.score_total,
+            teacher=user,
+            module=module,
+            attempt=attempt,
+            level=module.target_level,
+            points_awarded=module.points,
+            score_total=attempt.score_total,
             qr_code=f"XPO-CERT-{user.id}-{secrets.token_hex(6).upper()}",
             expires_at=timezone.localdate() + datetime.timedelta(days=CERTIFICATION_VALIDITY_DAYS),
         )
@@ -208,7 +217,9 @@ def _grade_and_issue_certification(user, module, questions, answers, *, is_retak
 
         generate_and_attach_certificate(certification)
         notify_user(
-            user, NotificationType.EXAM_RESULT, title="Certification délivrée",
+            user,
+            NotificationType.EXAM_RESULT,
+            title="Certification délivrée",
             body=f"Félicitations, votre niveau {module.target_level} pour « {module.title} » a été validé{' au rattrapage' if is_retake else ''}.",
         )
 
@@ -217,12 +228,16 @@ def _grade_and_issue_certification(user, module, questions, answers, *, is_retak
             leveled_up = True
             new_level = status_after
             notify_user(
-                user, NotificationType.EXAM_RESULT, title="Nouveau niveau atteint !",
+                user,
+                NotificationType.EXAM_RESULT,
+                title="Nouveau niveau atteint !",
                 body=f"Bravo, vous avez atteint le niveau {status_after} sur Xporadia.",
             )
             for director_user in _affiliated_establishment_users(user):
                 notify_user(
-                    director_user, NotificationType.EXAM_RESULT, title="Un enseignant a progressé",
+                    director_user,
+                    NotificationType.EXAM_RESULT,
+                    title="Un enseignant a progressé",
                     body=f"{user.get_full_name()} a atteint le niveau {status_after} sur Xporadia.",
                 )
     else:
@@ -257,9 +272,7 @@ class SubmitOnlineExamView(APIView):
             return Response({"detail": "Réponses manquantes."}, status=status.HTTP_400_BAD_REQUEST)
 
         questions = list(
-            ExamQuestion.objects.filter(
-                module=module, question_type__in=ONLINE_GRADABLE_TYPES, is_active=True
-            )
+            ExamQuestion.objects.filter(module=module, question_type__in=ONLINE_GRADABLE_TYPES, is_active=True)
         )
         if not questions:
             return Response(
@@ -284,7 +297,11 @@ def _retake_eligibility(user, module):
 
     failed_attempt = (
         ExamAttempt.objects.filter(
-            teacher=user, module=module, is_online=True, is_retake=False, status=AttemptStatus.FAILED,
+            teacher=user,
+            module=module,
+            is_online=True,
+            is_retake=False,
+            status=AttemptStatus.FAILED,
         )
         .order_by("-submitted_at")
         .first()
@@ -314,12 +331,14 @@ class RetakeEligibilityView(APIView):
             raise PermissionDenied("Réservé aux enseignants.")
         module = _get_module(module_id)
         eligible, reason, failed_attempt = _retake_eligibility(request.user, module)
-        return Response({
-            "eligible": eligible,
-            "reason": reason,
-            "fee": round(module.price * RETAKE_FEE_RATIO) if eligible else None,
-            "previous_score": failed_attempt.score_auto if failed_attempt else None,
-        })
+        return Response(
+            {
+                "eligible": eligible,
+                "reason": reason,
+                "fee": round(module.price * RETAKE_FEE_RATIO) if eligible else None,
+                "previous_score": failed_attempt.score_auto if failed_attempt else None,
+            }
+        )
 
 
 class RetakeExamView(APIView):
@@ -349,9 +368,7 @@ class RetakeExamView(APIView):
             )
 
         questions = list(
-            ExamQuestion.objects.filter(
-                module=module, question_type__in=ONLINE_GRADABLE_TYPES, is_active=True
-            )
+            ExamQuestion.objects.filter(module=module, question_type__in=ONLINE_GRADABLE_TYPES, is_active=True)
         )
         if not questions:
             return Response(
@@ -361,7 +378,10 @@ class RetakeExamView(APIView):
 
         fee = round(module.price * RETAKE_FEE_RATIO)
         payment = initiate_payment(
-            user=request.user, amount=fee, operator=operator, phone_number=phone_number,
+            user=request.user,
+            amount=fee,
+            operator=operator,
+            phone_number=phone_number,
             payment_type=PaymentType.TRAINING,
         )
         confirm_payment_completed(payment)
@@ -406,7 +426,10 @@ class EnrollInSessionView(APIView):
             )
 
         payment = initiate_payment(
-            user=request.user, amount=session.module.price, operator=operator, phone_number=phone_number,
+            user=request.user,
+            amount=session.module.price,
+            operator=operator,
+            phone_number=phone_number,
             payment_type=PaymentType.TRAINING,
         )
         confirm_payment_completed(payment)

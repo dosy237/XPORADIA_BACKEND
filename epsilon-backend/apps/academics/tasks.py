@@ -5,8 +5,10 @@ Enveloppes Celery des commandes de rappel d'agenda (voir CELERY_BEAT_SCHEDULE
 dans config/settings/base.py), même principe que
 apps.virtual_classes.tasks.remind_exercise_deadlines.
 """
-from celery import shared_task
+
 from django.core.management import call_command
+
+from celery import shared_task
 
 
 @shared_task(ignore_result=True)

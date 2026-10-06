@@ -1,5 +1,6 @@
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.academics.models import Department, SchoolClass, Subject, Track
 from apps.library.models import LibraryResource, ResourceFavorite
@@ -15,7 +16,10 @@ def api_client():
 
 def _create_director(email="director@example.ci", school_name="Groupe Scolaire Test"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="D", last_name="R",
+        email=email,
+        password="testpass123",
+        first_name="D",
+        last_name="R",
         primary_role=UserRole.DIRECTOR,
     )
     profile = DirectorProfile.objects.create(user=user, school_name=school_name, address="Cocody")
@@ -24,7 +28,10 @@ def _create_director(email="director@example.ci", school_name="Groupe Scolaire T
 
 def _create_teacher(email="teacher@example.ci"):
     user = User.objects.create_user(
-        email=email, password="testpass123", first_name="T", last_name="E",
+        email=email,
+        password="testpass123",
+        first_name="T",
+        last_name="E",
         primary_role=UserRole.TEACHER,
     )
     TeacherProfile.objects.create(user=user)
@@ -91,8 +98,11 @@ def test_affiliated_teacher_can_list_and_create_resource(api_client):
     response = api_client.post(
         f"/api/v1/library/establishments/{profile.id}/resources/",
         {
-            "title": "Annale BAC 2025", "resource_type": "exam", "level": "tle",
-            "subject": "Physique", "file_url": "https://example.ci/annale.pdf",
+            "title": "Annale BAC 2025",
+            "resource_type": "exam",
+            "level": "tle",
+            "subject": "Physique",
+            "file_url": "https://example.ci/annale.pdf",
         },
         format="json",
     )
@@ -149,9 +159,7 @@ def test_resource_update_forbidden_for_non_author_non_director(api_client):
     resource = _create_resource(profile, author=author)
     _login(api_client, other_teacher.email)
 
-    response = api_client.patch(
-        f"/api/v1/library/resources/{resource.id}/", {"is_archived": True}, format="json"
-    )
+    response = api_client.patch(f"/api/v1/library/resources/{resource.id}/", {"is_archived": True}, format="json")
     assert response.status_code == 403
 
 
@@ -161,9 +169,7 @@ def test_resource_update_allowed_for_author(api_client):
     resource = _create_resource(profile, author=author)
     _login(api_client, author.email)
 
-    response = api_client.patch(
-        f"/api/v1/library/resources/{resource.id}/", {"is_archived": True}, format="json"
-    )
+    response = api_client.patch(f"/api/v1/library/resources/{resource.id}/", {"is_archived": True}, format="json")
     assert response.status_code == 200
     resource.refresh_from_db()
     assert resource.is_archived is True
@@ -175,9 +181,7 @@ def test_resource_update_allowed_for_director(api_client):
     resource = _create_resource(profile, author=author)
     _login(api_client, director.email)
 
-    response = api_client.patch(
-        f"/api/v1/library/resources/{resource.id}/", {"is_archived": True}, format="json"
-    )
+    response = api_client.patch(f"/api/v1/library/resources/{resource.id}/", {"is_archived": True}, format="json")
     assert response.status_code == 200
 
 

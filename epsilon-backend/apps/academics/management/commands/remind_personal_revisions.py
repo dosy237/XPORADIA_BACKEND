@@ -16,6 +16,7 @@ PersonalScheduleBlock étant récurrent (pas une instance par date),
 l'idempotence est journalisée par (créneau, date) via
 PersonalBlockReminderLog, comme pour remind_timetable_revisions.
 """
+
 from datetime import datetime, timedelta
 
 from django.core.management.base import BaseCommand
@@ -36,11 +37,14 @@ class Command(BaseCommand):
         weekday = today.weekday()
         window_end = now + timedelta(minutes=30)
 
-        blocks = PersonalScheduleBlock.objects.filter(
-            weekday=weekday, valid_from__lte=today,
-        ).exclude(
-            valid_until__lt=today
-        ).select_related("child__user", "subject")
+        blocks = (
+            PersonalScheduleBlock.objects.filter(
+                weekday=weekday,
+                valid_from__lte=today,
+            )
+            .exclude(valid_until__lt=today)
+            .select_related("child__user", "subject")
+        )
 
         exceptions = {
             exc.block_id: exc
@@ -59,8 +63,11 @@ class Command(BaseCommand):
             title = exception.title if (exception and exception.title) else block.title
             subject = exception.subject if (exception and exception.subject_id) else block.subject
 
-            start_dt = timezone.make_aware(datetime.combine(today, start_time)) \
-                if timezone.is_naive(datetime.combine(today, start_time)) else datetime.combine(today, start_time)
+            start_dt = (
+                timezone.make_aware(datetime.combine(today, start_time))
+                if timezone.is_naive(datetime.combine(today, start_time))
+                else datetime.combine(today, start_time)
+            )
             if not (now <= start_dt <= window_end):
                 continue
             if PersonalBlockReminderLog.objects.filter(block=block, date=today).exists():

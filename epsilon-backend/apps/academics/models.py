@@ -10,6 +10,7 @@ Le contenu pédagogique (Story 3) et la bibliothèque (Story 4) vivent dans
 d'autres apps ; l'espace élève (Story 6) est construit — voir apps.users
 (Child.user, StudentActivationInvite) et apps.messaging.
 """
+
 import secrets
 
 from django.conf import settings
@@ -56,16 +57,16 @@ class Department(models.Model):
     "Sciences et Technologies". Le découpage est libre : un établissement
     primaire peut n'avoir qu'un seul département générique."""
 
-    establishment = models.ForeignKey(
-        DirectorProfile, on_delete=models.CASCADE, related_name="departments"
-    )
+    establishment = models.ForeignKey(DirectorProfile, on_delete=models.CASCADE, related_name="departments")
     name = models.CharField(max_length=200, verbose_name="Nom du département")
     description = models.TextField(blank=True)
     # La création d'un DÉPARTEMENT reste exclusivement du ressort du
     # directeur, jamais délégable — seule la création des FILIÈRES en
     # dessous peut être confiée à un enseignant de confiance.
     track_delegates = models.ManyToManyField(
-        settings.AUTH_USER_MODEL, blank=True, related_name="delegated_departments",
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="delegated_departments",
         verbose_name="Enseignants autorisés à créer des filières ici",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -91,7 +92,9 @@ class Track(models.Model):
     # Symétrique à Department.track_delegates, un niveau plus bas — délègue
     # la création des CLASSES de cette filière.
     class_delegates = models.ManyToManyField(
-        settings.AUTH_USER_MODEL, blank=True, related_name="delegated_tracks",
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="delegated_tracks",
         verbose_name="Enseignants autorisés à créer des classes ici",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -115,9 +118,7 @@ class SchoolClass(models.Model):
 
     track = models.ForeignKey(Track, on_delete=models.CASCADE, related_name="classes")
     name = models.CharField(max_length=100, verbose_name="Nom de la classe")
-    school_year = models.CharField(
-        max_length=9, verbose_name="Année scolaire", help_text="Ex : 2025-2026"
-    )
+    school_year = models.CharField(max_length=9, verbose_name="Année scolaire", help_text="Ex : 2025-2026")
     homeroom_teacher = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -163,7 +164,9 @@ class Subject(models.Model):
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="subjects")
     name = models.CharField(max_length=150, verbose_name="Nom de la matière")
     category = models.CharField(
-        max_length=10, choices=SubjectCategory.choices, default=SubjectCategory.OTHER,
+        max_length=10,
+        choices=SubjectCategory.choices,
+        default=SubjectCategory.OTHER,
         verbose_name="Groupe (bulletin)",
     )
     # Poids de cette matière dans la moyenne générale de CETTE classe —
@@ -221,7 +224,11 @@ class TimetableSlot(models.Model):
     school_class = models.ForeignKey(SchoolClass, on_delete=models.CASCADE, related_name="timetable_slots")
     subject = models.ForeignKey(Subject, on_delete=models.CASCADE, related_name="timetable_slots")
     term = models.ForeignKey(
-        "grading.Term", on_delete=models.SET_NULL, null=True, blank=True, related_name="timetable_slots",
+        "grading.Term",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="timetable_slots",
         verbose_name="Trimestre (vide = toute l'année)",
     )
     weekday = models.IntegerField(choices=Weekday.choices)
@@ -272,7 +279,11 @@ class PersonalScheduleBlock(models.Model):
     end_time = models.TimeField()
     title = models.CharField(max_length=200)
     subject = models.ForeignKey(
-        Subject, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        Subject,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
         verbose_name="Matière (optionnel)",
     )
     valid_from = models.DateField(verbose_name="Valide à partir du")
@@ -367,7 +378,11 @@ class EstablishmentEvent(models.Model):
 
     establishment = models.ForeignKey(DirectorProfile, on_delete=models.CASCADE, related_name="events")
     school_class = models.ForeignKey(
-        SchoolClass, on_delete=models.CASCADE, null=True, blank=True, related_name="events",
+        SchoolClass,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="events",
         verbose_name="Classe concernée (vide = tout l'établissement)",
     )
     event_type = models.CharField(max_length=30, choices=EventType.choices)

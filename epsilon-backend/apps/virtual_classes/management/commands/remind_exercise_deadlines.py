@@ -12,9 +12,11 @@ production ; cron ou déclenchement manuel en attendant). Deux rappels :
 Chaque rappel n'est envoyé qu'une fois par devoir (voir
 due_soon_notified_at / overdue_notified_at sur Exercise).
 """
+
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta
 
 from apps.academics.models import Enrollment, EnrollmentStatus
 from apps.notifications.models import NotificationType
@@ -24,12 +26,12 @@ from apps.virtual_classes.models import Exercise, ExerciseStatus, Submission
 
 def _students_without_submission(exercise):
     school_class = exercise.virtual_class.subject.school_class
-    submitted_child_ids = set(
-        Submission.objects.filter(exercise=exercise).values_list("child_id", flat=True)
+    submitted_child_ids = set(Submission.objects.filter(exercise=exercise).values_list("child_id", flat=True))
+    enrollments = (
+        Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE)
+        .exclude(child_id__in=submitted_child_ids)
+        .select_related("child__user", "child__parent__user")
     )
-    enrollments = Enrollment.objects.filter(
-        school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).exclude(child_id__in=submitted_child_ids).select_related("child__user", "child__parent__user")
 
     recipients = []
     for enrollment in enrollments:

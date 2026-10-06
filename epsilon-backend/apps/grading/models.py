@@ -14,6 +14,7 @@ bulletin n'est pas publié ; à la publication, tout est figé (ReportCard),
 pour ne jamais voir un bulletin déjà remis à une famille changer sous ses
 yeux si une note est corrigée après coup.
 """
+
 from decimal import Decimal
 
 from django.conf import settings
@@ -116,7 +117,9 @@ class Grade(models.Model):
         unique_together = ("evaluation", "child")
 
     def __str__(self):
-        return f"{self.child.first_name} — {self.evaluation.title} : {self.score if not self.is_excused else 'dispensé'}"
+        return (
+            f"{self.child.first_name} — {self.evaluation.title} : {self.score if not self.is_excused else 'dispensé'}"
+        )
 
 
 class SubjectAppreciation(models.Model):

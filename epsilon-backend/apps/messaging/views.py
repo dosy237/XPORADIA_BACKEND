@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -126,7 +127,8 @@ class ChannelMessagesView(generics.ListCreateAPIView):
         message = serializer.save(channel=channel, author=self.request.user, attachments=attachments)
         notify_channel_members(channel, message, self.request)
         broadcast_to_channel(
-            channel.id, "message_created",
+            channel.id,
+            "message_created",
             {"message": MessageSerializer(message, context={"request": self.request}).data},
         )
 
@@ -174,7 +176,8 @@ class MessageDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_update(self, serializer):
         message = serializer.save(is_edited=True)
         broadcast_to_channel(
-            message.channel_id, "message_updated",
+            message.channel_id,
+            "message_updated",
             {"message": MessageSerializer(message, context={"request": self.request}).data},
         )
 
@@ -214,9 +217,7 @@ class CreateSubjectChannelView(APIView):
             return Response({"detail": "Ce canal existe déjà."}, status=status.HTTP_400_BAD_REQUEST)
 
         channel = create_subject_channel(subject, request.user)
-        return Response(
-            ChannelSerializer(channel, context={"request": request}).data, status=status.HTTP_201_CREATED
-        )
+        return Response(ChannelSerializer(channel, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class ContactChildTeacherView(APIView):
@@ -228,9 +229,10 @@ class ContactChildTeacherView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        from rest_framework.exceptions import PermissionDenied
+
         from apps.academics.models import Child, Enrollment, EnrollmentStatus, Subject
         from apps.users.models import User, UserRole
-        from rest_framework.exceptions import PermissionDenied
 
         if not request.user.has_role(UserRole.PARENT):
             raise PermissionDenied("Réservé aux parents.")
@@ -242,9 +244,11 @@ class ContactChildTeacherView(APIView):
         if not child.parent_id or child.parent.user_id != request.user.id:
             raise PermissionDenied("Cet élève n'est pas rattaché à votre compte.")
 
-        enrollment = Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE).select_related(
-            "school_class__homeroom_teacher"
-        ).first()
+        enrollment = (
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+            .select_related("school_class__homeroom_teacher")
+            .first()
+        )
         if not enrollment:
             raise PermissionDenied("Cet élève n'est inscrit dans aucune classe pour l'instant.")
 
@@ -272,8 +276,9 @@ class ContactClassmateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        from apps.academics.models import Child, Enrollment, EnrollmentStatus
         from rest_framework.exceptions import PermissionDenied
+
+        from apps.academics.models import Child, Enrollment, EnrollmentStatus
 
         from .services import get_or_create_direct_channel
 
@@ -288,12 +293,16 @@ class ContactClassmateView(APIView):
         if not classmate.user_id:
             raise PermissionDenied("Cet élève n'a pas encore activé son compte.")
 
-        requester_class = Enrollment.objects.filter(
-            child=requester_child, status=EnrollmentStatus.ACTIVE
-        ).values_list("school_class_id", flat=True).first()
-        classmate_class = Enrollment.objects.filter(
-            child=classmate, status=EnrollmentStatus.ACTIVE
-        ).values_list("school_class_id", flat=True).first()
+        requester_class = (
+            Enrollment.objects.filter(child=requester_child, status=EnrollmentStatus.ACTIVE)
+            .values_list("school_class_id", flat=True)
+            .first()
+        )
+        classmate_class = (
+            Enrollment.objects.filter(child=classmate, status=EnrollmentStatus.ACTIVE)
+            .values_list("school_class_id", flat=True)
+            .first()
+        )
         if not requester_class or requester_class != classmate_class:
             raise PermissionDenied("Cet élève n'est pas dans votre classe.")
 
@@ -312,11 +321,12 @@ class PublishExerciseView(APIView):
 
     def post(self, request, channel_id):
         from django.utils.dateparse import parse_datetime
+
         from rest_framework.exceptions import PermissionDenied, ValidationError
 
+        from apps.notifications.models import NotificationType
         from apps.virtual_classes.models import Exercise, ExerciseKind, ExerciseStatus, VirtualClass
         from apps.virtual_classes.services import notify_enrolled_parents
-        from apps.notifications.models import NotificationType
 
         channel = get_object_or_404(Channel, pk=channel_id)
         if channel.channel_type != ChannelType.SUBJECT:
@@ -341,27 +351,30 @@ class PublishExerciseView(APIView):
 
         virtual_class, _ = VirtualClass.objects.get_or_create(subject=subject)
         exercise = Exercise.objects.create(
-            virtual_class=virtual_class, kind=kind, title=title, instructions=instructions,
-            attachments=attachments, deadline=deadline,
-            status=ExerciseStatus.PUBLISHED, published_at=timezone.now(),
+            virtual_class=virtual_class,
+            kind=kind,
+            title=title,
+            instructions=instructions,
+            attachments=attachments,
+            deadline=deadline,
+            status=ExerciseStatus.PUBLISHED,
+            published_at=timezone.now(),
         )
 
         message = Message.objects.create(channel=channel, author=request.user, exercise_id=exercise.id)
-        notify_channel_members(
-            channel, message, request, preview_override=f"Nouveau devoir : {title}"
-        )
+        notify_channel_members(channel, message, request, preview_override=f"Nouveau devoir : {title}")
         notify_enrolled_parents(
-            subject.school_class, NotificationType.EXERCISE_PUBLISHED,
+            subject.school_class,
+            NotificationType.EXERCISE_PUBLISHED,
             title="Nouveau devoir publié",
             body=f"« {title} » a été publié pour la matière {subject.name}.",
         )
         broadcast_to_channel(
-            channel.id, "message_created",
+            channel.id,
+            "message_created",
             {"message": MessageSerializer(message, context={"request": request}).data},
         )
-        return Response(
-            MessageSerializer(message, context={"request": request}).data, status=status.HTTP_201_CREATED
-        )
+        return Response(MessageSerializer(message, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class SubmitExerciseMessageView(APIView):
@@ -414,27 +427,33 @@ class SubmitExerciseMessageView(APIView):
             raise ValidationError("Ajoutez un texte ou une pièce jointe.")
 
         Submission.objects.update_or_create(
-            exercise=exercise, child=child,
+            exercise=exercise,
+            child=child,
             defaults={
-                "content": content, "attachments": attachments,
-                "status": SubmissionStatus.SUBMITTED, "submitted_by": request.user,
+                "content": content,
+                "attachments": attachments,
+                "status": SubmissionStatus.SUBMITTED,
+                "submitted_by": request.user,
             },
         )
 
         message = Message.objects.create(
-            channel=channel, author=request.user, body=content, attachments=attachments,
+            channel=channel,
+            author=request.user,
+            body=content,
+            attachments=attachments,
             exercise_id=exercise.id,
         )
         if subject.teacher:
             notify_user(
-                subject.teacher, NotificationType.EXERCISE_SUBMITTED,
+                subject.teacher,
+                NotificationType.EXERCISE_SUBMITTED,
                 title="Nouvelle copie soumise",
                 body=f"{child.first_name} a soumis une copie pour « {exercise.title} ».",
             )
         broadcast_to_channel(
-            channel.id, "message_created",
+            channel.id,
+            "message_created",
             {"message": MessageSerializer(message, context={"request": request}).data},
         )
-        return Response(
-            MessageSerializer(message, context={"request": request}).data, status=status.HTTP_201_CREATED
-        )
+        return Response(MessageSerializer(message, context={"request": request}).data, status=status.HTTP_201_CREATED)

@@ -1,6 +1,7 @@
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -38,22 +39,26 @@ class DashboardStatsView(APIView):
 
         today = timezone.localdate()
         pending_accreditation = User.objects.filter(
-            is_documents_validated=False, primary_role__in=[UserRole.TEACHER, UserRole.DIRECTOR],
+            is_documents_validated=False,
+            primary_role__in=[UserRole.TEACHER, UserRole.DIRECTOR],
         ).count()
         pending_library = LibraryResource.objects.filter(moderation_status=ModerationStatus.PENDING).count()
         open_disputes = Dispute.objects.filter(status__in=[DisputeStatus.OPEN, DisputeStatus.REVIEWED]).count()
         today_payments_total = (
-            Payment.objects.filter(status=PaymentStatus.COMPLETED, completed_at__date=today)
-            .aggregate(total=Sum("amount"))["total"]
+            Payment.objects.filter(status=PaymentStatus.COMPLETED, completed_at__date=today).aggregate(
+                total=Sum("amount")
+            )["total"]
             or 0
         )
 
-        return Response({
-            "pending_accreditation": pending_accreditation,
-            "pending_library": pending_library,
-            "open_disputes": open_disputes,
-            "today_payments_total": today_payments_total,
-        })
+        return Response(
+            {
+                "pending_accreditation": pending_accreditation,
+                "pending_library": pending_library,
+                "open_disputes": open_disputes,
+                "today_payments_total": today_payments_total,
+            }
+        )
 
 
 class PendingAccreditationView(generics.ListAPIView):
@@ -68,7 +73,8 @@ class PendingAccreditationView(generics.ListAPIView):
     def get_queryset(self):
         require_admin_scope(self.request.user, AdminScope.MODERATION)
         return User.objects.filter(
-            is_documents_validated=False, primary_role__in=[UserRole.TEACHER, UserRole.DIRECTOR],
+            is_documents_validated=False,
+            primary_role__in=[UserRole.TEACHER, UserRole.DIRECTOR],
         ).order_by("created_at")
 
 
@@ -85,7 +91,8 @@ class ValidateAccreditationView(APIView):
         target.is_documents_validated = True
         target.save(update_fields=["is_documents_validated"])
         notify_user(
-            target, NotificationType.SYSTEM,
+            target,
+            NotificationType.SYSTEM,
             title="Votre compte Xporadia est validé",
             body=(
                 "Xporadia a validé votre formation présentielle et votre profil. "
@@ -109,9 +116,11 @@ class PendingLibraryResourcesView(generics.ListAPIView):
         from apps.library.models import LibraryResource, ModerationStatus
         from apps.library.serializers import LibraryResourceSerializer
 
-        qs = LibraryResource.objects.filter(
-            moderation_status=ModerationStatus.PENDING
-        ).select_related("author", "establishment").order_by("created_at")
+        qs = (
+            LibraryResource.objects.filter(moderation_status=ModerationStatus.PENDING)
+            .select_related("author", "establishment")
+            .order_by("created_at")
+        )
         data = LibraryResourceSerializer(qs, many=True, context={"request": request}).data
         # Ajoute le nom de l'établissement, absent du serializer de base
         # (pensé pour un contexte où l'établissement est déjà implicite).
@@ -137,10 +146,11 @@ class ModerateLibraryResourceView(APIView):
 
         if resource.author_id:
             notify_user(
-                resource.author, NotificationType.SYSTEM,
+                resource.author,
+                NotificationType.SYSTEM,
                 title="Ressource " + ("approuvée" if approve else "rejetée"),
                 body=f"Votre contribution « {resource.title} » a été "
-                     + ("approuvée et publiée." if approve else "rejetée."),
+                + ("approuvée et publiée." if approve else "rejetée."),
             )
         return Response({"id": resource.id, "moderation_status": resource.moderation_status})
 
@@ -168,7 +178,8 @@ class TogglePartnerStatusView(APIView):
         profile.is_partner = not profile.is_partner
         profile.save(update_fields=["is_partner"])
         notify_user(
-            target, NotificationType.SYSTEM,
+            target,
+            NotificationType.SYSTEM,
             title="Statut partenaire Xporadia",
             body=(
                 "Votre établissement est désormais Partenaire Xporadia."
@@ -194,10 +205,11 @@ class ToggleProfileVisibilityView(APIView):
 
         if not target.profile_visible:
             notify_user(
-                target, NotificationType.SYSTEM,
+                target,
+                NotificationType.SYSTEM,
                 title="Profil masqué de l'annuaire",
                 body="Votre profil public a été temporairement masqué par un administrateur. "
-                     "Contactez le support pour en savoir plus.",
+                "Contactez le support pour en savoir plus.",
             )
         return Response({"id": target.id, "profile_visible": target.profile_visible})
 
@@ -242,16 +254,17 @@ class AdminUserDetailView(APIView):
             if child:
                 from apps.academics.models import Enrollment, EnrollmentStatus
 
-                enrollment = Enrollment.objects.filter(
-                    child=child, status=EnrollmentStatus.ACTIVE
-                ).select_related("school_class__track__department__establishment").first()
+                enrollment = (
+                    Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+                    .select_related("school_class__track__department__establishment")
+                    .first()
+                )
                 data["role_detail"] = {
                     "declared_level": child.class_level,
                     "has_parent": child.parent_id is not None,
                     "school_class": str(enrollment.school_class) if enrollment else None,
                     "establishment": (
-                        enrollment.school_class.track.department.establishment.school_name
-                        if enrollment else None
+                        enrollment.school_class.track.department.establishment.school_name if enrollment else None
                     ),
                 }
         elif user.has_role(UserRole.TEACHER):
@@ -259,16 +272,24 @@ class AdminUserDetailView(APIView):
             from apps.certification.models import Certification
 
             certifications = Certification.objects.filter(teacher=user).select_related("module").order_by("-issued_at")
-            data["role_detail"] = {
-                "subjects": profile.subjects if profile else [],
-                "is_documents_validated": user.is_documents_validated,
-                "profile_visible": user.profile_visible,
-            } if profile else {}
+            data["role_detail"] = (
+                {
+                    "subjects": profile.subjects if profile else [],
+                    "is_documents_validated": user.is_documents_validated,
+                    "profile_visible": user.profile_visible,
+                }
+                if profile
+                else {}
+            )
             data["certifications"] = [
                 {
-                    "id": str(c.id), "module_title": c.module.title, "level": c.level,
-                    "score_total": str(c.score_total), "is_valid": c.is_valid,
-                    "issued_at": c.issued_at, "revoked_at": c.revoked_at,
+                    "id": str(c.id),
+                    "module_title": c.module.title,
+                    "level": c.level,
+                    "score_total": str(c.score_total),
+                    "is_valid": c.is_valid,
+                    "issued_at": c.issued_at,
+                    "revoked_at": c.revoked_at,
                 }
                 for c in certifications
             ]
@@ -282,22 +303,26 @@ class AdminUserDetailView(APIView):
                 from apps.academics.models import Enrollment, EnrollmentStatus, SchoolClass, Track
 
                 classes_qs = SchoolClass.objects.filter(track__department__establishment=profile)
-                role_detail.update({
-                    "address": profile.address,
-                    "phone": profile.phone,
-                    "contact_email": profile.contact_email,
-                    "establishment_code": profile.establishment_code,
-                    "is_public": profile.is_public,
-                    "departments_count": profile.departments.count(),
-                    "tracks_count": Track.objects.filter(department__establishment=profile).count(),
-                    "classes_count": classes_qs.count(),
-                    "active_students_count": Enrollment.objects.filter(
-                        school_class__track__department__establishment=profile,
-                        status=EnrollmentStatus.ACTIVE,
-                    ).count(),
-                    "teachers_count": classes_qs.filter(homeroom_teacher__isnull=False)
-                    .values("homeroom_teacher").distinct().count(),
-                })
+                role_detail.update(
+                    {
+                        "address": profile.address,
+                        "phone": profile.phone,
+                        "contact_email": profile.contact_email,
+                        "establishment_code": profile.establishment_code,
+                        "is_public": profile.is_public,
+                        "departments_count": profile.departments.count(),
+                        "tracks_count": Track.objects.filter(department__establishment=profile).count(),
+                        "classes_count": classes_qs.count(),
+                        "active_students_count": Enrollment.objects.filter(
+                            school_class__track__department__establishment=profile,
+                            status=EnrollmentStatus.ACTIVE,
+                        ).count(),
+                        "teachers_count": classes_qs.filter(homeroom_teacher__isnull=False)
+                        .values("homeroom_teacher")
+                        .distinct()
+                        .count(),
+                    }
+                )
             data["role_detail"] = role_detail
         elif user.has_role(UserRole.COMPANY):
             profile = getattr(user, "company_profile", None)
@@ -378,7 +403,8 @@ class RevokeCertificationView(APIView):
         cert.save(update_fields=["is_valid", "revoked_at"])
 
         notify_user(
-            cert.teacher, NotificationType.SYSTEM,
+            cert.teacher,
+            NotificationType.SYSTEM,
             title="Certification révoquée",
             body=f"Votre certification « {cert.module.title} » a été révoquée par l'administration.",
         )
@@ -402,7 +428,8 @@ class ReinstateCertificationView(APIView):
         cert.save(update_fields=["is_valid", "revoked_at"])
 
         notify_user(
-            cert.teacher, NotificationType.SYSTEM,
+            cert.teacher,
+            NotificationType.SYSTEM,
             title="Certification rétablie",
             body=f"Votre certification « {cert.module.title} » a été rétablie.",
         )

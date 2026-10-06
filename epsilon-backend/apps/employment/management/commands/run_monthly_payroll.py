@@ -14,6 +14,7 @@ Usage : `manage.py run_monthly_payroll` (clôture le mois précédent par
 défaut) ou `manage.py run_monthly_payroll --year 2026 --month 7` pour un
 mois précis (rattrapage).
 """
+
 from django.core.management.base import BaseCommand
 from django.db.models import Sum
 from django.utils import timezone
@@ -67,9 +68,7 @@ class Command(BaseCommand):
 
             if not recruitment.hourly_rate_teacher or not recruitment.hourly_rate_billed:
                 self.stdout.write(
-                    self.style.WARNING(
-                        f"Recrutement {recruitment.id} sans tarif horaire renseigné — ignoré."
-                    )
+                    self.style.WARNING(f"Recrutement {recruitment.id} sans tarif horaire renseigné — ignoré.")
                 )
                 continue
 
@@ -77,7 +76,9 @@ class Command(BaseCommand):
             billed_amount = round(total_hours * recruitment.hourly_rate_billed)
 
             entry, created = PayrollEntry.objects.get_or_create(
-                recruitment=recruitment, period_year=year, period_month=month,
+                recruitment=recruitment,
+                period_year=year,
+                period_month=month,
                 defaults=dict(
                     total_hours=total_hours,
                     hourly_rate_teacher=recruitment.hourly_rate_teacher,
@@ -122,7 +123,9 @@ class Command(BaseCommand):
 
         for establishment, total in billed_by_establishment.items():
             invoice, created = EstablishmentInvoice.objects.get_or_create(
-                establishment=establishment, period_year=year, period_month=month,
+                establishment=establishment,
+                period_year=year,
+                period_month=month,
                 defaults={"total_amount": total},
             )
             if not created:

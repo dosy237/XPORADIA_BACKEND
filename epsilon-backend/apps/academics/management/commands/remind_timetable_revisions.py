@@ -13,9 +13,11 @@ l'idempotence ne peut pas reposer sur un champ horodaté sur le créneau
 lui-même comme pour Exercise — elle est journalisée par (classe, date)
 via TimetableReminderLog.
 """
+
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta
 
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user

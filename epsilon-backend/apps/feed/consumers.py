@@ -10,6 +10,7 @@ déjà testée. Deux groupes possibles :
   - "feed_post_<id>" : commentaires et j'aime d'une publication précise,
     pour l'écran détail.
 """
+
 import json
 
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -27,10 +28,14 @@ class FeedConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive(self, text_data=None, bytes_data=None):
-        await self.send(text_data=json.dumps({
-            "type": "info",
-            "detail": "Ce canal est en lecture seule — utilisez l'API REST pour publier ou commenter.",
-        }))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "info",
+                    "detail": "Ce canal est en lecture seule — utilisez l'API REST pour publier ou commenter.",
+                }
+            )
+        )
 
     async def broadcast_event(self, event):
         await self.send(text_data=json.dumps(event["payload"]))

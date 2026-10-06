@@ -1,7 +1,8 @@
 from unittest.mock import patch
 
-import pytest
 from rest_framework.test import APIClient
+
+import pytest
 
 from apps.notifications.models import DeviceToken, Notification, NotificationChannel, NotificationType
 from apps.notifications.services import notify_user
@@ -18,16 +19,17 @@ def api_client():
 @pytest.fixture
 def teacher(db):
     return User.objects.create_user(
-        email="notif.teacher@example.ci", password="testpass123",
-        first_name="N", last_name="T", primary_role=UserRole.TEACHER,
+        email="notif.teacher@example.ci",
+        password="testpass123",
+        first_name="N",
+        last_name="T",
+        primary_role=UserRole.TEACHER,
     )
 
 
 @pytest.fixture
 def authed_client(api_client, teacher):
-    login = api_client.post(
-        "/api/v1/auth/token/", {"email": teacher.email, "password": "testpass123"}, format="json"
-    )
+    login = api_client.post("/api/v1/auth/token/", {"email": teacher.email, "password": "testpass123"}, format="json")
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
     return api_client
 
@@ -39,16 +41,25 @@ def test_notifications_require_authentication(api_client):
 
 def test_notifications_list_only_mine(authed_client, teacher):
     other = User.objects.create_user(
-        email="other@example.ci", password="testpass123",
-        first_name="O", last_name="T", primary_role=UserRole.TEACHER,
+        email="other@example.ci",
+        password="testpass123",
+        first_name="O",
+        last_name="T",
+        primary_role=UserRole.TEACHER,
     )
     Notification.objects.create(
-        user=teacher, notif_type=NotificationType.SYSTEM, channel=NotificationChannel.INAPP,
-        title="Pour moi", body="...",
+        user=teacher,
+        notif_type=NotificationType.SYSTEM,
+        channel=NotificationChannel.INAPP,
+        title="Pour moi",
+        body="...",
     )
     Notification.objects.create(
-        user=other, notif_type=NotificationType.SYSTEM, channel=NotificationChannel.INAPP,
-        title="Pas pour moi", body="...",
+        user=other,
+        notif_type=NotificationType.SYSTEM,
+        channel=NotificationChannel.INAPP,
+        title="Pas pour moi",
+        body="...",
     )
 
     response = authed_client.get("/api/v1/notifications/")
@@ -59,8 +70,11 @@ def test_notifications_list_only_mine(authed_client, teacher):
 
 def test_mark_notification_read(authed_client, teacher):
     notification = Notification.objects.create(
-        user=teacher, notif_type=NotificationType.SYSTEM, channel=NotificationChannel.INAPP,
-        title="Compte validé", body="...",
+        user=teacher,
+        notif_type=NotificationType.SYSTEM,
+        channel=NotificationChannel.INAPP,
+        title="Compte validé",
+        body="...",
     )
     assert notification.is_read is False
 
@@ -75,12 +89,18 @@ def test_mark_notification_read(authed_client, teacher):
 
 def test_mark_notification_read_404_for_other_users_notification(authed_client):
     other = User.objects.create_user(
-        email="other2@example.ci", password="testpass123",
-        first_name="O", last_name="T", primary_role=UserRole.TEACHER,
+        email="other2@example.ci",
+        password="testpass123",
+        first_name="O",
+        last_name="T",
+        primary_role=UserRole.TEACHER,
     )
     notification = Notification.objects.create(
-        user=other, notif_type=NotificationType.SYSTEM, channel=NotificationChannel.INAPP,
-        title="Pas pour moi", body="...",
+        user=other,
+        notif_type=NotificationType.SYSTEM,
+        channel=NotificationChannel.INAPP,
+        title="Pas pour moi",
+        body="...",
     )
     response = authed_client.post(f"/api/v1/notifications/{notification.id}/read/")
     assert response.status_code == 404
@@ -109,8 +129,11 @@ def test_register_device_creates_token(authed_client, teacher):
 
 def test_register_device_reassigns_token_to_new_user(authed_client, teacher):
     other = User.objects.create_user(
-        email="deviceowner@example.ci", password="testpass123",
-        first_name="D", last_name="O", primary_role=UserRole.TEACHER,
+        email="deviceowner@example.ci",
+        password="testpass123",
+        first_name="D",
+        last_name="O",
+        primary_role=UserRole.TEACHER,
     )
     DeviceToken.objects.create(user=other, token="ExponentPushToken[shared]", platform="android")
 
@@ -135,8 +158,11 @@ def test_unregister_device_removes_token(authed_client, teacher):
 
 def test_unregister_device_cannot_remove_other_users_token(authed_client, teacher):
     other = User.objects.create_user(
-        email="deviceowner2@example.ci", password="testpass123",
-        first_name="D", last_name="O", primary_role=UserRole.TEACHER,
+        email="deviceowner2@example.ci",
+        password="testpass123",
+        first_name="D",
+        last_name="O",
+        primary_role=UserRole.TEACHER,
     )
     DeviceToken.objects.create(user=other, token="ExponentPushToken[notyours]", platform="ios")
     response = authed_client.post(

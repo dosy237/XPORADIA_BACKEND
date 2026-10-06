@@ -13,6 +13,7 @@ par rapport au montant de la tranche — jamais un champ de statut stocké
 séparément qui pourrait diverger de la réalité des paiements enregistrés
 (voir services.installment_status).
 """
+
 from django.conf import settings
 from django.db import models
 

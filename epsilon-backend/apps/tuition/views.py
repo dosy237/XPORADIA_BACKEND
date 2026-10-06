@@ -1,6 +1,7 @@
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -22,11 +23,15 @@ def _get_establishment(user):
 def _get_child_in_establishment(child_id, establishment):
     from apps.academics.models import Enrollment, EnrollmentStatus
 
-    enrollment = Enrollment.objects.filter(
-        child_id=child_id,
-        status=EnrollmentStatus.ACTIVE,
-        school_class__track__department__establishment=establishment,
-    ).select_related("child").first()
+    enrollment = (
+        Enrollment.objects.filter(
+            child_id=child_id,
+            status=EnrollmentStatus.ACTIVE,
+            school_class__track__department__establishment=establishment,
+        )
+        .select_related("child")
+        .first()
+    )
     if not enrollment:
         raise Http404
     return enrollment.child
@@ -115,20 +120,24 @@ class ChildFeeStatusView(APIView):
         installments_data = []
         for installment in schedule.installments.all():
             info = services.installment_status(installment, child)
-            installments_data.append({
-                "installment": FeeInstallmentSerializer(installment).data,
-                "amount_paid": info["amount_paid"],
-                "amount_due": info["amount_due"],
-                "status": info["status"],
-            })
+            installments_data.append(
+                {
+                    "installment": FeeInstallmentSerializer(installment).data,
+                    "amount_paid": info["amount_paid"],
+                    "amount_due": info["amount_due"],
+                    "status": info["status"],
+                }
+            )
         payments = FeePayment.objects.filter(child=child, fee_installment__fee_schedule=schedule).select_related(
             "recorded_by"
         )
-        return Response({
-            "schedule": FeeScheduleSerializer(schedule).data,
-            "installments": installments_data,
-            "payments": FeePaymentSerializer(payments, many=True).data,
-        })
+        return Response(
+            {
+                "schedule": FeeScheduleSerializer(schedule).data,
+                "installments": installments_data,
+                "payments": FeePaymentSerializer(payments, many=True).data,
+            }
+        )
 
 
 class RecordFeePaymentView(APIView):
@@ -185,16 +194,22 @@ class EstablishmentFeeDashboardView(APIView):
         if schedule:
             for entry in services.late_children_for_schedule(schedule):
                 child = entry["child"]
-                late_families.append({
-                    "child_id": child.id,
-                    "child_name": f"{child.first_name} {child.last_name}".strip(),
-                    "late_installments": [s["installment"].name for s in entry["installments"] if s["status"] == "late"],
-                })
-        return Response({
-            "total_expected": totals["total_expected"],
-            "total_collected": totals["total_collected"],
-            "late_families": late_families,
-        })
+                late_families.append(
+                    {
+                        "child_id": child.id,
+                        "child_name": f"{child.first_name} {child.last_name}".strip(),
+                        "late_installments": [
+                            s["installment"].name for s in entry["installments"] if s["status"] == "late"
+                        ],
+                    }
+                )
+        return Response(
+            {
+                "total_expected": totals["total_expected"],
+                "total_collected": totals["total_collected"],
+                "late_families": late_families,
+            }
+        )
 
 
 class RemindLateFamilyView(APIView):
@@ -216,6 +231,6 @@ class RemindLateFamilyView(APIView):
             NotificationType.SYSTEM,
             title="Frais de scolarité en retard",
             body=f"Un ou plusieurs versements pour {child.first_name} sont en retard auprès de "
-                 f"{establishment.school_name}.",
+            f"{establishment.school_name}.",
         )
         return Response({"detail": "Relance envoyée."})

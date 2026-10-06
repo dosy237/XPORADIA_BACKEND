@@ -8,6 +8,7 @@ et c'est le total qui détermine le niveau affiché sur le profil et
 l'annuaire. Ajuster ici ne nécessite aucune migration ni changement de
 logique ailleurs dans le code.
 """
+
 from apps.certification.models import CertificationLevel
 
 # {niveau: points minimum requis pour l'atteindre} — Zéro est le palier de

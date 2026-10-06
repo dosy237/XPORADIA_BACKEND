@@ -3,11 +3,13 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import (
@@ -32,12 +34,12 @@ from .permissions import require_admin_scope
 from .serializers import (
     AccountDeletionRequestSerializer,
     ChangePasswordSerializer,
-    ConfirmPasswordResetSerializer,
-    ChildDetailSerializer,
     ChildClaimRequestSerializer,
+    ChildDetailSerializer,
     CompanyDirectoryCardSerializer,
     CompanyDirectoryDetailSerializer,
     CompanyProfileSerializer,
+    ConfirmPasswordResetSerializer,
     CreateTeacherCommentSerializer,
     CustomTokenObtainPairSerializer,
     DirectorProfileSerializer,
@@ -149,9 +151,7 @@ class VerifyOTPView(APIView):
         serializer.is_valid(raise_exception=True)
         ok = verify_otp(request.user, serializer.validated_data["code"])
         if not ok:
-            return Response(
-                {"detail": "Code invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Code invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST)
         request.user.is_verified = True
         request.user.save(update_fields=["is_verified"])
         return Response(
@@ -224,14 +224,10 @@ class SubmitPreRegistrationCodeView(APIView):
     def post(self, request):
         if not request.user.has_role(UserRole.TEACHER):
             raise PermissionDenied("Réservé aux enseignants.")
-        serializer = SubmitPreRegistrationCodeSerializer(
-            data=request.data, context={"request": request}
-        )
+        serializer = SubmitPreRegistrationCodeSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(
-            {"detail": "Code enregistré. Votre compte est en attente de validation par Xporadia."}
-        )
+        return Response({"detail": "Code enregistré. Votre compte est en attente de validation par Xporadia."})
 
 
 def _send_student_invitation_email(invite):
@@ -282,7 +278,9 @@ class StudentInviteCreateView(APIView):
 
         establishment_ids = {request.user.director_profile.id}
         enrollment = (
-            Enrollment.objects.filter(child=child, school_class__track__department__establishment_id__in=establishment_ids)
+            Enrollment.objects.filter(
+                child=child, school_class__track__department__establishment_id__in=establishment_ids
+            )
             .select_related("school_class")
             .first()
         )
@@ -292,9 +290,7 @@ class StudentInviteCreateView(APIView):
         invite = StudentActivationInvite.objects.create(child=child, email=email, invited_by=request.user)
         _send_student_invitation_email(invite)
 
-        return Response(
-            {"detail": f"Invitation envoyée à {email}."}, status=status.HTTP_201_CREATED
-        )
+        return Response({"detail": f"Invitation envoyée à {email}."}, status=status.HTTP_201_CREATED)
 
 
 class StudentActivationPreviewView(APIView):
@@ -316,9 +312,7 @@ class StudentActivationPreviewView(APIView):
             .order_by("-enrolled_at")
             .first()
         )
-        school_name = (
-            enrollment.school_class.track.department.establishment.school_name if enrollment else None
-        )
+        school_name = enrollment.school_class.track.department.establishment.school_name if enrollment else None
         data = StudentActivationPreviewSerializer(
             {
                 "first_name": invite.child.first_name,
@@ -501,8 +495,7 @@ class PublicProfileView(APIView):
 
         user = get_object_or_404(User, pk=user_id)
         is_following = (
-            request.user.is_authenticated
-            and Follow.objects.filter(follower=request.user, followed=user).exists()
+            request.user.is_authenticated and Follow.objects.filter(follower=request.user, followed=user).exists()
         )
         return Response(
             {
@@ -534,16 +527,13 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         from apps.certification.services import annotate_total_points
 
-        qs = (
-            TeacherProfile.objects.filter(
-                user__is_active=True,
-                # Enseignant pas encore accrédité par Xporadia (formation présentielle
-                # + code de préinscription validés par un administrateur) : son
-                # profil n'apparaît pas encore dans l'annuaire.
-                user__is_documents_validated=True,
-            )
-            .select_related("user")
-        )
+        qs = TeacherProfile.objects.filter(
+            user__is_active=True,
+            # Enseignant pas encore accrédité par Xporadia (formation présentielle
+            # + code de préinscription validés par un administrateur) : son
+            # profil n'apparaît pas encore dans l'annuaire.
+            user__is_documents_validated=True,
+        ).select_related("user")
         # Classement par réputation : plus un enseignant a cumulé de points
         # de certification, plus il est visible en tête d'annuaire — le
         # nom sert uniquement de repère stable pour les ex æquo.
@@ -600,14 +590,11 @@ class EstablishmentDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "user_id"
 
     def get_queryset(self):
-        qs = (
-            DirectorProfile.objects.filter(
-                user__is_active=True,
-                user__profile_visible=True,
-                user__is_documents_validated=True,
-            )
-            .select_related("user")
-        )
+        qs = DirectorProfile.objects.filter(
+            user__is_active=True,
+            user__profile_visible=True,
+            user__is_documents_validated=True,
+        ).select_related("user")
         qs = _annotate_establishment_activity(qs).order_by("-_activity_score", "school_name")
         location = self.request.query_params.get("location")
         if location:
@@ -632,14 +619,11 @@ class CompanyDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_url_kwarg = "user_id"
 
     def get_queryset(self):
-        qs = (
-            CompanyProfile.objects.filter(
-                user__is_active=True,
-                user__profile_visible=True,
-                user__is_documents_validated=True,
-            )
-            .select_related("user")
-        )
+        qs = CompanyProfile.objects.filter(
+            user__is_active=True,
+            user__profile_visible=True,
+            user__is_documents_validated=True,
+        ).select_related("user")
         qs = _annotate_company_activity(qs).order_by("-_activity_score", "company_name")
         sector = self.request.query_params.get("sector")
         if sector:
@@ -850,8 +834,10 @@ class MySchoolGroupView(APIView):
         profile = _get_director_profile(request.user)
         if not profile.school_group_id:
             return Response(None)
-        group = SchoolGroup.objects.select_related("created_by").prefetch_related("establishments").get(
-            id=profile.school_group_id
+        group = (
+            SchoolGroup.objects.select_related("created_by")
+            .prefetch_related("establishments")
+            .get(id=profile.school_group_id)
         )
         return Response(SchoolGroupSerializer(group, context={"request": request}).data)
 
@@ -1115,8 +1101,16 @@ class SearchUnclaimedChildView(APIView):
             child = Child.objects.select_related("user").get(user__email__iexact=email, parent__isnull=True)
         except Child.DoesNotExist:
             return Response({"child": None})
-        return Response({"child": {"id": child.id, "first_name": child.first_name, "last_name": child.last_name,
-                          "class_level": child.class_level}})
+        return Response(
+            {
+                "child": {
+                    "id": child.id,
+                    "first_name": child.first_name,
+                    "last_name": child.last_name,
+                    "class_level": child.class_level,
+                }
+            }
+        )
 
 
 class CreateChildClaimRequestView(APIView):
@@ -1137,7 +1131,9 @@ class CreateChildClaimRequestView(APIView):
         if ChildClaimRequest.objects.filter(
             parent=parent_profile, child=child, status=ChildClaimRequestStatus.PENDING
         ).exists():
-            return Response({"detail": "Une demande est déjà en attente pour cet enfant."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Une demande est déjà en attente pour cet enfant."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         claim = ChildClaimRequest.objects.create(parent=parent_profile, child=child)
         if child.user_id:
@@ -1145,7 +1141,8 @@ class CreateChildClaimRequestView(APIView):
             from apps.notifications.services import notify_user
 
             notify_user(
-                child.user, NotificationType.ENROLLMENT_UPDATE,
+                child.user,
+                NotificationType.ENROLLMENT_UPDATE,
                 title="Demande de rattachement parent",
                 body=f"{request.user.get_full_name()} indique être votre parent et souhaite suivre votre scolarité.",
                 data={"claim_request_id": claim.id},
@@ -1178,9 +1175,9 @@ class ChildClaimRequestsForMeView(generics.ListAPIView):
         child = getattr(self.request.user, "child_profile", None)
         if not child:
             raise PermissionDenied("Réservé aux comptes élève.")
-        return ChildClaimRequest.objects.filter(
-            child=child, status=ChildClaimRequestStatus.PENDING
-        ).select_related("parent__user")
+        return ChildClaimRequest.objects.filter(child=child, status=ChildClaimRequestStatus.PENDING).select_related(
+            "parent__user"
+        )
 
 
 class ReviewChildClaimRequestView(APIView):
@@ -1259,9 +1256,15 @@ class CreateAdminView(APIView):
 
         temp_password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(14))
         new_admin = User.objects.create_user(
-            email=email, password=temp_password, first_name=first_name, last_name=last_name,
-            primary_role=UserRole.ADMIN, admin_scope=admin_scope,
-            is_staff=True, is_verified=True, is_documents_validated=True,
+            email=email,
+            password=temp_password,
+            first_name=first_name,
+            last_name=last_name,
+            primary_role=UserRole.ADMIN,
+            admin_scope=admin_scope,
+            is_staff=True,
+            is_verified=True,
+            is_documents_validated=True,
         )
 
         from django.core.mail import send_mail
@@ -1283,7 +1286,9 @@ class CreateAdminView(APIView):
 
         return Response(
             {
-                "id": new_admin.id, "email": new_admin.email, "admin_scope": new_admin.admin_scope,
+                "id": new_admin.id,
+                "email": new_admin.email,
+                "admin_scope": new_admin.admin_scope,
                 "detail": "Compte créé, identifiants envoyés par email.",
             },
             status=status.HTTP_201_CREATED,
@@ -1318,9 +1323,7 @@ class AdminCreateUserView(APIView):
         role = request.data.get("role")
         serializer_class = self.SERIALIZERS.get(role)
         if not serializer_class:
-            raise ValidationError(
-                {"role": f"Rôle invalide. Valeurs acceptées : {', '.join(self.SERIALIZERS)}."}
-            )
+            raise ValidationError({"role": f"Rôle invalide. Valeurs acceptées : {', '.join(self.SERIALIZERS)}."})
 
         import secrets
         import string

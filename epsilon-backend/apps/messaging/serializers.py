@@ -1,4 +1,5 @@
 from django.utils import timezone
+
 from rest_framework import serializers
 
 from apps.users.models import User
@@ -23,11 +24,27 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = [
-            "id", "channel", "author", "body", "attachments", "exercise_id", "exercise",
-            "is_pinned", "is_edited", "created_at", "updated_at",
+            "id",
+            "channel",
+            "author",
+            "body",
+            "attachments",
+            "exercise_id",
+            "exercise",
+            "is_pinned",
+            "is_edited",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = [
-            "id", "channel", "author", "exercise_id", "exercise", "is_edited", "created_at", "updated_at",
+            "id",
+            "channel",
+            "author",
+            "exercise_id",
+            "exercise",
+            "is_edited",
+            "created_at",
+            "updated_at",
         ]
 
     def get_exercise(self, obj):
@@ -36,9 +53,7 @@ class MessageSerializer(serializers.ModelSerializer):
         from apps.virtual_classes.models import Exercise
         from apps.virtual_classes.serializers import ExerciseCardSerializer
 
-        exercise = Exercise.objects.filter(id=obj.exercise_id).select_related(
-            "virtual_class__subject"
-        ).first()
+        exercise = Exercise.objects.filter(id=obj.exercise_id).select_related("virtual_class__subject").first()
         if not exercise:
             return None
         return ExerciseCardSerializer(exercise, context=self.context).data
@@ -87,8 +102,17 @@ class ChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Channel
         fields = [
-            "id", "channel_type", "subject_id", "display_name", "subtitle", "avatar",
-            "last_message", "unread_count", "is_archived", "created_at", "can_publish_exercise",
+            "id",
+            "channel_type",
+            "subject_id",
+            "display_name",
+            "subtitle",
+            "avatar",
+            "last_message",
+            "unread_count",
+            "is_archived",
+            "created_at",
+            "can_publish_exercise",
         ]
         read_only_fields = fields
 

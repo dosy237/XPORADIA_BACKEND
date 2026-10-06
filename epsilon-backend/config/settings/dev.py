@@ -2,6 +2,7 @@
 Xporadia — Settings développement local
 Usage : DJANGO_SETTINGS_MODULE=config.settings.dev
 """
+
 from .base import *
 
 DEBUG = True
@@ -13,9 +14,7 @@ ALLOWED_HOSTS = ["*"]
 # déjà PostgreSQL en local, renseignez DATABASE_URL dans .env, par exemple :
 #   DATABASE_URL=postgresql://epsilon_user:password@localhost:5432/epsilon_db
 # et cette valeur sera utilisée à la place — aucun autre changement nécessaire.
-DATABASES = {
-    "default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db_dev.sqlite3'}")
-}
+DATABASES = {"default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db_dev.sqlite3'}")}
 
 # Cache local (mémoire) — pas besoin de Redis en dev
 CACHES = {

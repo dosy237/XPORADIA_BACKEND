@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -131,18 +132,22 @@ class MyDelegationsView(APIView):
 
     def get(self, request):
         departments = Department.objects.filter(track_delegates=request.user).select_related("establishment")
-        tracks = Track.objects.filter(class_delegates=request.user).select_related(
-            "department__establishment"
-        )
+        tracks = Track.objects.filter(class_delegates=request.user).select_related("department__establishment")
         tasks = TaskDelegation.objects.filter(teacher=request.user).select_related("establishment")
-        return Response({
-            "departments_for_tracks": DepartmentSerializer(departments, many=True).data,
-            "tracks_for_classes": TrackSerializer(tracks, many=True).data,
-            "tasks": [
-                {"task": t.task, "task_label": t.get_task_display(), "establishment_name": t.establishment.school_name}
-                for t in tasks
-            ],
-        })
+        return Response(
+            {
+                "departments_for_tracks": DepartmentSerializer(departments, many=True).data,
+                "tracks_for_classes": TrackSerializer(tracks, many=True).data,
+                "tasks": [
+                    {
+                        "task": t.task,
+                        "task_label": t.get_task_display(),
+                        "establishment_name": t.establishment.school_name,
+                    }
+                    for t in tasks
+                ],
+            }
+        )
 
 
 class TaskDelegationsView(APIView):
@@ -156,17 +161,23 @@ class TaskDelegationsView(APIView):
         _require_director(request.user)
         establishment = _director_establishment(request.user)
         delegations = TaskDelegation.objects.filter(establishment=establishment).select_related("teacher")
-        return Response([
-            {
-                "id": d.id, "task": d.task, "task_label": d.get_task_display(),
-                "teacher": {
-                    "id": d.teacher.id, "first_name": d.teacher.first_name,
-                    "last_name": d.teacher.last_name, "email": d.teacher.email,
-                    "avatar": request.build_absolute_uri(d.teacher.avatar.url) if d.teacher.avatar else None,
-                },
-            }
-            for d in delegations
-        ])
+        return Response(
+            [
+                {
+                    "id": d.id,
+                    "task": d.task,
+                    "task_label": d.get_task_display(),
+                    "teacher": {
+                        "id": d.teacher.id,
+                        "first_name": d.teacher.first_name,
+                        "last_name": d.teacher.last_name,
+                        "email": d.teacher.email,
+                        "avatar": request.build_absolute_uri(d.teacher.avatar.url) if d.teacher.avatar else None,
+                    },
+                }
+                for d in delegations
+            ]
+        )
 
     def post(self, request):
         _require_director(request.user)
@@ -184,7 +195,8 @@ class TaskDelegationsView(APIView):
         )
         if created:
             notify_user(
-                teacher, NotificationType.CLASS_ASSIGNMENT,
+                teacher,
+                NotificationType.CLASS_ASSIGNMENT,
                 title="Délégation reçue",
                 body=f"{establishment.school_name} vous a confié : {delegation.get_task_display()}.",
             )
@@ -195,9 +207,7 @@ class TaskDelegationsView(APIView):
         establishment = _director_establishment(request.user)
         task = request.data.get("task")
         email = request.data.get("email", "").strip().lower()
-        TaskDelegation.objects.filter(
-            establishment=establishment, task=task, teacher__email=email
-        ).delete()
+        TaskDelegation.objects.filter(establishment=establishment, task=task, teacher__email=email).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -215,9 +225,9 @@ class MyTimetableDelegationClassesView(generics.ListAPIView):
         establishments = DirectorProfile.objects.filter(
             task_delegations__teacher=self.request.user, task_delegations__task=DelegatedTask.TIMETABLE
         )
-        return SchoolClass.objects.filter(
-            track__department__establishment__in=establishments
-        ).select_related("track", "homeroom_teacher")
+        return SchoolClass.objects.filter(track__department__establishment__in=establishments).select_related(
+            "track", "homeroom_teacher"
+        )
 
 
 class DepartmentDelegatesView(APIView):
@@ -242,7 +252,8 @@ class DepartmentDelegatesView(APIView):
             raise ValidationError({"email": "Aucun enseignant actif ne correspond à cet email."})
         department.track_delegates.add(teacher)
         notify_user(
-            teacher, NotificationType.CLASS_ASSIGNMENT,
+            teacher,
+            NotificationType.CLASS_ASSIGNMENT,
             title="Délégation reçue",
             body=f"Vous pouvez désormais créer des filières dans le département « {department.name} ».",
         )
@@ -276,7 +287,8 @@ class TrackDelegatesView(APIView):
             raise ValidationError({"email": "Aucun enseignant actif ne correspond à cet email."})
         track.class_delegates.add(teacher)
         notify_user(
-            teacher, NotificationType.CLASS_ASSIGNMENT,
+            teacher,
+            NotificationType.CLASS_ASSIGNMENT,
             title="Délégation reçue",
             body=f"Vous pouvez désormais créer des classes dans la filière « {track.name} ».",
         )
@@ -300,9 +312,9 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         _require_director(self.request.user)
-        return SchoolClass.objects.filter(
-            track__department__establishment__user=self.request.user
-        ).select_related("track", "homeroom_teacher")
+        return SchoolClass.objects.filter(track__department__establishment__user=self.request.user).select_related(
+            "track", "homeroom_teacher"
+        )
 
     def _validate_track_ownership(self, serializer):
         track = serializer.validated_data.get("track")
@@ -345,16 +357,14 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
         from apps.messaging.services import get_or_create_class_channel
 
         if previous_teacher_id:
-            ChannelMembership.objects.filter(
-                channel__school_class=school_class, user_id=previous_teacher_id
-            ).update(is_admin=False)
+            ChannelMembership.objects.filter(channel__school_class=school_class, user_id=previous_teacher_id).update(
+                is_admin=False
+            )
 
         new_teacher = school_class.homeroom_teacher
         if new_teacher:
             channel = get_or_create_class_channel(school_class)
-            ChannelMembership.objects.update_or_create(
-                channel=channel, user=new_teacher, defaults={"is_admin": True}
-            )
+            ChannelMembership.objects.update_or_create(channel=channel, user=new_teacher, defaults={"is_admin": True})
             notify_user(
                 new_teacher,
                 NotificationType.CLASS_ASSIGNMENT,
@@ -377,9 +387,9 @@ class MyHomeroomClassesView(generics.ListAPIView):
     def get_queryset(self):
         if not self.request.user.has_role(UserRole.TEACHER):
             raise PermissionDenied("Réservé aux enseignants.")
-        return SchoolClass.objects.filter(
-            homeroom_teacher=self.request.user, is_active=True
-        ).select_related("track", "track__department")
+        return SchoolClass.objects.filter(homeroom_teacher=self.request.user, is_active=True).select_related(
+            "track", "track__department"
+        )
 
 
 def _get_school_class(class_id):
@@ -421,9 +431,7 @@ def _require_timetable_write_access(school_class, user):
     establishment = school_class.track.department.establishment
     if user.has_role(UserRole.DIRECTOR) and establishment.user_id == user.id:
         return
-    if TaskDelegation.objects.filter(
-        establishment=establishment, teacher=user, task=DelegatedTask.TIMETABLE
-    ).exists():
+    if TaskDelegation.objects.filter(establishment=establishment, teacher=user, task=DelegatedTask.TIMETABLE).exists():
         return
     raise PermissionDenied(
         "Réservé au titulaire de cette classe, au directeur de l'établissement, ou à un enseignant "
@@ -488,7 +496,7 @@ def _notify_dedicated_teacher(subject):
         title="Vous avez été affecté(e) à une matière",
         body=(
             f"{subject.school_class.homeroom_teacher.get_full_name()} vous a ajouté(e) comme "
-            f"enseignant(e) dédié(e) sur \"{subject.name}\" ({subject.school_class})."
+            f'enseignant(e) dédié(e) sur "{subject.name}" ({subject.school_class}).'
         ),
         data={"subject_id": subject.id, "school_class_id": subject.school_class_id},
     )
@@ -500,7 +508,7 @@ def _send_invitation_email(invitation):
         subject=f"Invitation Xporadia — {invitation.subject.name}",
         message=(
             f"{invitation.invited_by.get_full_name()} vous invite à rejoindre Xporadia comme "
-            f"enseignant(e) dédié(e) sur \"{invitation.subject.name}\" ({invitation.subject.school_class}).\n\n"
+            f'enseignant(e) dédié(e) sur "{invitation.subject.name}" ({invitation.subject.school_class}).\n\n'
             f"Ouvrez ce lien pour accepter : {invite_link}\n\n"
             "Si vous n'avez pas encore de compte enseignant, ce lien vous permettra d'en créer un."
         ),
@@ -579,9 +587,9 @@ class SubjectDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = SubjectSerializer
 
     def get_queryset(self):
-        return Subject.objects.filter(
-            school_class__homeroom_teacher=self.request.user
-        ).select_related("teacher", "school_class", "school_class__track", "school_class__homeroom_teacher")
+        return Subject.objects.filter(school_class__homeroom_teacher=self.request.user).select_related(
+            "teacher", "school_class", "school_class__track", "school_class__homeroom_teacher"
+        )
 
     def perform_update(self, serializer):
         email_provided = "teacher_email" in serializer.validated_data
@@ -676,10 +684,7 @@ class AcceptTeacherInvitationView(APIView):
             invitation.invited_by,
             NotificationType.CLASS_ASSIGNMENT,
             title="Invitation acceptée",
-            body=(
-                f"{request.user.get_full_name()} a rejoint \"{subject.name}\" "
-                "en tant qu'enseignant(e) dédié(e)."
-            ),
+            body=(f'{request.user.get_full_name()} a rejoint "{subject.name}" ' "en tant qu'enseignant(e) dédié(e)."),
             data={"subject_id": subject.id},
         )
 
@@ -747,9 +752,9 @@ class ClassRosterView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         school_class = self.get_school_class()
-        return Enrollment.objects.filter(
-            school_class=school_class, status=EnrollmentStatus.ACTIVE
-        ).select_related("child")
+        return Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE).select_related(
+            "child"
+        )
 
     def create(self, request, *args, **kwargs):
         school_class = self.get_school_class()
@@ -790,7 +795,8 @@ class RemoveStudentFromEstablishmentView(APIView):
     def post(self, request, child_id):
         establishment = _director_establishment(request.user)
         enrollments = Enrollment.objects.filter(
-            child_id=child_id, status=EnrollmentStatus.ACTIVE,
+            child_id=child_id,
+            status=EnrollmentStatus.ACTIVE,
             school_class__track__department__establishment=establishment,
         )
         if not enrollments.exists():
@@ -800,7 +806,8 @@ class RemoveStudentFromEstablishmentView(APIView):
             enrollment.ended_at = timezone.now()
             enrollment.save(update_fields=["status", "ended_at"])
             _notify_parent_of_enrollment_change(
-                enrollment, title="Retrait de l'établissement",
+                enrollment,
+                title="Retrait de l'établissement",
                 body=f"{enrollment.child.first_name} n'est plus inscrit(e) à {establishment.school_name}.",
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -831,20 +838,21 @@ class YearEndReadinessView(generics.ListAPIView):
 
         overview = []
         for school_class in classes:
-            remaining = Enrollment.objects.filter(
-                school_class=school_class, status=EnrollmentStatus.ACTIVE
-            ).count()
-            overview.append({
-                "school_class": school_class.id,
-                "name": school_class.name,
-                "school_year": school_class.school_year,
-                "homeroom_teacher": (
-                    f"{school_class.homeroom_teacher.first_name} {school_class.homeroom_teacher.last_name}"
-                    if school_class.homeroom_teacher else None
-                ),
-                "students_remaining": remaining,
-                "is_complete": remaining == 0,
-            })
+            remaining = Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE).count()
+            overview.append(
+                {
+                    "school_class": school_class.id,
+                    "name": school_class.name,
+                    "school_year": school_class.school_year,
+                    "homeroom_teacher": (
+                        f"{school_class.homeroom_teacher.first_name} {school_class.homeroom_teacher.last_name}"
+                        if school_class.homeroom_teacher
+                        else None
+                    ),
+                    "students_remaining": remaining,
+                    "is_complete": remaining == 0,
+                }
+            )
         return Response(overview)
 
 
@@ -872,7 +880,11 @@ class BatchRosterTransitionView(APIView):
             child_id = entry.get("child_id")
             new_status = entry.get("status")
             try:
-                if new_status not in (EnrollmentStatus.PROMOTED, EnrollmentStatus.REPEATING, EnrollmentStatus.WITHDRAWN):
+                if new_status not in (
+                    EnrollmentStatus.PROMOTED,
+                    EnrollmentStatus.REPEATING,
+                    EnrollmentStatus.WITHDRAWN,
+                ):
                     raise ValueError("Statut invalide.")
                 enrollment = Enrollment.objects.select_related("child", "school_class").get(
                     school_class=school_class, child_id=child_id, status=EnrollmentStatus.ACTIVE
@@ -893,12 +905,14 @@ class BatchRosterTransitionView(APIView):
                     ):
                         raise ValueError("La classe cible doit appartenir à votre établissement.")
                     new_enrollment, _ = Enrollment.objects.get_or_create(
-                        child=enrollment.child, school_class=target_class,
+                        child=enrollment.child,
+                        school_class=target_class,
                         defaults={"status": EnrollmentStatus.ACTIVE},
                     )
 
                 _notify_parent_of_enrollment_change(
-                    enrollment, title="Mise à jour de scolarité",
+                    enrollment,
+                    title="Mise à jour de scolarité",
                     body=(
                         f"{enrollment.child.first_name} {_TRANSITION_MESSAGES[new_status]}"
                         + (f" ({new_enrollment.school_class})." if new_enrollment else ".")
@@ -908,12 +922,13 @@ class BatchRosterTransitionView(APIView):
             except (Enrollment.DoesNotExist, ValueError, Http404) as exc:
                 results.append({"child_id": child_id, "success": False, "error": str(exc)})
 
-        return Response({
-            "processed": sum(1 for r in results if r["success"]),
-            "failed": sum(1 for r in results if not r["success"]),
-            "results": results,
-        })
-
+        return Response(
+            {
+                "processed": sum(1 for r in results if r["success"]),
+                "failed": sum(1 for r in results if not r["success"]),
+                "results": results,
+            }
+        )
 
 
 class RosterEnrollmentTransitionView(APIView):
@@ -926,8 +941,12 @@ class RosterEnrollmentTransitionView(APIView):
     def post(self, request, pk):
         try:
             enrollment = Enrollment.objects.select_related(
-                "school_class", "school_class__track", "school_class__track__department",
-                "school_class__track__department__establishment", "child", "child__parent__user",
+                "school_class",
+                "school_class__track",
+                "school_class__track__department",
+                "school_class__track__department__establishment",
+                "child",
+                "child__parent__user",
             ).get(pk=pk)
         except Enrollment.DoesNotExist:
             raise Http404
@@ -958,10 +977,14 @@ class RosterEnrollmentTransitionView(APIView):
             if not target_class_id:
                 raise ValidationError({"target_class_id": "Ce champ est requis pour ce statut."})
             target_class = _get_school_class(target_class_id)
-            if target_class.track.department.establishment_id != enrollment.school_class.track.department.establishment_id:
+            if (
+                target_class.track.department.establishment_id
+                != enrollment.school_class.track.department.establishment_id
+            ):
                 raise PermissionDenied("La classe cible doit appartenir à votre établissement.")
             new_enrollment, _ = Enrollment.objects.get_or_create(
-                child=enrollment.child, school_class=target_class,
+                child=enrollment.child,
+                school_class=target_class,
                 defaults={"status": EnrollmentStatus.ACTIVE},
             )
 
@@ -994,14 +1017,13 @@ def _require_class_member_access(school_class, user):
         return
     if Subject.objects.filter(school_class=school_class, teacher_id=user.id).exists():
         return
-    if TaskDelegation.objects.filter(
-        establishment=establishment, teacher=user, task=DelegatedTask.TIMETABLE
-    ).exists():
+    if TaskDelegation.objects.filter(establishment=establishment, teacher=user, task=DelegatedTask.TIMETABLE).exists():
         return
     child = getattr(user, "child_profile", None)
-    if child and Enrollment.objects.filter(
-        child=child, school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).exists():
+    if (
+        child
+        and Enrollment.objects.filter(child=child, school_class=school_class, status=EnrollmentStatus.ACTIVE).exists()
+    ):
         return
     if Enrollment.objects.filter(
         child__parent__user=user, school_class=school_class, status=EnrollmentStatus.ACTIVE
@@ -1074,9 +1096,11 @@ class MyTimetableView(generics.ListAPIView):
         child = getattr(self.request.user, "child_profile", None)
         if not child:
             raise PermissionDenied("Réservé aux comptes élève.")
-        enrollment = Enrollment.objects.filter(
-            child=child, status=EnrollmentStatus.ACTIVE
-        ).select_related("school_class").first()
+        enrollment = (
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+            .select_related("school_class")
+            .first()
+        )
         if not enrollment:
             return TimetableSlot.objects.none()
         return TimetableSlot.objects.filter(school_class=enrollment.school_class).select_related("subject")
@@ -1111,9 +1135,11 @@ class MyAgendaView(APIView):
         raw_date = request.query_params.get("date")
         target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
 
-        enrollment = Enrollment.objects.filter(
-            child=child, status=EnrollmentStatus.ACTIVE
-        ).select_related("school_class__track__department__establishment").first()
+        enrollment = (
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+            .select_related("school_class__track__department__establishment")
+            .first()
+        )
 
         official_slots = []
         school_events = []
@@ -1130,22 +1156,21 @@ class MyAgendaView(APIView):
             if target_date.weekday() <= 5:
                 term = term_for_date(establishment, school_class.school_year, target_date)
 
-        return Response({
-            "date": target_date.isoformat(),
-            "weekday": target_date.weekday(),
-            "is_school_day": term is not None,
-            "term": (
-                {"id": term.id, "number": term.number, "name": term.name}
-                if term else None
-            ),
-            "official_slots": official_slots,
-            "personal_blocks": personal_blocks_for_date(child, target_date),
-            "school_events": school_events,
-        })
+        return Response(
+            {
+                "date": target_date.isoformat(),
+                "weekday": target_date.weekday(),
+                "is_school_day": term is not None,
+                "term": ({"id": term.id, "number": term.number, "name": term.name} if term else None),
+                "official_slots": official_slots,
+                "personal_blocks": personal_blocks_for_date(child, target_date),
+                "school_events": school_events,
+            }
+        )
 
 
 def _teacher_is_school_day(user, target_date):
-    """"Jour d'école" pour l'enseignant = au moins une de ses classes a un
+    """ "Jour d'école" pour l'enseignant = au moins une de ses classes a un
     trimestre couvrant cette date — distinct de "l'enseignant a
     personnellement un cours ce jour-là" (ce dernier peut être faux un
     jour d'école normal, ex. mercredi sans créneau pour lui)."""
@@ -1182,19 +1207,21 @@ class MyTeacherAgendaView(APIView):
         slots = teacher_timetable_slots_for_date(request.user, target_date)
         official_slots = TeacherTimetableSlotSerializer(slots, many=True).data
 
-        return Response({
-            "date": target_date.isoformat(),
-            "weekday": target_date.weekday(),
-            "is_school_day": _teacher_is_school_day(request.user, target_date),
-            "official_slots": official_slots,
-        })
+        return Response(
+            {
+                "date": target_date.isoformat(),
+                "weekday": target_date.weekday(),
+                "is_school_day": _teacher_is_school_day(request.user, target_date),
+                "official_slots": official_slots,
+            }
+        )
 
 
 def _get_timetable_slot(slot_id):
     try:
-        return TimetableSlot.objects.select_related(
-            "subject", "school_class__track__department__establishment"
-        ).get(pk=slot_id)
+        return TimetableSlot.objects.select_related("subject", "school_class__track__department__establishment").get(
+            pk=slot_id
+        )
     except TimetableSlot.DoesNotExist:
         raise Http404
 
@@ -1205,12 +1232,12 @@ def _attendance_roster(school_class, session, request):
     y en a une) écrasant ce statut par défaut — jamais l'inverse."""
     exceptions_by_child = {}
     if session:
-        exceptions_by_child = {
-            exc.child_id: exc for exc in session.exceptions.all()
-        }
-    enrollments = Enrollment.objects.filter(
-        school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).select_related("child", "child__user").order_by("child__last_name", "child__first_name")
+        exceptions_by_child = {exc.child_id: exc for exc in session.exceptions.all()}
+    enrollments = (
+        Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE)
+        .select_related("child", "child__user")
+        .order_by("child__last_name", "child__first_name")
+    )
 
     roster = []
     for enrollment in enrollments:
@@ -1219,14 +1246,16 @@ def _attendance_roster(school_class, session, request):
         avatar = None
         if child.user_id and child.user.avatar:
             avatar = request.build_absolute_uri(child.user.avatar.url)
-        roster.append({
-            "child": child.id,
-            "first_name": child.first_name,
-            "last_name": child.last_name,
-            "avatar": avatar,
-            "status": exc.status if exc else None,
-            "reason": exc.reason if exc else "",
-        })
+        roster.append(
+            {
+                "child": child.id,
+                "first_name": child.first_name,
+                "last_name": child.last_name,
+                "avatar": avatar,
+                "status": exc.status if exc else None,
+                "reason": exc.reason if exc else "",
+            }
+        )
     return roster
 
 
@@ -1247,22 +1276,27 @@ class SlotAttendanceView(APIView):
         raw_date = request.query_params.get("date")
         target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
 
-        session = AttendanceSession.objects.filter(timetable_slot=slot, date=target_date).select_related(
-            "taken_by"
-        ).prefetch_related("exceptions").first()
+        session = (
+            AttendanceSession.objects.filter(timetable_slot=slot, date=target_date)
+            .select_related("taken_by")
+            .prefetch_related("exceptions")
+            .first()
+        )
         absence = TeacherAbsence.objects.filter(timetable_slot=slot, date=target_date).first()
 
-        return Response({
-            "date": target_date.isoformat(),
-            "taken": session is not None,
-            "taken_by": session.taken_by.get_full_name() if session and session.taken_by else None,
-            "taken_at": session.updated_at.isoformat() if session else None,
-            "cancelled": absence is not None,
-            "cancelled_reason": absence.reason if absence else "",
-            "roster": RosterAttendanceEntrySerializer(
-                _attendance_roster(slot.school_class, session, request), many=True
-            ).data,
-        })
+        return Response(
+            {
+                "date": target_date.isoformat(),
+                "taken": session is not None,
+                "taken_by": session.taken_by.get_full_name() if session and session.taken_by else None,
+                "taken_at": session.updated_at.isoformat() if session else None,
+                "cancelled": absence is not None,
+                "cancelled_reason": absence.reason if absence else "",
+                "roster": RosterAttendanceEntrySerializer(
+                    _attendance_roster(slot.school_class, session, request), many=True
+                ).data,
+            }
+        )
 
     def post(self, request, slot_id):
         slot = _get_timetable_slot(slot_id)
@@ -1278,16 +1312,17 @@ class SlotAttendanceView(APIView):
         entries = entries_serializer.validated_data
 
         valid_child_ids = set(
-            Enrollment.objects.filter(
-                school_class=slot.school_class, status=EnrollmentStatus.ACTIVE
-            ).values_list("child_id", flat=True)
+            Enrollment.objects.filter(school_class=slot.school_class, status=EnrollmentStatus.ACTIVE).values_list(
+                "child_id", flat=True
+            )
         )
         for entry in entries:
             if entry["child"] not in valid_child_ids:
                 raise ValidationError({"exceptions": f"L'élève {entry['child']} n'est pas inscrit dans cette classe."})
 
         session, _ = AttendanceSession.objects.get_or_create(
-            timetable_slot=slot, date=target_date,
+            timetable_slot=slot,
+            date=target_date,
             defaults={"taken_by": request.user, "created_by": request.user},
         )
         session.taken_by = request.user
@@ -1298,23 +1333,27 @@ class SlotAttendanceView(APIView):
         # exceptions actuelles, jamais un delta, ce qui rend une
         # correction (élève finalement présent) aussi simple qu'un ajout.
         session.exceptions.all().delete()
-        AttendanceException.objects.bulk_create([
-            AttendanceException(
-                session=session, child_id=entry["child"], status=entry["status"], reason=entry.get("reason", "")
-            )
-            for entry in entries
-        ])
+        AttendanceException.objects.bulk_create(
+            [
+                AttendanceException(
+                    session=session, child_id=entry["child"], status=entry["status"], reason=entry.get("reason", "")
+                )
+                for entry in entries
+            ]
+        )
 
         session.refresh_from_db()
-        return Response({
-            "date": target_date.isoformat(),
-            "taken": True,
-            "taken_by": request.user.get_full_name(),
-            "taken_at": session.updated_at.isoformat(),
-            "roster": RosterAttendanceEntrySerializer(
-                _attendance_roster(slot.school_class, session, request), many=True
-            ).data,
-        })
+        return Response(
+            {
+                "date": target_date.isoformat(),
+                "taken": True,
+                "taken_by": request.user.get_full_name(),
+                "taken_at": session.updated_at.isoformat(),
+                "roster": RosterAttendanceEntrySerializer(
+                    _attendance_roster(slot.school_class, session, request), many=True
+                ).data,
+            }
+        )
 
 
 class TeacherAttendanceOverviewView(APIView):
@@ -1333,14 +1372,14 @@ class TeacherAttendanceOverviewView(APIView):
         slots = teacher_timetable_slots_for_date(request.user, target_date)
         sessions_by_slot = {
             s.timetable_slot_id: s
-            for s in AttendanceSession.objects.filter(
-                timetable_slot__in=slots, date=target_date
-            ).prefetch_related("exceptions")
+            for s in AttendanceSession.objects.filter(timetable_slot__in=slots, date=target_date).prefetch_related(
+                "exceptions"
+            )
         }
         cancelled_slot_ids = set(
-            TeacherAbsence.objects.filter(
-                timetable_slot__in=slots, date=target_date
-            ).values_list("timetable_slot_id", flat=True)
+            TeacherAbsence.objects.filter(timetable_slot__in=slots, date=target_date).values_list(
+                "timetable_slot_id", flat=True
+            )
         )
 
         data = TeacherTimetableSlotSerializer(slots, many=True).data
@@ -1350,12 +1389,14 @@ class TeacherAttendanceOverviewView(APIView):
             slot_data["attendance_exceptions_count"] = len(session.exceptions.all()) if session else 0
             slot_data["cancelled"] = slot.id in cancelled_slot_ids
 
-        return Response({
-            "date": target_date.isoformat(),
-            "weekday": target_date.weekday(),
-            "is_school_day": _teacher_is_school_day(request.user, target_date),
-            "slots": data,
-        })
+        return Response(
+            {
+                "date": target_date.isoformat(),
+                "weekday": target_date.weekday(),
+                "is_school_day": _teacher_is_school_day(request.user, target_date),
+                "slots": data,
+            }
+        )
 
 
 def _notify_teacher_absence(absence):
@@ -1381,16 +1422,17 @@ def _notify_teacher_absence(absence):
         staff_recipients.append(establishment.user)
     for recipient in staff_recipients:
         notify_user(
-            recipient, NotificationType.SESSION_CANCELLED,
+            recipient,
+            NotificationType.SESSION_CANCELLED,
             title="Cours annulé",
             body=staff_body,
             data={"timetable_slot_id": slot.id, "date": absence.date.isoformat()},
         )
 
     student_body = f"Le cours de {subject.name} du {date_label} n'aura pas lieu."
-    enrollments = Enrollment.objects.filter(
-        school_class=school_class, status=EnrollmentStatus.ACTIVE
-    ).select_related("child__user", "child__parent__user")
+    enrollments = Enrollment.objects.filter(school_class=school_class, status=EnrollmentStatus.ACTIVE).select_related(
+        "child__user", "child__parent__user"
+    )
     for enrollment in enrollments:
         child = enrollment.child
         recipients = []
@@ -1400,7 +1442,8 @@ def _notify_teacher_absence(absence):
             recipients.append(child.parent.user)
         for recipient in recipients:
             notify_user(
-                recipient, NotificationType.SESSION_CANCELLED,
+                recipient,
+                NotificationType.SESSION_CANCELLED,
                 title="Cours annulé",
                 body=student_body,
                 data={"timetable_slot_id": slot.id, "date": absence.date.isoformat()},
@@ -1444,7 +1487,11 @@ class TeacherAbsenceDeclarationView(APIView):
             created_by=request.user,
         )
         absence = TeacherAbsence.objects.create(
-            timetable_slot=slot, date=target_date, reason=reason, declared_by=request.user, event=event,
+            timetable_slot=slot,
+            date=target_date,
+            reason=reason,
+            declared_by=request.user,
+            event=event,
         )
         _notify_teacher_absence(absence)
         return Response(TeacherAbsenceSerializer(absence).data, status=status.HTTP_201_CREATED)
@@ -1520,7 +1567,8 @@ class PersonalScheduleBlockOccurrenceView(APIView):
 
         if scope == "this":
             exception, _created = PersonalScheduleException.objects.update_or_create(
-                block=block, date=target_date,
+                block=block,
+                date=target_date,
                 defaults={
                     "is_cancelled": False,
                     "title": title,
@@ -1529,10 +1577,17 @@ class PersonalScheduleBlockOccurrenceView(APIView):
                     "end_time": end_time,
                 },
             )
-            return Response({
-                "id": exception.id, "date": exception.date.isoformat(), "title": exception.title,
-                "subject": exception.subject_id, "start_time": exception.start_time, "end_time": exception.end_time,
-            }, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "id": exception.id,
+                    "date": exception.date.isoformat(),
+                    "title": exception.title,
+                    "subject": exception.subject_id,
+                    "start_time": exception.start_time,
+                    "end_time": exception.end_time,
+                },
+                status=status.HTTP_200_OK,
+            )
 
         if target_date == block.valid_from:
             if title:
@@ -1566,7 +1621,8 @@ class PersonalScheduleBlockOccurrenceView(APIView):
 
         if scope == "this":
             PersonalScheduleException.objects.update_or_create(
-                block=block, date=target_date,
+                block=block,
+                date=target_date,
                 defaults={"is_cancelled": True, "title": "", "subject_id": None, "start_time": None, "end_time": None},
             )
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1666,9 +1722,11 @@ class ChildEventsView(generics.ListAPIView):
         child = _require_child_belongs_to_parent(self.kwargs["child_id"], self.request.user)
         raw_date = self.request.query_params.get("date")
         target_date = _parse_date_param(raw_date) if raw_date else timezone.localdate()
-        enrollment = Enrollment.objects.filter(
-            child=child, status=EnrollmentStatus.ACTIVE
-        ).select_related("school_class__track__department__establishment").first()
+        enrollment = (
+            Enrollment.objects.filter(child=child, status=EnrollmentStatus.ACTIVE)
+            .select_related("school_class__track__department__establishment")
+            .first()
+        )
         if not enrollment:
             return EstablishmentEvent.objects.none()
         school_class = enrollment.school_class
@@ -1694,11 +1752,18 @@ class MyClassView(APIView):
             .first()
         )
         if not enrollment:
-            return Response({
-                "school_class_name": None, "homeroom_teacher": None, "classmates": [], "subjects": [],
-                "establishment_name": None, "class_level": child.class_level, "status": None,
-                "birth_date": child.birth_date,
-            })
+            return Response(
+                {
+                    "school_class_name": None,
+                    "homeroom_teacher": None,
+                    "classmates": [],
+                    "subjects": [],
+                    "establishment_name": None,
+                    "class_level": child.class_level,
+                    "status": None,
+                    "birth_date": child.birth_date,
+                }
+            )
 
         school_class = enrollment.school_class
         classmates = (
@@ -1723,17 +1788,22 @@ class MyClassView(APIView):
                 "school_class_name": str(school_class),
                 "homeroom_teacher": (
                     {
-                        "first_name": teacher.first_name, "last_name": teacher.last_name,
+                        "first_name": teacher.first_name,
+                        "last_name": teacher.last_name,
                         "avatar": request.build_absolute_uri(teacher.avatar.url) if teacher.avatar else None,
                     }
-                    if teacher else None
+                    if teacher
+                    else None
                 ),
                 "classmates": [
                     {
-                        "id": e.child.id, "first_name": e.child.first_name, "last_name": e.child.last_name,
+                        "id": e.child.id,
+                        "first_name": e.child.first_name,
+                        "last_name": e.child.last_name,
                         "avatar": (
                             request.build_absolute_uri(e.child.user.avatar.url)
-                            if e.child.user_id and e.child.user.avatar else None
+                            if e.child.user_id and e.child.user.avatar
+                            else None
                         ),
                         "can_message": bool(e.child.user_id),
                     }
@@ -1741,7 +1811,8 @@ class MyClassView(APIView):
                 ],
                 "subjects": [
                     {
-                        "id": subject.id, "name": subject.name,
+                        "id": subject.id,
+                        "name": subject.name,
                         "teacher_name": subject.teacher.get_full_name() if subject.teacher else None,
                         "channel_id": subject_channel_by_id.get(subject.id),
                     }
@@ -1791,27 +1862,41 @@ class ChildClassView(APIView):
 
         teachers = []
         if teacher:
-            teachers.append({
-                "id": teacher.id, "first_name": teacher.first_name, "last_name": teacher.last_name,
-                "avatar": _avatar_url(teacher), "role_label": "Titulaire",
-            })
-        for subject in Subject.objects.filter(school_class=school_class, teacher__isnull=False).select_related("teacher"):
+            teachers.append(
+                {
+                    "id": teacher.id,
+                    "first_name": teacher.first_name,
+                    "last_name": teacher.last_name,
+                    "avatar": _avatar_url(teacher),
+                    "role_label": "Titulaire",
+                }
+            )
+        for subject in Subject.objects.filter(school_class=school_class, teacher__isnull=False).select_related(
+            "teacher"
+        ):
             if subject.teacher_id == (teacher.id if teacher else None):
                 continue  # déjà listé comme titulaire, pas de doublon
-            teachers.append({
-                "id": subject.teacher.id, "first_name": subject.teacher.first_name,
-                "last_name": subject.teacher.last_name, "avatar": _avatar_url(subject.teacher),
-                "role_label": subject.name,
-            })
+            teachers.append(
+                {
+                    "id": subject.teacher.id,
+                    "first_name": subject.teacher.first_name,
+                    "last_name": subject.teacher.last_name,
+                    "avatar": _avatar_url(subject.teacher),
+                    "role_label": subject.name,
+                }
+            )
 
-        return Response({
-            "school_class_name": str(school_class),
-            "homeroom_teacher": (
-                {"first_name": teacher.first_name, "last_name": teacher.last_name, "avatar": _avatar_url(teacher)}
-                if teacher else None
-            ),
-            "teachers": teachers,
-        })
+        return Response(
+            {
+                "school_class_name": str(school_class),
+                "homeroom_teacher": (
+                    {"first_name": teacher.first_name, "last_name": teacher.last_name, "avatar": _avatar_url(teacher)}
+                    if teacher
+                    else None
+                ),
+                "teachers": teachers,
+            }
+        )
 
 
 class ChildTimetableView(generics.ListAPIView):
@@ -1892,9 +1977,11 @@ class StartOfYearCheckView(generics.ListAPIView):
             # Un enseignant ne voit que l'établissement où il enseigne
             # réellement (au moins une classe ou une matière), jamais la
             # liste de tous les établissements Xporadia.
-            school_class = SchoolClass.objects.filter(
-                Q(homeroom_teacher=user) | Q(subjects__teacher=user)
-            ).select_related("track__department__establishment").first()
+            school_class = (
+                SchoolClass.objects.filter(Q(homeroom_teacher=user) | Q(subjects__teacher=user))
+                .select_related("track__department__establishment")
+                .first()
+            )
             if not school_class:
                 raise PermissionDenied("Aucune classe associée à ce compte.")
             establishment = school_class.track.department.establishment
@@ -1912,20 +1999,24 @@ class StartOfYearCheckView(generics.ListAPIView):
             if not declared:
                 continue
             if not _levels_roughly_match(declared, enrollment.school_class.name):
-                mismatches.append({
-                    "enrollment": enrollment.id,
-                    "child": enrollment.child.id,
-                    "first_name": enrollment.child.first_name,
-                    "last_name": enrollment.child.last_name,
-                    "declared_level": declared,
-                    "current_class": enrollment.school_class.name,
-                    "current_class_id": enrollment.school_class.id,
-                })
-        return Response({
-            "total_checked": enrollments.count(),
-            "mismatches_found": len(mismatches),
-            "mismatches": mismatches,
-        })
+                mismatches.append(
+                    {
+                        "enrollment": enrollment.id,
+                        "child": enrollment.child.id,
+                        "first_name": enrollment.child.first_name,
+                        "last_name": enrollment.child.last_name,
+                        "declared_level": declared,
+                        "current_class": enrollment.school_class.name,
+                        "current_class_id": enrollment.school_class.id,
+                    }
+                )
+        return Response(
+            {
+                "total_checked": enrollments.count(),
+                "mismatches_found": len(mismatches),
+                "mismatches": mismatches,
+            }
+        )
 
 
 class CorrectEnrollmentClassView(APIView):
@@ -1940,23 +2031,22 @@ class CorrectEnrollmentClassView(APIView):
     def post(self, request, enrollment_id):
         enrollment = get_object_or_404(
             Enrollment.objects.select_related("school_class__track__department__establishment", "child"),
-            pk=enrollment_id, status=EnrollmentStatus.ACTIVE,
+            pk=enrollment_id,
+            status=EnrollmentStatus.ACTIVE,
         )
         _require_roster_access(enrollment.school_class, request.user)
 
         new_class_id = request.data.get("school_class_id")
         new_class = get_object_or_404(SchoolClass, pk=new_class_id)
-        if (
-            new_class.track.department.establishment_id
-            != enrollment.school_class.track.department.establishment_id
-        ):
+        if new_class.track.department.establishment_id != enrollment.school_class.track.department.establishment_id:
             raise ValidationError({"school_class_id": "Doit appartenir au même établissement."})
 
         old_class = enrollment.school_class
         enrollment.school_class = new_class
         enrollment.save(update_fields=["school_class"])
         _notify_parent_of_enrollment_change(
-            enrollment, title="Correction de classe",
+            enrollment,
+            title="Correction de classe",
             body=f"{enrollment.child.first_name} a été réaffecté(e) de {old_class} à {new_class}.",
         )
         return Response(EnrollmentSerializer(enrollment).data)
@@ -1980,20 +2070,21 @@ class TeachingStaffOverviewView(generics.ListAPIView):
         _require_director(request.user)
         establishment = _director_establishment(request.user)
 
-        teachers = User.objects.filter(
-            Q(homeroom_classes__track__department__establishment=establishment)
-            | Q(dedicated_subjects__school_class__track__department__establishment=establishment)
-        ).distinct().select_related("teacher_profile")
+        teachers = (
+            User.objects.filter(
+                Q(homeroom_classes__track__department__establishment=establishment)
+                | Q(dedicated_subjects__school_class__track__department__establishment=establishment)
+            )
+            .distinct()
+            .select_related("teacher_profile")
+        )
 
         from apps.certification.constants import badge_for_points
         from apps.certification.models import CertificationLevel
         from apps.certification.services import teacher_total_points
         from apps.employment.models import Recruitment
 
-        recruitments = {
-            r.teacher_id: r
-            for r in Recruitment.objects.filter(school=request.user, teacher__in=teachers)
-        }
+        recruitments = {r.teacher_id: r for r in Recruitment.objects.filter(school=request.user, teacher__in=teachers)}
 
         data = []
         for teacher in teachers:
@@ -2007,25 +2098,29 @@ class TeachingStaffOverviewView(generics.ListAPIView):
             level = badge_for_points(teacher_total_points(teacher))
             recruitment = recruitments.get(teacher.id)
 
-            data.append({
-                "id": teacher.id,
-                "first_name": teacher.first_name,
-                "last_name": teacher.last_name,
-                "avatar": request.build_absolute_uri(teacher.avatar.url) if teacher.avatar else None,
-                "phone": teacher.phone,
-                "email": teacher.email,
-                "certification_level": level,
-                "certification_level_label": CertificationLevel(level).label,
-                "homeroom_classes": [str(c) for c in homeroom_classes],
-                "subjects": [
-                    {"name": s.name, "class_name": str(s.school_class)} for s in subjects
-                ],
-                "recruitment": {
-                    "contract_type": recruitment.contract_type,
-                    "contract_type_label": recruitment.get_contract_type_display(),
-                    "hourly_rate_teacher": recruitment.hourly_rate_teacher,
-                } if recruitment else None,
-            })
+            data.append(
+                {
+                    "id": teacher.id,
+                    "first_name": teacher.first_name,
+                    "last_name": teacher.last_name,
+                    "avatar": request.build_absolute_uri(teacher.avatar.url) if teacher.avatar else None,
+                    "phone": teacher.phone,
+                    "email": teacher.email,
+                    "certification_level": level,
+                    "certification_level_label": CertificationLevel(level).label,
+                    "homeroom_classes": [str(c) for c in homeroom_classes],
+                    "subjects": [{"name": s.name, "class_name": str(s.school_class)} for s in subjects],
+                    "recruitment": (
+                        {
+                            "contract_type": recruitment.contract_type,
+                            "contract_type_label": recruitment.get_contract_type_display(),
+                            "hourly_rate_teacher": recruitment.hourly_rate_teacher,
+                        }
+                        if recruitment
+                        else None
+                    ),
+                }
+            )
 
         data.sort(key=lambda t: (t["last_name"], t["first_name"]))
         return Response(data)
@@ -2095,30 +2190,36 @@ class StudentOverviewView(APIView):
         _require_director(request.user)
         establishment = _director_establishment(request.user)
 
-        enrollment = Enrollment.objects.filter(
-            child_id=child_id,
-            status=EnrollmentStatus.ACTIVE,
-            school_class__track__department__establishment=establishment,
-        ).select_related("child__user", "child__parent__user", "school_class").first()
+        enrollment = (
+            Enrollment.objects.filter(
+                child_id=child_id,
+                status=EnrollmentStatus.ACTIVE,
+                school_class__track__department__establishment=establishment,
+            )
+            .select_related("child__user", "child__parent__user", "school_class")
+            .first()
+        )
         if not enrollment:
             raise Http404
 
         child = enrollment.child
         parent = child.parent
 
-        return Response({
-            "id": child.id,
-            "first_name": child.first_name,
-            "last_name": child.last_name,
-            "avatar": _student_avatar_url(request, child),
-            "matricule": child.matricule,
-            "birth_date": child.birth_date,
-            "birth_place": child.birth_place,
-            "sex_label": child.get_sex_display(),
-            "nationality": child.nationality,
-            "class_name": str(enrollment.school_class),
-            "school_year": enrollment.school_class.school_year,
-            "parent_name": parent.user.get_full_name() if parent else "",
-            "parent_phone": parent.user.phone if parent else "",
-            "parent_email": parent.user.email if parent else "",
-        })
+        return Response(
+            {
+                "id": child.id,
+                "first_name": child.first_name,
+                "last_name": child.last_name,
+                "avatar": _student_avatar_url(request, child),
+                "matricule": child.matricule,
+                "birth_date": child.birth_date,
+                "birth_place": child.birth_place,
+                "sex_label": child.get_sex_display(),
+                "nationality": child.nationality,
+                "class_name": str(enrollment.school_class),
+                "school_year": enrollment.school_class.school_year,
+                "parent_name": parent.user.get_full_name() if parent else "",
+                "parent_phone": parent.user.phone if parent else "",
+                "parent_email": parent.user.email if parent else "",
+            }
+        )

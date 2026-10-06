@@ -12,6 +12,7 @@ asynchrones, mais aucun worker ne tourne dans cet environnement de dev.
 Cette fonction est écrite pour pouvoir être triviallement enveloppée dans une
 tâche Celery (`@shared_task`) le jour où le volume l'impose.
 """
+
 import logging
 
 import requests
@@ -32,9 +33,7 @@ def notify_user(user, notif_type, title, body, data=None, send_push=True):
     préférence, aucune autre logique d'envoi à dupliquer. Retourne la
     Notification créée sinon."""
     category = CATEGORY_BY_NOTIF_TYPE.get(notif_type)
-    if category and NotificationPreference.objects.filter(
-        user=user, category=category, enabled=False
-    ).exists():
+    if category and NotificationPreference.objects.filter(user=user, category=category, enabled=False).exists():
         return None
     notification = Notification.objects.create(
         user=user,
@@ -53,10 +52,7 @@ def _send_expo_push(user, title, body, data):
     tokens = list(user.device_tokens.values_list("token", flat=True))
     if not tokens:
         return
-    messages = [
-        {"to": token, "title": title, "body": body, "data": data, "sound": "default"}
-        for token in tokens
-    ]
+    messages = [{"to": token, "title": title, "body": body, "data": data, "sound": "default"} for token in tokens]
     try:
         response = requests.post(
             EXPO_PUSH_URL,

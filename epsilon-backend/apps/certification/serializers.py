@@ -29,8 +29,17 @@ class TrainingModuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrainingModule
         fields = [
-            "id", "title", "category", "description", "objectives", "prerequisites",
-            "duration_hours", "price", "target_level", "cover_image", "has_online_exam",
+            "id",
+            "title",
+            "category",
+            "description",
+            "objectives",
+            "prerequisites",
+            "duration_hours",
+            "price",
+            "target_level",
+            "cover_image",
+            "has_online_exam",
         ]
 
     def get_has_online_exam(self, obj):
@@ -45,8 +54,19 @@ class AdminTrainingModuleSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrainingModule
         fields = [
-            "id", "title", "category", "description", "objectives", "prerequisites",
-            "duration_hours", "price", "points", "target_level", "cover_image", "is_active", "created_at",
+            "id",
+            "title",
+            "category",
+            "description",
+            "objectives",
+            "prerequisites",
+            "duration_hours",
+            "price",
+            "points",
+            "target_level",
+            "cover_image",
+            "is_active",
+            "created_at",
         ]
         read_only_fields = ["id", "created_at"]
 
@@ -79,9 +99,19 @@ class TrainingSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrainingSession
         fields = [
-            "id", "module", "trainer", "city", "location", "date",
-            "start_time", "end_time", "capacity", "enrolled_count", "places_left",
-            "is_full", "status",
+            "id",
+            "module",
+            "trainer",
+            "city",
+            "location",
+            "date",
+            "start_time",
+            "end_time",
+            "capacity",
+            "enrolled_count",
+            "places_left",
+            "is_full",
+            "status",
         ]
         read_only_fields = fields
 
@@ -102,8 +132,16 @@ class CertificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certification
         fields = [
-            "id", "module", "level", "score_total", "qr_code", "document", "pdf_url",
-            "issued_at", "expires_at", "is_valid",
+            "id",
+            "module",
+            "level",
+            "score_total",
+            "qr_code",
+            "document",
+            "pdf_url",
+            "issued_at",
+            "expires_at",
+            "is_valid",
         ]
         read_only_fields = fields
 
@@ -122,7 +160,13 @@ class PublicCertificationVerificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certification
         fields = [
-            "teacher_name", "module_title", "level", "issued_at", "expires_at", "is_valid", "is_expired",
+            "teacher_name",
+            "module_title",
+            "level",
+            "issued_at",
+            "expires_at",
+            "is_valid",
+            "is_expired",
         ]
         read_only_fields = fields
 
@@ -146,9 +190,7 @@ class MyCertificationStatusSerializer(serializers.Serializer):
         from .services import teacher_total_points
 
         valid_certifications = list(
-            Certification.objects.filter(teacher=user, is_valid=True)
-            .select_related("module")
-            .order_by("-issued_at")
+            Certification.objects.filter(teacher=user, is_valid=True).select_related("module").order_by("-issued_at")
         )
         levels_achieved = {c.level for c in valid_certifications}
         total_points = teacher_total_points(user)
