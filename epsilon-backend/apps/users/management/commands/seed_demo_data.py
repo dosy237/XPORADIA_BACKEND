@@ -171,24 +171,14 @@ def _payment(user, amount, payment_type, status, content_object=None, operator=M
 
 class Command(BaseCommand):
     help = (
-        "Peuple la base avec un jeu de données de démonstration complet et cohérent : "
+        "Repeuple la base avec un jeu de données de démonstration complet et cohérent : "
         "établissements, classes, enseignants, parents/enfants, entreprises, offres "
         "d'emploi et de stage, cours particuliers, bibliothèque, certifications — "
-        "de quoi tester chaque fonctionnalité de l'application sans rien créer à la main."
+        "de quoi tester chaque fonctionnalité de l'application sans rien créer à la main. "
+        "ATTENTION : supprime d'abord TOUS les utilisateurs existants (pas seulement les "
+        "comptes de démo) avant de tout recréer depuis zéro. Réservé à un environnement de "
+        "démonstration, jamais à une base avec de vrais utilisateurs à conserver."
     )
-
-    def add_arguments(self, parser):
-        parser.add_argument(
-            "--reset",
-            action="store_true",
-            help=(
-                "Supprime TOUS les utilisateurs de la base (pas seulement les comptes de "
-                "démo @xporadia.ci) avant de tout recréer depuis zéro. Destructif et "
-                "volontairement non activé par défaut : à utiliser uniquement sur un "
-                "environnement de démonstration, jamais sur une base avec de vrais "
-                "utilisateurs à conserver."
-            ),
-        )
 
     def handle(self, *args, **options):
         self._images_dir = _find_frontend_images_dir()
@@ -202,17 +192,18 @@ class Command(BaseCommand):
                 )
             )
 
-        if options["reset"]:
-            # TrainingSession.trainer est en PROTECT vers User : il faut
-            # supprimer ces enregistrements avant les User eux-mêmes, sans
-            # quoi Django refuse la suppression (ProtectedError). Certification
-            # est en CASCADE depuis User mais supprimée ici aussi par
-            # cohérence/clarté avec l'ancien comportement.
-            TrainingSession.objects.all().delete()
-            Certification.objects.all().delete()
-            deleted, _ = User.objects.all().delete()
-            if deleted:
-                self.stdout.write(self.style.WARNING(f"{deleted} enregistrement(s) supprimé(s) (reset complet)."))
+        # TrainingSession.trainer est en PROTECT vers User : il faut supprimer
+        # ces enregistrements avant les User eux-mêmes, sans quoi Django
+        # refuse la suppression (ProtectedError). Certification est en
+        # CASCADE depuis User mais supprimée ici aussi par cohérence/clarté.
+        # Toujours exécuté, sans condition : cette commande recrée
+        # systématiquement tout le jeu de données à chaque lancement plutôt
+        # que de compléter ce qui existe déjà.
+        TrainingSession.objects.all().delete()
+        Certification.objects.all().delete()
+        deleted, _ = User.objects.all().delete()
+        if deleted:
+            self.stdout.write(self.style.WARNING(f"{deleted} enregistrement(s) supprimé(s) avant reconstruction."))
 
         with transaction.atomic():
             users = self._seed_users()

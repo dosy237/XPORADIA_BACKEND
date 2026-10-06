@@ -42,10 +42,12 @@ Connectez-vous avec n'importe quel compte de démo — voir
 **[SEED_DATA.md](./SEED_DATA.md)** pour la liste complète des emails et le
 détail de ce qui est déjà créé. Le mot de passe commun est `Xporadia2026!`.
 
-Pour repartir de zéro à tout moment :
+Pour repartir de zéro à tout moment, relancez simplement la même commande
+(elle supprime d'abord tous les utilisateurs existants puis reconstruit
+tout) :
 
 ```bash
-python manage.py seed_demo_data --reset
+python manage.py seed_demo_data
 ```
 
 Ces mêmes étapes sont aussi disponibles via `make` :

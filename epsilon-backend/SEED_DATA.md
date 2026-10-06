@@ -1,8 +1,10 @@
 # Jeu de données de démonstration
 
 Générées par `python manage.py seed_demo_data` (voir aussi `make setup` /
-`make seed`). La commande est idempotente : la relancer ne duplique rien,
-elle complète juste ce qui manque.
+`make seed`). **Attention : cette commande supprime d'abord TOUS les
+utilisateurs existants de la base avant de tout reconstruire depuis zéro.**
+Réservée à un environnement de démonstration, jamais à une base avec de
+vrais utilisateurs à conserver.
 
 **Mot de passe commun à tous les comptes ci-dessous : `Xporadia2026!`**
 
@@ -83,8 +85,11 @@ frontend lancés.
 
 ## Réinitialiser
 
+Rien de spécial à faire : relancer la commande suffit, elle supprime
+d'abord tous les utilisateurs existants puis reconstruit tout.
+
 ```bash
-python manage.py seed_demo_data --reset   # supprime tous les comptes @xporadia.ci puis les recrée
+python manage.py seed_demo_data
 ```
 
 ---
