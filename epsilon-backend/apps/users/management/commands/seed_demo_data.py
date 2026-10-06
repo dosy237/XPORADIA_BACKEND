@@ -181,7 +181,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--reset",
             action="store_true",
-            help="Supprime tous les comptes @xporadia.ci de démo avant de les recréer.",
+            help=(
+                "Supprime TOUS les utilisateurs de la base (pas seulement les comptes de "
+                "démo @xporadia.ci) avant de tout recréer depuis zéro. Destructif et "
+                "volontairement non activé par défaut : à utiliser uniquement sur un "
+                "environnement de démonstration, jamais sur une base avec de vrais "
+                "utilisateurs à conserver."
+            ),
         )
 
     def handle(self, *args, **options):
@@ -197,15 +203,16 @@ class Command(BaseCommand):
             )
 
         if options["reset"]:
-            demo_users = User.objects.filter(email__endswith="@xporadia.ci")
-            # Certification.attempt et TrainingSession.trainer sont en PROTECT :
-            # il faut supprimer ces enregistrements avant les User eux-mêmes,
-            # sans quoi Django refuse la suppression (ProtectedError).
-            Certification.objects.filter(teacher__in=demo_users).delete()
-            TrainingSession.objects.filter(trainer__in=demo_users).delete()
-            deleted, _ = demo_users.delete()
+            # TrainingSession.trainer est en PROTECT vers User : il faut
+            # supprimer ces enregistrements avant les User eux-mêmes, sans
+            # quoi Django refuse la suppression (ProtectedError). Certification
+            # est en CASCADE depuis User mais supprimée ici aussi par
+            # cohérence/clarté avec l'ancien comportement.
+            TrainingSession.objects.all().delete()
+            Certification.objects.all().delete()
+            deleted, _ = User.objects.all().delete()
             if deleted:
-                self.stdout.write(self.style.WARNING(f"{deleted} enregistrement(s) de démo supprimé(s)."))
+                self.stdout.write(self.style.WARNING(f"{deleted} enregistrement(s) supprimé(s) (reset complet)."))
 
         with transaction.atomic():
             users = self._seed_users()
