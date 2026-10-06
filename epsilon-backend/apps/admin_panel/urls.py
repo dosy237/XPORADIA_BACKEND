@@ -29,6 +29,11 @@ urlpatterns = [
         views.AdminEstablishmentDetailView.as_view(),
         name="admin-establishment-detail",
     ),
+    path(
+        "users/<int:user_id>/promote-admin/",
+        views.PromoteToAdminView.as_view(),
+        name="promote-to-admin",
+    ),
     path("users/<int:user_id>/suspend/", views.SuspendUserView.as_view(), name="suspend-user"),
     path("users/<int:user_id>/reactivate/", views.ReactivateUserView.as_view(), name="reactivate-user"),
     path(

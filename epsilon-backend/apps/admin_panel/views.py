@@ -334,6 +334,56 @@ class AdminUserDetailView(APIView):
         return Response(data)
 
 
+class PromoteToAdminView(APIView):
+    """Transforme un compte EXISTANT (enseignant, directeur...) en
+    administrateur — réservé au périmètre FULL, au même titre que
+    CreateAdminView, puisque c'est équivalent à créer un nouvel admin.
+    L'ancien rôle est conservé en secondaire plutôt qu'effacé : la
+    personne ne perd ni son profil ni son historique, elle gagne
+    seulement l'accès admin en plus."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        require_admin_scope(request.user)
+        target = get_object_or_404(User, pk=user_id, is_active=True)
+        if target.has_role(UserRole.ADMIN):
+            raise ValidationError({"detail": "Ce compte est déjà administrateur."})
+
+        admin_scope = request.data.get("admin_scope") or AdminScope.FULL
+        if admin_scope not in AdminScope.values:
+            raise ValidationError({"admin_scope": f"Doit être l'un de : {', '.join(AdminScope.values)}."})
+
+        previous_role = target.primary_role
+        secondary_roles = list(target.secondary_roles)
+        if previous_role not in secondary_roles:
+            secondary_roles.append(previous_role)
+
+        target.primary_role = UserRole.ADMIN
+        target.secondary_roles = secondary_roles
+        target.admin_scope = admin_scope
+        target.is_staff = True
+        target.is_verified = True
+        target.is_documents_validated = True
+        target.save(
+            update_fields=[
+                "primary_role",
+                "secondary_roles",
+                "admin_scope",
+                "is_staff",
+                "is_verified",
+                "is_documents_validated",
+            ]
+        )
+        notify_user(
+            target,
+            NotificationType.SYSTEM,
+            title="Accès administrateur Xporadia",
+            body=f"{request.user.get_full_name()} vous a donné un accès administrateur sur Xporadia.",
+        )
+        return Response({"id": target.id, "primary_role": target.primary_role, "admin_scope": target.admin_scope})
+
+
 class SuspendUserView(APIView):
     """Suspension RÉVERSIBLE par un administrateur — distincte de
     l'auto-suppression RGPD (qui anonymise définitivement). Ici, aucune

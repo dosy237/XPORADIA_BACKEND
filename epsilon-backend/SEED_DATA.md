@@ -41,6 +41,14 @@ elle complète juste ce qui manque.
 | `contact.entreprise@xporadia.ci` | Ivoire Digital Solutions |
 | `rh.entreprise2@xporadia.ci` | Abidjan Tech Hub |
 
+## Comptes admin
+
+| Email | Mot de passe | Périmètre |
+|---|---|---|
+| `admin1@xporadia.ci` / `admin2@xporadia.ci` | `Xporadia2026!` | Administrateur complet |
+| `formateur@xporadia.ci` | `Xporadia2026!` | Gestionnaire de contenu (modules de formation, offres) |
+| `yaorodrigue.okou2024@gmail.com` (Rodrigue Okou) | `@civ_xporadia2026` | Administrateur complet |
+
 ---
 
 ## Ce qui est déjà rempli, par fonctionnalité

@@ -216,6 +216,7 @@ class Command(BaseCommand):
             self._seed_bulk_expansion(establishments, users, modules)
             self._seed_self_registration_flow(establishments)
             self._seed_admin_accounts()
+            self._seed_pending_admin_promotion()
 
         self.stdout.write(self.style.SUCCESS(f"\nJeu de données de démonstration prêt."))
         self.stdout.write(self.style.SUCCESS(f"Mot de passe commun de démo : {DEMO_PASSWORD}"))
@@ -2006,3 +2007,25 @@ class Command(BaseCommand):
                 "offres) — mot de passe commun " + DEMO_PASSWORD
             )
         )
+
+    def _seed_pending_admin_promotion(self):
+        """Compte réel (pas un persona fictif) créé directement comme
+        administrateur complet, avec les identifiants donnés explicitement
+        pour cet environnement de démonstration (présentation investisseurs)."""
+
+        email = "yaorodrigue.okou2024@gmail.com"
+        if User.objects.filter(email=email).exists():
+            return
+
+        User.objects.create_user(
+            email=email,
+            password="@civ_xporadia2026",
+            first_name="Rodrigue",
+            last_name="Okou",
+            primary_role=UserRole.ADMIN,
+            admin_scope=AdminScope.FULL,
+            is_staff=True,
+            is_verified=True,
+            is_documents_validated=True,
+        )
+        self.stdout.write(self.style.SUCCESS(f"Créé : {email} (administrateur complet)"))
