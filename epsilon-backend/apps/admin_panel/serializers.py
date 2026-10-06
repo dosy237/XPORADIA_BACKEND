@@ -13,5 +13,15 @@ class PendingAccreditationSerializer(serializers.ModelSerializer):
 class AdminUserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "avatar", "primary_role", "is_active", "created_at"]
+        fields = [
+            "id",
+            "email",
+            "phone",
+            "first_name",
+            "last_name",
+            "avatar",
+            "primary_role",
+            "is_active",
+            "created_at",
+        ]
         read_only_fields = fields
