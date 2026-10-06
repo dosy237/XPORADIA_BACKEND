@@ -437,6 +437,62 @@ class ReactivateUserView(APIView):
         return Response({"id": target.id, "is_active": True})
 
 
+class UpdateUserView(APIView):
+    """Modification des informations de base d'un compte (élève, enseignant,
+    directeur, entreprise) par l'administrateur — prénom, nom, téléphone,
+    email. Volontairement limité à ces champs communs à tous les rôles :
+    les champs propres à un rôle (ex. établissement d'un directeur) passent
+    par leurs propres écrans dédiés (ex. AdminEstablishmentDetailView)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, user_id):
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
+        target = get_object_or_404(User, pk=user_id)
+        if target.has_role(UserRole.ADMIN):
+            raise PermissionDenied("Un compte administrateur se modifie depuis l'écran Administrateurs.")
+
+        data = request.data
+        update_fields = []
+        if "first_name" in data:
+            target.first_name = data["first_name"].strip()
+            update_fields.append("first_name")
+        if "last_name" in data:
+            target.last_name = data["last_name"].strip()
+            update_fields.append("last_name")
+        if "phone" in data:
+            target.phone = data["phone"].strip()
+            update_fields.append("phone")
+        if "email" in data:
+            email = data["email"].strip().lower()
+            if User.objects.exclude(pk=target.pk).filter(email__iexact=email).exists():
+                raise ValidationError({"email": "Un compte existe déjà avec cet email."})
+            target.email = email
+            update_fields.append("email")
+
+        if update_fields:
+            target.save(update_fields=update_fields)
+        return Response(AdminUserListSerializer(target, context={"request": request}).data)
+
+
+class DeleteUserView(APIView):
+    """Suppression d'un compte (élève, enseignant, directeur, entreprise)
+    par l'administrateur — anonymisation (voir User.anonymize), pas
+    suppression SQL, pour préserver l'intégrité des données liées
+    (certifications, recrutements, paiements, bulletins...)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
+        target = get_object_or_404(User, pk=user_id)
+        if target.has_role(UserRole.ADMIN):
+            raise PermissionDenied("Un compte administrateur se supprime depuis l'écran Administrateurs.")
+        target.anonymize()
+        target.save()
+        return Response({"id": target.id, "detail": "Compte supprimé."})
+
+
 class RevokeCertificationView(APIView):
     """Révocation d'une certification — la seule façon dont is_valid
     change après émission (cahier des charges). is_valid et revoked_at

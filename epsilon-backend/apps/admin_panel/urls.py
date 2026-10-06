@@ -36,6 +36,8 @@ urlpatterns = [
     ),
     path("users/<int:user_id>/suspend/", views.SuspendUserView.as_view(), name="suspend-user"),
     path("users/<int:user_id>/reactivate/", views.ReactivateUserView.as_view(), name="reactivate-user"),
+    path("users/<int:user_id>/update/", views.UpdateUserView.as_view(), name="update-user"),
+    path("users/<int:user_id>/delete/", views.DeleteUserView.as_view(), name="delete-user"),
     path(
         "certifications/<uuid:certification_id>/revoke/",
         views.RevokeCertificationView.as_view(),
