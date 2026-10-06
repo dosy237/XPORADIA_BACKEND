@@ -48,6 +48,11 @@ elle complète juste ce qui manque.
 | `admin1@xporadia.ci` / `admin2@xporadia.ci` | `Xporadia2026!` | Administrateur complet |
 | `formateur@xporadia.ci` | `Xporadia2026!` | Gestionnaire de contenu (modules de formation, offres) |
 | `yaorodrigue.okou2024@gmail.com` (Rodrigue Okou) | `@civ_xporadia2026` | Administrateur complet |
+| `eranistechnology@gmail.com` (Synthia Donfack) | `Xporadia2026!` | Administrateur complet |
+
+Ces deux comptes ne sont créés que si l'email n'existe pas déjà (le seed ne
+touche jamais un compte existant, y compris auto-inscrit par la personne
+elle-même avant de relancer le seed).
 
 ---
 

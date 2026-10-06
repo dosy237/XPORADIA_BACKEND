@@ -85,13 +85,20 @@ CERT_VALIDITY_DAYS = 730
 
 
 def _find_frontend_images_dir():
-    """Localise mobile/assets/images/ du dépôt frontend, checkouté à côté du
-    backend (ex. ~/rodrigue/xporadia-backend et ~/rodrigue/xporadia-frontend).
-    Surchargeable via la variable d'environnement FRONTEND_ASSETS_DIR. Ne
-    lève jamais — les images de démo sont un bonus visuel, pas un pré-requis
+    """Localise un dossier d'images de démo utilisable. Dans l'ordre :
+    FRONTEND_ASSETS_DIR (surcharge explicite), le jeu d'images embarqué
+    directement dans ce dépôt backend (seed_assets/images/, voir plus bas —
+    c'est lui qui garantit que les avatars de démo s'affichent même sur un
+    serveur où seul le backend est cloné, pas le frontend), puis en dernier
+    recours mobile/assets/images/ du dépôt frontend s'il est checkouté à
+    côté du backend (ex. ~/rodrigue/xporadia-backend et
+    ~/rodrigue/xporadia-frontend, pratique en développement local). Ne lève
+    jamais — les images de démo sont un bonus visuel, pas un pré-requis
     pour que le seed fonctionne."""
     override = os.environ.get("FRONTEND_ASSETS_DIR")
     candidates = [Path(override)] if override else []
+
+    candidates.append(Path(__file__).resolve().parent / "seed_assets" / "images")
 
     siblings_root = Path(settings.BASE_DIR).parent.parent
     if siblings_root.is_dir():
@@ -2009,23 +2016,32 @@ class Command(BaseCommand):
         )
 
     def _seed_pending_admin_promotion(self):
-        """Compte réel (pas un persona fictif) créé directement comme
-        administrateur complet, avec les identifiants donnés explicitement
-        pour cet environnement de démonstration (présentation investisseurs)."""
+        """Comptes réels (pas des personas fictifs) créés directement comme
+        administrateurs complets, avec les identifiants donnés explicitement
+        pour cet environnement de démonstration (présentation investisseurs).
+        Ne touche jamais un compte dont l'email existe déjà (ex. quelqu'un
+        s'étant entre-temps inscrit lui-même avec cet email) : le seed ne
+        fait que compléter, jamais écraser."""
 
-        email = "yaorodrigue.okou2024@gmail.com"
-        if User.objects.filter(email=email).exists():
-            return
+        for email, password, first, last in [
+            ("yaorodrigue.okou2024@gmail.com", "@civ_xporadia2026", "Rodrigue", "Okou"),
+            ("eranistechnology@gmail.com", DEMO_PASSWORD, "Synthia", "Donfack"),
+        ]:
+            if User.objects.filter(email=email).exists():
+                self.stdout.write(
+                    self.style.WARNING(f"Déjà existant, ignoré : {email} (compte non modifié par le seed)")
+                )
+                continue
 
-        User.objects.create_user(
-            email=email,
-            password="@civ_xporadia2026",
-            first_name="Rodrigue",
-            last_name="Okou",
-            primary_role=UserRole.ADMIN,
-            admin_scope=AdminScope.FULL,
-            is_staff=True,
-            is_verified=True,
-            is_documents_validated=True,
-        )
-        self.stdout.write(self.style.SUCCESS(f"Créé : {email} (administrateur complet)"))
+            User.objects.create_user(
+                email=email,
+                password=password,
+                first_name=first,
+                last_name=last,
+                primary_role=UserRole.ADMIN,
+                admin_scope=AdminScope.FULL,
+                is_staff=True,
+                is_verified=True,
+                is_documents_validated=True,
+            )
+            self.stdout.write(self.style.SUCCESS(f"Créé : {email} (administrateur complet)"))
