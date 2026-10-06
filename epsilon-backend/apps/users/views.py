@@ -30,6 +30,7 @@ from .models import (
 from .serializers import (
     AccountDeletionRequestSerializer,
     ChangePasswordSerializer,
+    ConfirmPasswordResetSerializer,
     ChildDetailSerializer,
     ChildClaimRequestSerializer,
     CompanyDirectoryCardSerializer,
@@ -46,6 +47,7 @@ from .serializers import (
     RegisterParentSerializer,
     RegisterStudentSerializer,
     RegisterTeacherSerializer,
+    RequestPasswordResetSerializer,
     SchoolGroupInvitationSerializer,
     SchoolGroupSerializer,
     StudentActivationPreviewSerializer,
@@ -988,6 +990,38 @@ class ChildDetailView(generics.RetrieveUpdateDestroyAPIView):
         if not self.request.user.has_role(UserRole.PARENT):
             raise PermissionDenied("Réservé aux parents.")
         return Child.objects.filter(parent__user=self.request.user)
+
+
+class RequestPasswordResetView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = RequestPasswordResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            generate_otp(user, purpose=OTPPurpose.PASSWORD_RESET)
+        # Réponse volontairement identique que l'adresse existe ou non, pour
+        # ne jamais révéler par ce biais si un email est déjà inscrit.
+        return Response(
+            {"detail": "Si un compte existe avec cette adresse, un code de réinitialisation vient de lui être envoyé."}
+        )
+
+
+class ConfirmPasswordResetView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = ConfirmPasswordResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
+        if not user or not verify_otp(user, serializer.validated_data["code"], purpose=OTPPurpose.PASSWORD_RESET):
+            return Response({"detail": "Code invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        return Response({"detail": "Mot de passe réinitialisé."})
 
 
 class ChangePasswordView(APIView):

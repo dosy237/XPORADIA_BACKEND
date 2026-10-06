@@ -39,6 +39,21 @@ def establishment_summary(director_profile):
     return {"student_count": student_count, "pending_join_requests": pending_join_requests}
 
 
+# Texte adapté selon l'usage du code — un code de réinitialisation ne doit
+# jamais se présenter comme un code "de vérification de compte", pour ne
+# pas semer le doute chez quelqu'un qui n'a pas demandé cette action.
+_EMAIL_COPY = {
+    OTPPurpose.ACCOUNT_VERIFICATION: {
+        "subject": "Xporadia — Votre code de vérification",
+        "intro": "Voici votre code de vérification pour activer votre compte Xporadia.",
+    },
+    OTPPurpose.PASSWORD_RESET: {
+        "subject": "Xporadia — Votre code de réinitialisation",
+        "intro": "Voici votre code pour réinitialiser votre mot de passe Xporadia.",
+    },
+}
+
+
 def generate_otp(user, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> OTPCode:
     code = f"{random.randint(0, 999999):06d}"
     otp = OTPCode.objects.create(
@@ -47,28 +62,30 @@ def generate_otp(user, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> OTPCod
         purpose=purpose,
         expires_at=timezone.now() + timedelta(minutes=OTP_VALIDITY_MINUTES),
     )
-    _deliver_otp(user, code)
+    _deliver_otp(user, code, purpose)
     return otp
 
 
-def _deliver_otp(user, code: str) -> None:
+def _deliver_otp(user, code: str, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> None:
+    copy = _EMAIL_COPY[purpose]
     html_body = render_to_string(
         "emails/otp_verification.html",
         {
             "first_name": user.first_name,
             "code": code,
             "validity_minutes": OTP_VALIDITY_MINUTES,
+            "intro": copy["intro"],
         },
     )
     message = EmailMultiAlternatives(
-        subject="Xporadia — Votre code de vérification",
+        subject=copy["subject"],
         body=strip_tags(html_body),
         from_email=None,
         to=[user.email],
     )
     message.attach_alternative(html_body, "text/html")
     message.send(fail_silently=True)
-    logger.info("SMS simulé vers %s : code de vérification Xporadia %s", user.phone or "(pas de téléphone)", code)
+    logger.info("SMS simulé vers %s : code Xporadia (%s) %s", user.phone or "(pas de téléphone)", purpose, code)
 
 
 def verify_otp(user, code: str, purpose: str = OTPPurpose.ACCOUNT_VERIFICATION) -> bool:
