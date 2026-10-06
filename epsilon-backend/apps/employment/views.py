@@ -172,7 +172,8 @@ class ListingApplicationsView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         listing = self._get_listing()
-        if listing.school_id != self.request.user.id:
+        user = self.request.user
+        if listing.school_id != user.id and not user.admin_has_scope(AdminScope.CATALOG):
             raise PermissionDenied("Réservé à l'établissement ayant publié cette offre.")
         return JobApplication.objects.filter(listing=listing).select_related("teacher", "listing")
 
