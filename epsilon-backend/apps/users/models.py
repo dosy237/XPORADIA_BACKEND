@@ -21,6 +21,19 @@ class UserRole(models.TextChoices):
     ADMIN = "admin", "Administrateur Xporadia"
 
 
+class AdminScope(models.TextChoices):
+    """Périmètre d'un compte administrateur — ignoré pour tout autre
+    rôle. FULL a toujours tous les droits (y compris créer/gérer d'autres
+    administrateurs, réservé à ce seul périmètre) ; les autres valeurs
+    délèguent un sous-ensemble des tâches du tableau de bord de gestion à
+    un administrateur restreint."""
+
+    FULL = "full", "Administrateur complet"
+    MODERATION = "moderation", "Modérateur (accréditations, bibliothèque, litiges)"
+    ACCOUNTS = "accounts", "Gestionnaire de comptes"
+    CATALOG = "catalog", "Gestionnaire de contenu (formations, offres)"
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -35,6 +48,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("primary_role", UserRole.ADMIN)
+        extra_fields.setdefault("admin_scope", AdminScope.FULL)
         extra_fields.setdefault("is_verified", True)
         extra_fields.setdefault("is_documents_validated", True)
         return self.create_user(email, password, **extra_fields)
@@ -65,6 +79,12 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=list,
         blank=True,
         verbose_name="Rôles secondaires"
+    )
+    admin_scope = models.CharField(
+        max_length=20,
+        choices=AdminScope.choices,
+        default=AdminScope.FULL,
+        verbose_name="Périmètre administrateur",
     )
 
     # Statuts
@@ -120,6 +140,13 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def has_role(self, role: str) -> bool:
         return role in self.get_all_roles()
+
+    def admin_has_scope(self, *scopes: str) -> bool:
+        """Un administrateur FULL a toujours tous les droits ; un
+        administrateur restreint ne les a que pour les périmètres listés."""
+        if not self.has_role(UserRole.ADMIN):
+            return False
+        return self.admin_scope == AdminScope.FULL or self.admin_scope in scopes
 
 
 def _generate_code():

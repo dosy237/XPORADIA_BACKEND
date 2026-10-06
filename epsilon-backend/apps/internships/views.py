@@ -10,7 +10,8 @@ from rest_framework.views import APIView
 from apps.academics.models import Enrollment, EnrollmentStatus
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import User, UserRole
+from apps.users.models import AdminScope, User, UserRole
+from apps.users.permissions import admin_scope_permission
 
 from .models import (
     CompanyReview,
@@ -43,9 +44,9 @@ def _require_company(user):
 
 def _require_company_or_staff(user):
     """Symétrique à _require_director_or_staff côté emploi — un
-    administrateur peut modérer ou publier au nom de n'importe quelle
-    entreprise."""
-    if not (user.has_role(UserRole.COMPANY) or user.is_staff):
+    administrateur de périmètre CATALOG (ou FULL) peut modérer ou publier
+    au nom de n'importe quelle entreprise."""
+    if not (user.has_role(UserRole.COMPANY) or user.admin_has_scope(AdminScope.CATALOG)):
         raise PermissionDenied("Réservé aux entreprises ou aux administrateurs.")
 
 
@@ -93,7 +94,7 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
         # Seul un administrateur peut mettre en avant (is_premium) une
         # offre — voir AdminInternshipOfferSerializer.
         user = self.request.user
-        if self.action in ("update", "partial_update") and user.is_authenticated and user.is_staff:
+        if self.action in ("update", "partial_update") and user.is_authenticated and user.admin_has_scope(AdminScope.CATALOG):
             return AdminInternshipOfferSerializer
         return InternshipOfferSerializer
 
@@ -102,14 +103,14 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
         base = InternshipOffer.objects.select_related("company__company_profile")
 
         if self.action == "list":
-            if user.is_authenticated and user.is_staff:
+            if user.is_authenticated and user.admin_has_scope(AdminScope.CATALOG):
                 qs = base
             elif user.is_authenticated and user.has_role(UserRole.COMPANY):
                 qs = base.filter(company=user)
             else:
                 qs = base.filter(is_active=True)
         elif self.action == "retrieve":
-            if user.is_authenticated and user.is_staff:
+            if user.is_authenticated and user.admin_has_scope(AdminScope.CATALOG):
                 qs = base
             elif user.is_authenticated and user.has_role(UserRole.COMPANY):
                 qs = base.filter(Q(is_active=True) | Q(company=user))
@@ -117,7 +118,7 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
                 qs = base.filter(is_active=True)
         else:
             _require_company_or_staff(user)
-            qs = base if user.is_staff else base.filter(company=user)
+            qs = base if user.admin_has_scope(AdminScope.CATALOG) else base.filter(company=user)
 
         params = self.request.query_params
         if params.get("domain"):
@@ -131,7 +132,7 @@ class InternshipOfferViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = self.request.user
         _require_company_or_staff(user)
-        if user.is_staff and not user.has_role(UserRole.COMPANY):
+        if user.admin_has_scope(AdminScope.CATALOG) and not user.has_role(UserRole.COMPANY):
             company_id = self.request.data.get("company_id")
             company = get_object_or_404(User, pk=company_id, primary_role=UserRole.COMPANY) if company_id else None
             if not company:
@@ -147,7 +148,7 @@ class DistributeOfferToSchoolsView(APIView):
     candidature (toujours médiée par l'établissement, voir
     InternshipApplication.school, inchangé)."""
 
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [admin_scope_permission(AdminScope.CATALOG)]
 
     def post(self, request, offer_id):
         offer = get_object_or_404(InternshipOffer, pk=offer_id)

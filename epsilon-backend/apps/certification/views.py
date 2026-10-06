@@ -11,7 +11,8 @@ from rest_framework.views import APIView
 from apps.academics.models import SchoolClass, Subject
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import DirectorProfile, UserRole
+from apps.users.models import AdminScope, DirectorProfile, UserRole
+from apps.users.permissions import admin_scope_permission
 
 from apps.payments.models import MobileOperator, PaymentType
 from apps.payments.services import confirm_payment_completed, initiate_payment
@@ -84,13 +85,13 @@ class TrainingModuleViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class AdminTrainingModuleViewSet(viewsets.ModelViewSet):
-    """CRUD complet des modules de formation — réservé au personnel
-    (is_staff), qu'il s'agisse d'un administrateur généraliste ou d'un
-    formateur (voir le groupe Django "Formateurs"). Distinct du catalogue
-    public en lecture seule ci-dessus : celui-ci voit TOUT (y compris les
-    modules désactivés), l'autre ne voit que is_active=True."""
+    """CRUD complet des modules de formation — réservé aux administrateurs
+    de périmètre CATALOG (ou FULL), qu'il s'agisse d'un administrateur
+    généraliste ou d'un compte "formateur" restreint à ce seul périmètre.
+    Distinct du catalogue public en lecture seule ci-dessus : celui-ci voit
+    TOUT (y compris les modules désactivés), l'autre ne voit que is_active=True."""
 
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [admin_scope_permission(AdminScope.CATALOG)]
     serializer_class = AdminTrainingModuleSerializer
     queryset = TrainingModule.objects.all().order_by("-created_at")
     pagination_class = None

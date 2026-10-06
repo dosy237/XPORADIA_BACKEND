@@ -1,13 +1,14 @@
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import User, UserRole
+from apps.users.models import AdminScope, User, UserRole
+from apps.users.permissions import require_admin_scope
 
 from .models import Dispute, DisputeStatus, Payment
 from .serializers import DisputeSerializer, PaymentSerializer
@@ -58,8 +59,7 @@ class AdminDisputesView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        if not self.request.user.has_role(UserRole.ADMIN):
-            raise PermissionDenied("Réservé aux administrateurs.")
+        require_admin_scope(self.request.user, AdminScope.MODERATION)
         status_filter = self.request.query_params.get("status")
         qs = Dispute.objects.select_related("payment", "opened_by").order_by("-created_at")
         if status_filter:
@@ -74,8 +74,7 @@ class ResolveDisputeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
-        if not request.user.has_role(UserRole.ADMIN):
-            raise PermissionDenied("Réservé aux administrateurs.")
+        require_admin_scope(request.user, AdminScope.MODERATION)
         dispute = get_object_or_404(Dispute, pk=pk)
         if dispute.status in (DisputeStatus.RESOLVED, DisputeStatus.CLOSED):
             return Response({"detail": "Ce litige est déjà clos."}, status=400)

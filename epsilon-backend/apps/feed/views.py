@@ -10,6 +10,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.users.models import AdminScope
+
 from .models import CommentLike, Follow, Post, PostComment, PostImage, PostLike, PostVisibility
 from .realtime import broadcast_to_feed, broadcast_to_post
 from .serializers import (
@@ -162,7 +164,7 @@ class PostViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         post = self.get_object()
-        if post.author_id != request.user.id and not request.user.is_staff:
+        if post.author_id != request.user.id and not request.user.admin_has_scope(AdminScope.MODERATION):
             return Response(
                 {"detail": "Vous ne pouvez modifier que vos propres publications."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -231,7 +233,7 @@ class PostViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         post = self.get_object()
-        if post.author_id != request.user.id and not request.user.is_staff:
+        if post.author_id != request.user.id and not request.user.admin_has_scope(AdminScope.MODERATION):
             return Response(
                 {"detail": "Vous ne pouvez supprimer que vos propres publications."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -349,7 +351,7 @@ class PostCommentDeleteView(generics.DestroyAPIView):
 
     def get_object(self):
         comment = get_object_or_404(PostComment, pk=self.kwargs["pk"], post_id=self.kwargs["post_id"])
-        if comment.author_id != self.request.user.id and not self.request.user.is_staff:
+        if comment.author_id != self.request.user.id and not self.request.user.admin_has_scope(AdminScope.MODERATION):
             raise PermissionDenied("Vous ne pouvez supprimer que vos propres commentaires.")
         return comment
 

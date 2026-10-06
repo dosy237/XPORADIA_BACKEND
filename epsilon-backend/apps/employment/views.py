@@ -13,7 +13,7 @@ from apps.certification.models import CertificationLevel
 from apps.certification.serializers import MyCertificationStatusSerializer
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import User, UserRole
+from apps.users.models import AdminScope, User, UserRole
 
 from .models import (
     ApplicationStatus,
@@ -51,10 +51,10 @@ def _require_director(user):
 
 
 def _require_director_or_staff(user):
-    """Un administrateur peut modérer ou publier au nom de n'importe quel
-    établissement — jamais besoin d'usurper un compte directeur pour
-    corriger une offre inappropriée."""
-    if not (user.has_role(UserRole.DIRECTOR) or user.is_staff):
+    """Un administrateur de périmètre CATALOG (ou FULL) peut modérer ou
+    publier au nom de n'importe quel établissement — jamais besoin
+    d'usurper un compte directeur pour corriger une offre inappropriée."""
+    if not (user.has_role(UserRole.DIRECTOR) or user.admin_has_scope(AdminScope.CATALOG)):
         raise PermissionDenied("Réservé aux directeurs d'établissement ou aux administrateurs.")
 
 
@@ -79,14 +79,14 @@ class JobListingViewSet(viewsets.ModelViewSet):
             # y compris brouillons) ; un admin voit TOUT, tous
             # établissements confondus (modération) ; tout le monde
             # d'autre parcourt le catalogue public des offres actives.
-            if user.is_authenticated and user.is_staff:
+            if user.is_authenticated and user.admin_has_scope(AdminScope.CATALOG):
                 qs = base
             elif user.is_authenticated and user.has_role(UserRole.DIRECTOR):
                 qs = base.filter(school=user)
             else:
                 qs = base.filter(status=JobStatus.ACTIVE)
         elif self.action == "retrieve":
-            if user.is_authenticated and user.is_staff:
+            if user.is_authenticated and user.admin_has_scope(AdminScope.CATALOG):
                 qs = base
             elif user.is_authenticated and user.has_role(UserRole.DIRECTOR):
                 qs = base.filter(Q(status=JobStatus.ACTIVE) | Q(school=user))
@@ -94,7 +94,7 @@ class JobListingViewSet(viewsets.ModelViewSet):
                 qs = base.filter(status=JobStatus.ACTIVE)
         else:
             _require_director_or_staff(user)
-            qs = base if user.is_staff else base.filter(school=user)
+            qs = base if user.admin_has_scope(AdminScope.CATALOG) else base.filter(school=user)
 
         params = self.request.query_params
         if params.get("subject"):
@@ -109,7 +109,7 @@ class JobListingViewSet(viewsets.ModelViewSet):
         user = self.request.user
         _require_director_or_staff(user)
         emails = serializer.validated_data.pop("targeted_teacher_emails", [])
-        if user.is_staff and not user.has_role(UserRole.DIRECTOR):
+        if user.admin_has_scope(AdminScope.CATALOG) and not user.has_role(UserRole.DIRECTOR):
             school_id = self.request.data.get("school_id")
             school = get_object_or_404(User, pk=school_id, primary_role=UserRole.DIRECTOR) if school_id else None
             if not school:

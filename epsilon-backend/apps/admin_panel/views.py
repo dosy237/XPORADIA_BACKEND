@@ -8,12 +8,17 @@ from rest_framework.views import APIView
 
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.users.models import User, UserRole
+from apps.users.models import AdminScope, User, UserRole
+from apps.users.permissions import require_admin_scope
 
 from .serializers import AdminUserListSerializer, PendingAccreditationSerializer
 
 
 def _require_admin(user):
+    """N'importe quel administrateur, quel que soit son périmètre — réservé
+    aux vues purement informationnelles (ex : DashboardStatsView), jamais à
+    une action. Pour une action, utiliser require_admin_scope avec le
+    périmètre concerné."""
     if not user.has_role(UserRole.ADMIN):
         raise PermissionDenied("Réservé aux administrateurs.")
 
@@ -61,7 +66,7 @@ class PendingAccreditationView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        _require_admin(self.request.user)
+        require_admin_scope(self.request.user, AdminScope.MODERATION)
         return User.objects.filter(
             is_documents_validated=False, primary_role__in=[UserRole.TEACHER, UserRole.DIRECTOR],
         ).order_by("created_at")
@@ -75,7 +80,7 @@ class ValidateAccreditationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, user_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.MODERATION)
         target = get_object_or_404(User, pk=user_id, is_documents_validated=False)
         target.is_documents_validated = True
         target.save(update_fields=["is_documents_validated"])
@@ -99,7 +104,7 @@ class PendingLibraryResourcesView(generics.ListAPIView):
     pagination_class = None
 
     def list(self, request, *args, **kwargs):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.MODERATION)
 
         from apps.library.models import LibraryResource, ModerationStatus
         from apps.library.serializers import LibraryResourceSerializer
@@ -121,7 +126,7 @@ class ModerateLibraryResourceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, resource_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.MODERATION)
 
         from apps.library.models import LibraryResource, ModerationStatus
 
@@ -150,7 +155,7 @@ class TogglePartnerStatusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, user_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
         target = get_object_or_404(User, pk=user_id)
 
         if target.has_role(UserRole.DIRECTOR):
@@ -182,7 +187,7 @@ class ToggleProfileVisibilityView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, user_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
         target = get_object_or_404(User, pk=user_id, primary_role=UserRole.TEACHER)
         target.profile_visible = not target.profile_visible
         target.save(update_fields=["profile_visible"])
@@ -207,7 +212,7 @@ class AdminUserListView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        _require_admin(self.request.user)
+        require_admin_scope(self.request.user, AdminScope.ACCOUNTS)
         role = self.request.query_params.get("role")
         if role not in (UserRole.STUDENT, UserRole.TEACHER, UserRole.DIRECTOR, UserRole.COMPANY):
             raise ValidationError({"role": "Doit être student, teacher, director ou company."})
@@ -228,7 +233,7 @@ class AdminUserDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, user_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
         user = get_object_or_404(User, pk=user_id)
         data = AdminUserListSerializer(user, context={"request": request}).data
 
@@ -313,7 +318,7 @@ class SuspendUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, user_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
         target = get_object_or_404(User, pk=user_id, is_active=True)
         if target.has_role(UserRole.ADMIN):
             raise PermissionDenied("Un compte administrateur ne peut pas être suspendu depuis cet écran.")
@@ -337,7 +342,7 @@ class AdminEstablishmentDetailView(generics.RetrieveUpdateAPIView):
         return DirectorProfileSerializer
 
     def get_object(self):
-        _require_admin(self.request.user)
+        require_admin_scope(self.request.user, AdminScope.ACCOUNTS)
         from apps.users.models import DirectorProfile
 
         return get_object_or_404(DirectorProfile, user_id=self.kwargs["user_id"])
@@ -347,7 +352,7 @@ class ReactivateUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, user_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
         target = get_object_or_404(User, pk=user_id, is_active=False)
         target.is_active = True
         target.save(update_fields=["is_active"])
@@ -363,7 +368,7 @@ class RevokeCertificationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, certification_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
 
         from apps.certification.models import Certification
 
@@ -387,7 +392,7 @@ class ReinstateCertificationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, certification_id):
-        _require_admin(request.user)
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
 
         from apps.certification.models import Certification
 

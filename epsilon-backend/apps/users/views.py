@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import (
+    AdminScope,
     Child,
     ChildClaimRequest,
     ChildClaimRequestStatus,
@@ -27,6 +28,7 @@ from .models import (
     User,
     UserRole,
 )
+from .permissions import require_admin_scope
 from .serializers import (
     AccountDeletionRequestSerializer,
     ChangePasswordSerializer,
@@ -549,10 +551,10 @@ class TeacherDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
             "-_total_points", "user__first_name", "user__last_name"
         )
         # Un profil masqué par modération reste néanmoins consultable par
-        # le personnel (is_staff) — sinon personne, pas même
-        # l'administrateur qui l'a masqué, ne pourrait jamais le
-        # réafficher : la fiche serait tout simplement introuvable.
-        if not self.request.user.is_staff:
+        # un administrateur de périmètre ACCOUNTS (ou FULL) — sinon
+        # personne, pas même l'administrateur qui l'a masqué, ne pourrait
+        # jamais le réafficher : la fiche serait tout simplement introuvable.
+        if not (self.request.user.is_authenticated and self.request.user.admin_has_scope(AdminScope.ACCOUNTS)):
             qs = qs.filter(user__profile_visible=True)
         if self.request.user.is_authenticated:
             qs = qs.exclude(user=self.request.user)
@@ -679,7 +681,7 @@ class PeopleSearchView(APIView):
             .select_related("user")
             .filter(Q(user__first_name__icontains=query) | Q(user__last_name__icontains=query))
         )
-        if not request.user.is_staff:
+        if not (request.user.is_authenticated and request.user.admin_has_scope(AdminScope.ACCOUNTS)):
             teachers = teachers.filter(user__profile_visible=True)
         if request.user.is_authenticated:
             teachers = teachers.exclude(user=request.user)
@@ -1235,12 +1237,18 @@ class CreateAdminView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        if not request.user.has_role(UserRole.ADMIN):
-            raise PermissionDenied("Réservé aux administrateurs.")
+        # Volontairement sans argument de périmètre supplémentaire : SEUL un
+        # administrateur FULL passe ce contrôle, jamais un administrateur
+        # restreint, même avec un périmètre "accounts" qui gère par ailleurs
+        # la création de comptes des autres rôles.
+        require_admin_scope(request.user)
 
         email = request.data.get("email", "").strip().lower()
         first_name = request.data.get("first_name", "").strip()
         last_name = request.data.get("last_name", "").strip()
+        admin_scope = request.data.get("admin_scope") or AdminScope.FULL
+        if admin_scope not in AdminScope.values:
+            raise ValidationError({"admin_scope": f"Doit être l'un de : {', '.join(AdminScope.values)}."})
         if not (email and first_name and last_name):
             raise ValidationError({"email": "Email, prénom et nom sont requis."})
         if User.objects.filter(email__iexact=email).exists():
@@ -1252,7 +1260,8 @@ class CreateAdminView(APIView):
         temp_password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(14))
         new_admin = User.objects.create_user(
             email=email, password=temp_password, first_name=first_name, last_name=last_name,
-            primary_role=UserRole.ADMIN, is_staff=True, is_verified=True, is_documents_validated=True,
+            primary_role=UserRole.ADMIN, admin_scope=admin_scope,
+            is_staff=True, is_verified=True, is_documents_validated=True,
         )
 
         from django.core.mail import send_mail
@@ -1261,7 +1270,8 @@ class CreateAdminView(APIView):
             subject="Votre accès administrateur Xporadia",
             message=(
                 f"Bonjour {first_name},\n\n"
-                f"{request.user.get_full_name()} vous a créé un accès administrateur sur Xporadia.\n\n"
+                f"{request.user.get_full_name()} vous a créé un accès administrateur sur Xporadia "
+                f"({AdminScope(admin_scope).label}).\n\n"
                 f"Email : {email}\n"
                 f"Mot de passe temporaire : {temp_password}\n\n"
                 "Connectez-vous puis changez ce mot de passe dès que possible."
@@ -1272,7 +1282,10 @@ class CreateAdminView(APIView):
         )
 
         return Response(
-            {"id": new_admin.id, "email": new_admin.email, "detail": "Compte créé, identifiants envoyés par email."},
+            {
+                "id": new_admin.id, "email": new_admin.email, "admin_scope": new_admin.admin_scope,
+                "detail": "Compte créé, identifiants envoyés par email.",
+            },
             status=status.HTTP_201_CREATED,
         )
 
@@ -1300,8 +1313,7 @@ class AdminCreateUserView(APIView):
     }
 
     def post(self, request):
-        if not request.user.has_role(UserRole.ADMIN):
-            raise PermissionDenied("Réservé aux administrateurs.")
+        require_admin_scope(request.user, AdminScope.ACCOUNTS)
 
         role = request.data.get("role")
         serializer_class = self.SERIALIZERS.get(role)
@@ -1356,6 +1368,5 @@ class AdminListView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        if not self.request.user.has_role(UserRole.ADMIN):
-            raise PermissionDenied("Réservé aux administrateurs.")
+        require_admin_scope(self.request.user)
         return User.objects.filter(primary_role=UserRole.ADMIN, is_active=True).order_by("first_name")

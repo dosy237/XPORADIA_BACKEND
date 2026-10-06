@@ -57,6 +57,7 @@ from apps.notifications.services import notify_user
 from apps.notifications.models import NotificationType
 from apps.payments.models import MobileOperator, Payment, PaymentStatus, PaymentType
 from apps.users.models import (
+    AdminScope,
     Child,
     CompanyProfile,
     DirectorProfile,
@@ -1603,7 +1604,8 @@ class Command(BaseCommand):
         if not User.objects.filter(email=formateur_email).exists():
             formateur = User.objects.create_user(
                 email=formateur_email, password=DEMO_PASSWORD, first_name="Solange", last_name="Yao",
-                primary_role=UserRole.ADMIN, is_staff=True, is_superuser=False,
+                primary_role=UserRole.ADMIN, admin_scope=AdminScope.CATALOG,
+                is_staff=True, is_superuser=False,
                 is_verified=True, is_documents_validated=True,
             )
             formateur.groups.add(formateurs_group)
@@ -1611,7 +1613,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 "Comptes admin de démo : admin1@xporadia.ci, admin2@xporadia.ci (accès total), "
-                "formateur@xporadia.ci (accès Django Admin limité à la formation) — "
-                f"mot de passe commun {DEMO_PASSWORD}"
+                "formateur@xporadia.ci (admin_scope=catalog, limité aux modules de formation / "
+                "offres) — mot de passe commun " + DEMO_PASSWORD
             )
         )

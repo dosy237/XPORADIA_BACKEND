@@ -3,6 +3,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import (
+    AdminScope,
     Child,
     ChildClaimRequest,
     CompanyProfile,
@@ -26,7 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id", "email", "phone", "first_name", "last_name", "avatar",
-            "primary_role", "secondary_roles", "all_roles", "child_id",
+            "primary_role", "secondary_roles", "all_roles", "child_id", "admin_scope",
             "is_verified", "is_documents_validated", "two_fa_enabled", "created_at",
             "profile_visible", "notify_email", "notify_sms", "notify_push",
         ]
@@ -398,7 +399,8 @@ class TeacherDirectoryDetailSerializer(TeacherDirectoryCardSerializer):
         # tout le monde d'autre, cette information n'a pas de sens
         # puisqu'un profil masqué n'apparaîtrait de toute façon jamais.
         request = self.context.get("request")
-        if not (request and request.user.is_staff):
+        user = request.user if request else None
+        if not (user and user.is_authenticated and user.admin_has_scope(AdminScope.ACCOUNTS)):
             return None
         return obj.user.profile_visible
 
