@@ -139,7 +139,7 @@ class SchoolClass(models.Model):
         ordering = ["-school_year", "name"]
 
     def __str__(self):
-        return f"{self.name} — {self.school_year} ({self.track.name})"
+        return f"{self.name}, {self.school_year} ({self.track.name})"
 
 
 class SubjectCategory(models.TextChoices):

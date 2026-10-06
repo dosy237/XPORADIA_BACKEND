@@ -65,7 +65,7 @@ from apps.messaging.models import Channel, ChannelType, Message
 from apps.messaging.services import create_subject_channel, ensure_student_messaging
 from apps.notifications.models import NotificationType
 from apps.notifications.services import notify_user
-from apps.payments.models import MobileOperator, Payment, PaymentStatus, PaymentType
+from apps.payments.models import Dispute, DisputeStatus, MobileOperator, Payment, PaymentStatus, PaymentType
 from apps.student_life.models import BucketListItem, LifeGoal, PersonalNote
 from apps.users.models import (
     AdminScope,
@@ -1015,6 +1015,39 @@ class Command(BaseCommand):
             ),
         ]
 
+        # En attente de modération — pour que la file d'attente admin
+        # (Espace administrateur -> Bibliothèque) ait toujours quelque
+        # chose à traiter en démo, pas seulement des ressources déjà
+        # approuvées.
+        pending_resource_defs = [
+            dict(
+                title="Exercices corrigés : Le théorème de Pythagore",
+                description="Série d'exercices avec corrigés détaillés, proposée par un enseignant.",
+                resource_type=ResourceType.EXERCISE,
+                category=ResourceCategory.ACADEMIC,
+                level=SchoolLevel.QUATRIEME,
+                subject="Mathématiques",
+                file_url="https://example.com/demo/pythagore-exercices.pdf",
+                file_size_kb=320,
+                tags=["pythagore", "géométrie"],
+                author=teachers["ibrahim"],
+                is_contributed=True,
+            ),
+            dict(
+                title="Résumé : La Côte d'Ivoire à l'indépendance",
+                description="Contribution libre d'un enseignant, pas encore relue par l'administration.",
+                resource_type=ResourceType.REVISION,
+                category=ResourceCategory.ACADEMIC,
+                level=SchoolLevel.TROISIEME,
+                subject="Histoire-Géographie",
+                file_url="https://example.com/demo/independance-resume.pdf",
+                file_size_kb=190,
+                tags=["histoire", "indépendance"],
+                author=teachers["aminata"],
+                is_contributed=True,
+            ),
+        ]
+
         resources = {}
         for data in resource_defs:
             title = data.pop("title")
@@ -1022,6 +1055,15 @@ class Command(BaseCommand):
                 establishment=kouassi_profile,
                 title=title,
                 defaults=dict(moderation_status=ModerationStatus.APPROVED, **data),
+            )
+            resources[title] = resource
+
+        for data in pending_resource_defs:
+            title = data.pop("title")
+            resource, _ = LibraryResource.objects.get_or_create(
+                establishment=kouassi_profile,
+                title=title,
+                defaults=dict(moderation_status=ModerationStatus.PENDING, **data),
             )
             resources[title] = resource
 
@@ -1223,6 +1265,34 @@ class Command(BaseCommand):
             enrollment.save(update_fields=["payment"])
             session.enrolled_count += 1
             session.save(update_fields=["enrolled_count"])
+
+        # Litiges — pour que la file d'attente admin (Espace administrateur
+        # -> Litiges) ait toujours quelque chose à traiter en démo.
+        yao = users["teachers"]["yao"]
+        dispute_payment = _payment(
+            yao, 6000, PaymentType.TUTORING, PaymentStatus.COMPLETED, None, operator=MobileOperator.MTN
+        )
+        Dispute.objects.get_or_create(
+            payment=dispute_payment,
+            opened_by=yao,
+            defaults=dict(
+                reason="Le parent affirme avoir payé deux fois pour la même séance de cours particulier.",
+                status=DisputeStatus.OPEN,
+            ),
+        )
+
+        aminata = users["teachers"]["aminata"]
+        reviewed_payment = _payment(
+            aminata, 8500, PaymentType.TUTORING, PaymentStatus.COMPLETED, None, operator=MobileOperator.WAVE
+        )
+        Dispute.objects.get_or_create(
+            payment=reviewed_payment,
+            opened_by=aminata,
+            defaults=dict(
+                reason="Séance annulée par l'élève après le début du cours, remboursement partiel demandé.",
+                status=DisputeStatus.REVIEWED,
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Fil d'actualité — publications, j'aime, commentaires
